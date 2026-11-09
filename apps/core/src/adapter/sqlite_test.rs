@@ -49,6 +49,26 @@ fn two_urls_with_one_readable_name_get_separate_directories() {
     assert_eq!(second.directory, "h-a-2");
 }
 
+/// The cache holds the answers read over HTTP beside the clones, in a
+/// folder of its own: a source whose URL reads as that folder's name is
+/// given another, or its clone would be made over the answers, and its
+/// files read as them.
+#[test]
+fn a_source_is_never_given_a_name_the_cache_keeps_for_itself() {
+    let ledger = Sqlite::in_memory().unwrap();
+    for (n, url) in ["https://http", "file:///http", "https://HTTP.git"]
+        .into_iter()
+        .enumerate()
+    {
+        let source = ledger
+            .source_for(SourceKind::Git, url, None, "skills")
+            .unwrap();
+
+        assert!(!RESERVED_IN_CACHE.contains(&source.directory.as_str()));
+        assert_eq!(source.directory, format!("http-{}", n + 2), "{url}");
+    }
+}
+
 #[test]
 fn a_forgotten_source_frees_its_directory_and_takes_its_artifacts() {
     let ledger = Sqlite::in_memory().unwrap();
