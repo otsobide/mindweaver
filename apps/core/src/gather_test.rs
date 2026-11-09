@@ -61,8 +61,10 @@ fn leftover(path: &str) -> Leftover {
     }
 }
 
+/// The whole repository, since #101: its root is where every layout is
+/// looked for, `skills/` among them.
 #[test]
-fn a_request_for_a_git_source_gathers_skills_from_its_skills_folder_at_its_head() {
+fn a_request_for_a_git_source_gathers_skills_from_all_of_it_at_its_head() {
     let url = UrlMother::clean();
     let request = Request::git(url.clone());
 
@@ -74,7 +76,8 @@ fn a_request_for_a_git_source_gathers_skills_from_its_skills_folder_at_its_head(
         }
     );
     assert_eq!(request.subdirectory, DEFAULT_SUBDIRECTORY);
-    assert_eq!(DEFAULT_SUBDIRECTORY, "skills");
+    assert_eq!(DEFAULT_SUBDIRECTORY, ".");
+    assert_eq!(OLDER_DEFAULT_SUBDIRECTORY, "skills");
     assert_eq!(request.kind, Kind::Skill);
     assert!(!request.watch.is_cancelled());
 }
@@ -249,6 +252,87 @@ fn a_gather_of_rules_is_refused_and_fetches_nothing() {
     assert!(ledger.sources().unwrap().is_empty());
 }
 
+/// A branch or a folder the URL names beside another given for it is one
+/// too many, refused before anything is registered or fetched, by a gather
+/// and its dry run alike; the same one given twice is that one.
+#[test]
+fn a_branch_or_a_folder_given_twice_over_is_refused_before_the_remote_is_asked() {
+    let (_dir, workspace) = WorkspaceMother::empty();
+    let ledger = Ledger::in_memory().unwrap();
+    let remote = Arc::new(Unreached::default());
+    let refused = [
+        (
+            Request::git("acme/skills@v1").at(Some("v2")),
+            "gather_ref_twice",
+            "the URL names the branch `v1`, and `--ref` names `v2`: give it once",
+        ),
+        (
+            Request::git("https://github.com/acme/skills/tree/main/skills").at(Some("dev")),
+            "gather_ref_twice",
+            "the URL names the branch `main`, and `--ref` names `dev`: give it once",
+        ),
+        (
+            Request::git("https://github.com/acme/skills/tree/main/skills")
+                .from_subdirectory("agents"),
+            "gather_path_twice",
+            "the URL names the folder `skills`, and `--path` names `agents`: give it once",
+        ),
+        (
+            Request::git("https://github.com/acme/skills/tree/main/../x"),
+            "gather_path_outside",
+            "`../x` is not a folder inside the repository: name one by its route from the \
+             repository's root",
+        ),
+    ];
+
+    for (request, code, said) in refused {
+        let request = request.through(remote.clone());
+        for refused in [
+            gather(&workspace, &ledger, &request).unwrap_err(),
+            dry_run(&workspace, &ledger, &request).unwrap_err(),
+        ] {
+            assert_eq!(refused.code(), code, "{refused}");
+            assert_eq!(refused.to_string(), said);
+        }
+    }
+    assert_eq!(*remote.asked.lock().unwrap(), 0);
+    assert!(ledger.sources().unwrap().is_empty());
+}
+
+#[test]
+fn a_branch_or_a_folder_the_url_and_its_option_agree_on_is_taken_once() {
+    let at = Request::git("acme/skills@v1").at(Some("v1"));
+    let (read, _) = typed(&at).unwrap();
+    assert_eq!(read.url, "https://github.com/acme/skills");
+    assert_eq!(read.reference.as_deref(), Some("v1"));
+    assert_eq!(read.path, DEFAULT_SUBDIRECTORY);
+
+    let tree = Request::git("https://gitlab.com/acme/skills/-/tree/main/skills/")
+        .from_subdirectory("./skills");
+    let (read, _) = typed(&tree).unwrap();
+    assert_eq!(read.url, "https://gitlab.com/acme/skills");
+    assert_eq!(read.reference.as_deref(), Some("main"));
+    assert_eq!(read.path, "skills");
+}
+
+#[test]
+fn a_folder_is_registered_as_its_route_from_the_repository_s_root() {
+    for (typed, route) in [
+        ("", "."),
+        (".", "."),
+        ("./", "."),
+        ("skills", "skills"),
+        ("skills/", "skills"),
+        ("./skills//team/", "skills/team"),
+        (".claude/skills", ".claude/skills"),
+    ] {
+        assert_eq!(route_of(typed).as_deref(), Some(route), "{typed:?}");
+    }
+    for outside in ["..", "../skills", "skills/../../x", "/etc", "/"] {
+        assert_eq!(route_of(outside), None, "{outside:?}");
+    }
+}
+
 #[test]
 fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
     let harvested = || Harvested {
@@ -256,6 +340,7 @@ fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
         directory: random::word(),
         summary: None,
         path: PathBuf::from("/w"),
+        route: random::word(),
     };
     for _ in 0..50 {
         let (added, updated, unchanged) = (
@@ -274,6 +359,7 @@ fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
                 path: PathBuf::from("/w/x"),
             }],
             warnings: Vec::new(),
+            left_out: Vec::new(),
         };
 
         assert_eq!(report.total(), added + updated + unchanged);
@@ -434,6 +520,153 @@ fn candidates_in_a_folder_that_is_not_there_cannot_be_read() {
     assert_eq!(refused.code(), "gather_read_failed");
 }
 
+/// Every layout, at once, each found where it is, in order.
+#[test]
+fn candidates_are_found_in_every_layout_under_the_root() {
+    let dir = TempDir::new().unwrap();
+    let layouts = crate::mother::GitRepositoryMother::layouts();
+    let mut expected = Vec::new();
+    for layout in &layouts {
+        let name = random::kebab();
+        let folder = dir.path().join(layout).join(&name);
+        write(&folder.join("SKILL.md"), &SkillMother::create(&name, "x"));
+        expected.push(match layout.as_str() {
+            "." => dir.path().join(&name),
+            _ => folder,
+        });
+    }
+    expected.sort();
+
+    let found = candidates(dir.path(), "SKILL.md").unwrap();
+
+    assert_eq!(found, expected, "{layouts:?}");
+}
+
+/// A `SKILL.md` at the root makes the root the one skill, and what is
+/// further down its own.
+#[test]
+fn a_root_holding_a_manifest_is_the_one_candidate() {
+    let dir = TempDir::new().unwrap();
+    write(&dir.path().join("SKILL.md"), "x");
+    write(&dir.path().join("skills/deploy/SKILL.md"), "x");
+    write(&dir.path().join("inner/SKILL.md"), "x");
+
+    assert_eq!(
+        candidates(dir.path(), "SKILL.md").unwrap(),
+        [dir.path().to_path_buf()]
+    );
+}
+
+/// A skill inside another is the other's, as a folder of it holding a
+/// `SKILL.md` is an example of it: `skills` holding one is a skill, and what
+/// is in it its files.
+#[test]
+fn a_candidate_inside_another_is_that_one_s() {
+    let dir = TempDir::new().unwrap();
+    write(&dir.path().join("skills/SKILL.md"), "x");
+    write(&dir.path().join("skills/deploy/SKILL.md"), "x");
+    write(&dir.path().join("skills/team/review/SKILL.md"), "x");
+    write(&dir.path().join("lint/SKILL.md"), "x");
+
+    assert_eq!(
+        candidates(dir.path(), "SKILL.md").unwrap(),
+        [dir.path().join("lint"), dir.path().join("skills")]
+    );
+}
+
+#[test]
+fn hidden_folders_and_node_modules_are_passed_over_unless_a_layout_names_them() {
+    let dir = TempDir::new().unwrap();
+    for skill in [
+        ".hidden/SKILL.md",
+        "node_modules/SKILL.md",
+        "skills/.deploy/SKILL.md",
+        "skills/.experimental/early/SKILL.md",
+        "skills/node_modules/dep/SKILL.md",
+        "plugins/.cache/skills/x/SKILL.md",
+        "plugins/node_modules/skills/y/SKILL.md",
+    ] {
+        write(&dir.path().join(skill), "x");
+    }
+    write(&dir.path().join("skills/.curated/kept/SKILL.md"), "x");
+
+    assert_eq!(
+        candidates(dir.path(), "SKILL.md").unwrap(),
+        [dir.path().join("skills/.curated/kept")]
+    );
+}
+
+/// A layout's folder linked to another's is one folder, its skills found
+/// once, where they really are; a link out of the folder searched is not
+/// followed, whatever it leads to.
+#[cfg(unix)]
+#[test]
+fn a_link_is_followed_only_inside_the_root_and_a_folder_reached_twice_is_one() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().join("repository");
+    write(&root.join("skills/deploy/SKILL.md"), "x");
+    fs::create_dir_all(root.join(".claude")).unwrap();
+    symlink("../skills", root.join(".claude/skills")).unwrap();
+    let outside = dir.path().join("elsewhere");
+    write(&outside.join("secret/SKILL.md"), "x");
+    write(&outside.join("more/SKILL.md"), "x");
+    symlink(outside.join("secret"), root.join("skills/secret")).unwrap();
+    symlink(&outside, root.join(".agents")).unwrap();
+
+    assert_eq!(
+        candidates(&root, "SKILL.md").unwrap(),
+        [root.join("skills/deploy")]
+    );
+}
+
+/// A manifest linked out of the clone is never read: its front matter
+/// would be quoted in what the gather says.
+#[cfg(unix)]
+#[test]
+fn a_manifest_linked_out_of_the_clone_is_not_read() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new().unwrap();
+    let clone = dir.path().join("clone");
+    let outside = dir.path().join("secret.md");
+    write(&outside, &SkillMother::create("secret", "Not the source's"));
+    fs::create_dir_all(clone.join("skills/deploy")).unwrap();
+    symlink(&outside, clone.join("skills/deploy/SKILL.md")).unwrap();
+    let mut failures = Vec::new();
+
+    let taken = read(&clone.join("skills/deploy"), &clone, &mut failures);
+
+    assert!(taken.is_none());
+    assert!(
+        matches!(&failures[..], [Failure::Outside { path }] if path.ends_with("deploy/SKILL.md")),
+        "{failures:?}"
+    );
+    assert_eq!(failures[0].code(), "gathered_link_outside");
+    assert!(!failures[0].to_string().contains("Not the source's"));
+}
+
+/// A skill at the root of the clone is filed under the name it declares,
+/// since the clone's folder is named for the source.
+#[test]
+fn a_skill_at_the_root_of_the_clone_is_filed_under_the_name_it_declares() {
+    let dir = TempDir::new().unwrap();
+    let name = random::kebab();
+    write(
+        &dir.path().join("SKILL.md"),
+        &SkillMother::create(&name, "x"),
+    );
+    let mut failures = Vec::new();
+
+    let (path, filed, artifact) = read(dir.path(), dir.path(), &mut failures).unwrap();
+
+    assert_eq!(path, dir.path());
+    assert_eq!(filed, name);
+    assert!(artifact.validate_filed_as(&filed).is_empty());
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
 #[test]
 fn a_path_in_the_workspace_is_filed_slash_separated_from_its_root() {
     let (_dir, workspace) = WorkspaceMother::empty();
@@ -541,7 +774,88 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
     assert_eq!(unusable.path(), Path::new("/w/.mindweaver/cache/s/x"));
     assert_eq!(
         Failure::CODES,
-        ["gathered_name_not_utf8", "gathered_copy_failed"]
+        [
+            "gathered_name_not_utf8",
+            "gathered_copy_failed",
+            "gathered_name_clash",
+            "gathered_link_outside",
+            "gathered_root_unnamed",
+        ]
+    );
+}
+
+/// A clash is said by each skill's route in the source, naming every other
+/// that is called the same, which is what `--path` takes to pick one.
+#[test]
+fn a_clash_names_the_others_by_their_routes_and_gives_its_code() {
+    let clash = |others: &[&str]| Failure::Clash {
+        path: PathBuf::from("/w/.mindweaver/cache/s/skills/a/deploy"),
+        route: String::from("skills/a/deploy"),
+        name: String::from("deploy"),
+        others: others.iter().map(|other| (*other).to_owned()).collect(),
+    };
+
+    assert_eq!(clash(&[]).code(), "gathered_name_clash");
+    assert_eq!(
+        clash(&[]).path(),
+        Path::new("/w/.mindweaver/cache/s/skills/a/deploy")
+    );
+    assert_eq!(
+        clash(&["skills/b/deploy"]).to_string(),
+        "skills/a/deploy: not taken, since skills/b/deploy in the same source is called \
+         `deploy` too; gather the one wanted with `--path`"
+    );
+    assert_eq!(
+        clash(&[
+            ".claude/skills/deploy",
+            "skills/b/deploy",
+            "skills/c/deploy"
+        ])
+        .to_string(),
+        "skills/a/deploy: not taken, since .claude/skills/deploy, skills/b/deploy and \
+         skills/c/deploy in the same source are called `deploy` too; gather the one wanted \
+         with `--path`"
+    );
+}
+
+/// What a dry run says of a clone it does not keep is said from the
+/// clone's root, and anything outside it as it was.
+#[test]
+fn a_failure_routed_from_a_root_is_named_by_its_route_under_it() {
+    let root = Path::new("/w/.mindweaver/tmp/gather-1/clone");
+    let failures = [
+        Failure::Outside {
+            path: root.join("skills/x/SKILL.md"),
+        },
+        Failure::Unfiled {
+            path: root.join("SKILL.md"),
+            name: String::from("a/b"),
+        },
+        Failure::UnusableName {
+            path: root.join("skills/x"),
+        },
+        Failure::Artifact(ArtifactError::Read {
+            path: root.join("skills/y/SKILL.md"),
+            source: io::Error::other("denied"),
+        }),
+    ];
+    let routes = [
+        "skills/x/SKILL.md",
+        "SKILL.md",
+        "skills/x",
+        "skills/y/SKILL.md",
+    ];
+
+    for (failure, route) in failures.into_iter().zip(routes) {
+        assert_eq!(failure.routed(root).path(), Path::new(route));
+    }
+    let elsewhere = Failure::Copy {
+        path: PathBuf::from("/w/.mindweaver/skills/s/x"),
+        source: io::Error::other("full"),
+    };
+    assert_eq!(
+        elsewhere.routed(root).path(),
+        Path::new("/w/.mindweaver/skills/s/x")
     );
 }
 
@@ -577,6 +891,33 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
                 url: UrlMother::https(),
             },
             "gather_no_such_folder",
+        ),
+        (
+            GatherError::NothingFound {
+                url: UrlMother::https(),
+                path: String::from(DEFAULT_SUBDIRECTORY),
+            },
+            "gather_nothing_found",
+        ),
+        (
+            GatherError::PathOutside {
+                path: String::from("../elsewhere"),
+            },
+            "gather_path_outside",
+        ),
+        (
+            GatherError::ReferenceTwice {
+                named: String::from("v1"),
+                given: String::from("v2"),
+            },
+            "gather_ref_twice",
+        ),
+        (
+            GatherError::PathTwice {
+                named: String::from("skills"),
+                given: String::from("agents"),
+            },
+            "gather_path_twice",
         ),
         (
             GatherError::NameInvalid {

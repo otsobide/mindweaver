@@ -33,6 +33,51 @@ fn stages(scratch: &Path) -> Vec<String> {
         .collect()
 }
 
+/// What is left out is never copied, only at the top, and a copy that holds
+/// all the rest is unchanged by the next replace.
+#[test]
+fn replacing_leaving_names_out_copies_the_rest_and_compares_without_them() {
+    let (_dir, from, to, _) = fixture();
+    fs::create_dir_all(from.join(".claude-plugin")).unwrap();
+    fs::write(from.join(".claude-plugin").join("plugin.json"), "{}").unwrap();
+    fs::create_dir_all(from.join("scripts").join(".claude-plugin")).unwrap();
+    fs::write(from.join("scripts/.claude-plugin/example.json"), "{}").unwrap();
+    let leave_out = [".claude-plugin", ".git"];
+
+    let first = replace_leaving(&from, &to, &from, &leave_out).unwrap();
+    let again = replace_leaving(&from, &to, &from, &leave_out).unwrap();
+    fs::write(from.join("SKILL.md"), "second").unwrap();
+    let changed = replace_leaving(&from, &to, &from, &leave_out).unwrap();
+
+    assert_eq!(
+        (first, again, changed),
+        (Change::Added, Change::Unchanged, Change::Updated)
+    );
+    assert_eq!(names(&to), ["SKILL.md", "scripts"]);
+    assert!(to.join("scripts/.claude-plugin/example.json").is_file());
+    assert_eq!(names(to.parent().unwrap()), ["deploy"], "nothing beside it");
+}
+
+#[test]
+fn a_copy_compared_with_where_it_would_go_says_what_replacing_it_would_be() {
+    let (dir, from, to, _) = fixture();
+    let copy = dir.path().join("copy");
+    tree(&from, &copy, &from).unwrap();
+
+    let nothing_there = compared(&copy, &to).unwrap();
+    tree(&from, &to, &from).unwrap();
+    let the_same = compared(&copy, &to).unwrap();
+    fs::write(to.join("SKILL.md"), "edited").unwrap();
+    let different = compared(&copy, &to).unwrap();
+
+    assert_eq!(
+        (nothing_there, the_same, different),
+        (Change::Added, Change::Unchanged, Change::Updated)
+    );
+    // Nothing is replaced by asking.
+    assert_eq!(fs::read_to_string(to.join("SKILL.md")).unwrap(), "edited");
+}
+
 #[test]
 fn a_scratch_folder_is_made_when_first_needed_and_ignores_itself() {
     let (_dir, _, _, scratch) = fixture();

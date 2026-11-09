@@ -123,30 +123,65 @@ pub fn followed(path: &Path, bounds: &[PathBuf]) -> Result<(PathBuf, bool), io::
 /// leaves `to` exactly as it was, and leaves nothing where there was nothing.
 /// `within` bounds the symlinks followed, as for [`tree`].
 pub fn replace(from: &Path, to: &Path, within: &Path) -> Result<Change, io::Error> {
+    replace_leaving(from, to, within, &[])
+}
+
+/// [`replace`], without whatever is named `leave_out` directly inside
+/// `from`, as `tree_leaving` leaves it out: what a gather leaves out of the
+/// shelf's copy of a skill ([`crate::gather`]). Compared without it too, so
+/// a copy that holds all the rest is unchanged.
+pub(crate) fn replace_leaving(
+    from: &Path,
+    to: &Path,
+    within: &Path,
+    leave_out: &[&str],
+) -> Result<Change, io::Error> {
     let old = beside(to, "old");
-    let change = put(from, to, within, &beside(to, "new"), &old)?;
+    let change = put(from, to, within, leave_out, &beside(to, "new"), &old)?;
     if change == Change::Updated {
         fs::remove_dir_all(&old)?;
     }
     Ok(change)
 }
 
-/// Build `from` at `new` and put it at `to`, moving what `to` held to `old`
-/// first, which is left for the caller to clear: what a leftover there costs
-/// depends on where `old` is.
+/// What replacing `to` with `copy`, a whole copy already made, would be,
+/// replacing nothing: what a gather's dry run says it would do with a skill
+/// it copied somewhere of its own ([`crate::gather::dry_run`]).
+pub(crate) fn compared(copy: &Path, to: &Path) -> Result<Change, io::Error> {
+    if !to.exists() {
+        return Ok(Change::Added);
+    }
+    Ok(if same(copy, to)? {
+        Change::Unchanged
+    } else {
+        Change::Updated
+    })
+}
+
+/// Build `from` at `new`, without what is named `leave_out` at its top, and
+/// put it at `to`, moving what `to` held to `old` first, which is left for
+/// the caller to clear: what a leftover there costs depends on where `old`
+/// is.
 ///
 /// Wherever the two are, they have to be on the filesystem `to` is on, so
 /// that putting the copy in place is a rename rather than a second copy that
 /// could fail halfway.
-fn put(from: &Path, to: &Path, within: &Path, new: &Path, old: &Path) -> Result<Change, io::Error> {
+fn put(
+    from: &Path,
+    to: &Path,
+    within: &Path,
+    leave_out: &[&str],
+    new: &Path,
+    old: &Path,
+) -> Result<Change, io::Error> {
     let existed = to.exists();
-    if existed && same(from, to)? {
+    if existed && same_leaving(from, to, leave_out)? {
         return Ok(Change::Unchanged);
     }
     if new.exists() {
         fs::remove_dir_all(new)?;
     }
-    if let Err(error) = tree(from, new, within) {
+    if let Err(error) = tree_leaving(from, new, within, leave_out) {
         let _ = fs::remove_dir_all(new);
         return Err(error);
     }

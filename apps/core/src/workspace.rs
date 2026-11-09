@@ -1479,7 +1479,9 @@ impl WeaverWorkspace {
     /// The workspace's scratch folder ([`SCRATCH_DIR`] in `.mindweaver`),
     /// whether or not anything has made it yet: where a front end puts what
     /// it hands a command as a file and takes away after, the panel's text
-    /// for `edit --contents` among it.
+    /// for `edit --contents` among it, and where a gather's dry run fetches
+    /// and copies what it says of, in a folder of its own it takes away
+    /// after ([`crate::gather::dry_run`]).
     ///
     /// The workspace's own, as `.mind/tmp` is a project's, and named alike:
     /// inside `.mindweaver`, where no agent looks and a workspace keeps what

@@ -9,7 +9,7 @@ use common::{commit, repository, skill, url, workspace, write_files};
 use mindweaver_core::gather::{self, GatherError, Progress, Request, Warning, Watch};
 use mindweaver_core::ledger::{Action, Ledger, SourceKind};
 use mindweaver_core::value::SourceName;
-use mindweaver_core::{Kind, MindProject, ValidationIssue, WeaverWorkspace};
+use mindweaver_core::{Kind, MindProject, ValidationIssue, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -269,24 +269,30 @@ fn another_folder_can_be_named_instead_of_skills() {
     assert_eq!(report.added.len(), 1);
 }
 
+/// A folder named, since a gather that names none looks through the whole
+/// repository (#101), which has no folder to be without.
 #[test]
 fn a_folder_the_source_does_not_have_is_named_in_the_error() {
     let source = repository(&[("README.md", "nothing to gather\n")]);
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
 
-    let error = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap_err();
+    let request = Request::git(url(&source)).from_subdirectory("skills");
+    let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
 
     assert!(matches!(error, GatherError::NoSuchFolder { .. }), "{error}");
     assert!(error.to_string().contains("skills"));
 }
 
+/// A folder named, as above; the whole repository holding none is
+/// [`a_repository_holding_no_skill_anywhere_says_where_it_looked`]'s.
 #[test]
 fn a_gather_that_finds_no_folder_leaves_the_revision_its_shelf_came_from() {
     let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
-    gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
+    let request = Request::git(url(&source)).from_subdirectory("skills");
+    gather::gather(&workspace, &ledger, &request).unwrap();
     let before = ledger
         .source(SourceKind::Git, &url(&source), None, "skills")
         .unwrap();
@@ -294,12 +300,13 @@ fn a_gather_that_finds_no_folder_leaves_the_revision_its_shelf_came_from() {
     fs::remove_dir_all(source.path().join("skills")).unwrap();
     write_files(source.path(), &[("README.md", "moved elsewhere\n")]);
     commit(source.path());
-    let error = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap_err();
+    let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
 
     assert!(matches!(error, GatherError::NoSuchFolder { .. }), "{error}");
     let after = ledger
         .source(SourceKind::Git, &url(&source), None, "skills")
         .unwrap();
+    assert!(before.is_some());
     assert_eq!(
         after.map(|source| source.revision),
         before.map(|source| source.revision),
@@ -339,7 +346,7 @@ fn the_log_records_a_gather_and_the_source_it_came_from() {
     assert_eq!(history[0].outcome, "ok");
 
     let recorded = ledger
-        .source(SourceKind::Git, &address, None, "skills")
+        .source(SourceKind::Git, &address, None, DEFAULT_SUBDIRECTORY)
         .unwrap()
         .expect("the source was registered");
     assert!(recorded.revision.is_some());
@@ -1090,6 +1097,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         path: std::path::PathBuf::from(format!(
             "/work/.mindweaver/skills/github.com-acme-skills/{name}"
         )),
+        route: format!("skills/{name}"),
     };
     let report = gather::Report {
         revision: Some("4f9c2a7".into()),
@@ -1105,6 +1113,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
             issue: ValidationIssue::MetadataNotAMap,
         }],
         name: SourceName::parse("acme-skills").unwrap(),
+        left_out: Vec::new(),
     };
 
     let serialized = serde_json::to_string(&report).unwrap();
@@ -1114,10 +1123,12 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         concat!(
             r#"{"revision":"4f9c2a7","directory":"github.com-acme-skills","#,
             r#""added":[{"name":"deploy","directory":"deploy","summary":"About deploy","#,
-            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/deploy"}],"#,
+            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/deploy","#,
+            r#""route":"skills/deploy"}],"#,
             r#""updated":[],"#,
             r#""unchanged":[{"name":"review","directory":"review","summary":"About review","#,
-            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review"}],"#,
+            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review","#,
+            r#""route":"skills/review"}],"#,
             r#""name":"acme-skills"}"#,
         )
     );
