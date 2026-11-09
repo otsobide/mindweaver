@@ -1,8 +1,16 @@
 name: test-and-build
 
 # Per app: run its tests, and only if they pass, build it. Everything runs on
-# Linux runners, with the other two platforms run only when asked for (see
-# test-cross).
+# Linux, on the repository's own runner, with the other two platforms on
+# GitHub's, run only when asked for (see test-cross).
+#
+# GitHub's Linux runners stopped starting jobs once the account was locked
+# over billing, so every Linux job asks for a self-hosted one by its labels,
+# `[self-hosted, Linux, X64]`, rather than by its name: a second runner given
+# the same labels takes jobs beside the first, which a single runner, one job
+# at a time, runs one after another where GitHub's ran them side by side.
+# Rejected: a repository variable naming the runner, which would switch back
+# without a commit but leave this file no longer saying where a job runs.
 on:
   push:
     branches: [main, dev]
@@ -23,8 +31,20 @@ jobs:
   # because git combines them textually and that is all it can do.
   checks:
     name: fmt and clippy
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
+      # Root writes in a folder whose write permission is taken away, which
+      # is how the suites make a write fail to see what is put back after
+      # it: under root those tests fail, or pass without holding anything.
+      # Said here, before anything compiles, rather than by the first of
+      # them, a quarter of an hour into `test (core)`.
+      - name: Check the runner does not run as root
+        run: |
+          if [ "$(id -u)" -eq 0 ]; then
+            echo "::error::the runner runs as root, which writes where a test takes the permission away; run it as a user of its own, with sudo"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -60,7 +80,7 @@ jobs:
   test-core:
     name: test (core)
     needs: checks
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -85,7 +105,7 @@ jobs:
   test-cli:
     name: test (cli)
     needs: test-core
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -104,11 +124,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # The activation code is written for bash and zsh, and the runner image
-      # has only bash. Without zsh, its half of tests/shells_test.rs, the
-      # checks beside a virtualenv included, would run nowhere.
-      - name: Install zsh
-        run: sudo apt-get update && sudo apt-get install -y zsh
+      # The activation code is written for bash and zsh, and a runner's image
+      # may have only bash. Without zsh, its half of tests/shells_test.rs, the
+      # checks beside a virtualenv included, would run nowhere, and without a
+      # python3 to make that virtualenv, neither half's; on CI either fails
+      # the suite rather than skip. A self-hosted runner keeps what a job
+      # installed, so each is installed only where it is missing.
+      - name: Install zsh and python3 where missing
+        run: |
+          missing=
+          command -v zsh >/dev/null || missing="$missing zsh"
+          command -v python3 >/dev/null || missing="$missing python3"
+          if [ -n "$missing" ]; then
+            sudo apt-get update && sudo apt-get install -y $missing
+          fi
 
       - name: Test mindweaver-cli
         run: make cli/test
@@ -132,7 +161,7 @@ jobs:
   types-drift:
     name: types drift (web)
     needs: test-core
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -170,7 +199,7 @@ jobs:
   test-server:
     name: test (server)
     needs: test-core
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -199,7 +228,7 @@ jobs:
   test-web:
     name: test (web)
     needs: test-core
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -343,7 +372,7 @@ jobs:
       always() &&
       needs.test-core.result == 'success' &&
       (needs.test-cross.result == 'success' || needs.test-cross.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -379,7 +408,7 @@ jobs:
       needs.test-cli.result == 'success' &&
       needs.test-web.result == 'success' &&
       (needs.test-cross.result == 'success' || needs.test-cross.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -414,9 +443,10 @@ jobs:
           echo "TARGET=$(rustc -vV | sed -n 's/^host: //p')" >> "$GITHUB_ENV"
 
       # A release, since only a release embeds the panel; a debug build reads
-      # the folder as each request comes in. This runner has Node and no
-      # pnpm, so `make cli/release` says the panel is not built here and
-      # embeds the one downloaded above.
+      # the folder as each request comes in. No step of this job sets up
+      # pnpm, so on a runner with none of its own `make cli/release` says
+      # the panel is not built here and embeds the one downloaded above
+      # (docs/architecture.md, open questions, for a runner that has one).
       - name: Build mindweaver-cli for release, the panel embedded
         run: make cli/release TARGET="$TARGET"
 
@@ -460,7 +490,7 @@ jobs:
     if: >-
       !cancelled() &&
       needs.build-cli.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -520,7 +550,7 @@ jobs:
       always() &&
       needs.test-server.result == 'success' &&
       (needs.test-cross.result == 'success' || needs.test-cross.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
