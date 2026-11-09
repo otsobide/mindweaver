@@ -302,7 +302,12 @@ A repository gathered is one source however its URL is spelled (`acme/skills`,
 `https://github.com/acme/skills`, `git@github.com:acme/skills.git`), called
 by a name, `acme-skills` unless `--name` gives it another: what `mindweaver
 gather list` shows, and what `--from` takes when two sources offer one skill
-([#7](https://github.com/otsobide/mindweaver/issues/7)).
+([#7](https://github.com/otsobide/mindweaver/issues/7)). Its skills are
+taken from wherever it keeps them, where `gh skill` and `npx skills` look
+(`skills/`, `.claude/skills/`, a plugin's, a `SKILL.md` at its root, and the
+rest); `acme/skills@v2` and the address of a folder on GitHub or GitLab name
+a branch and a folder too, and `--dry-run` says what would be taken without
+taking it.
 
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`
