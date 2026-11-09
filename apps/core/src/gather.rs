@@ -887,7 +887,13 @@ fn fetch(request: &Request, typed: &Typed, into: &Path) -> Result<Cloned, Gather
     match &request.source {
         Source::Git { .. } => request
             .remote
-            .fetch(&typed.url, typed.reference.as_deref(), into, &request.watch)
+            .fetch(
+                &typed.url,
+                typed.reference.as_deref(),
+                None,
+                into,
+                &request.watch,
+            )
             .map_err(|error| match error {
                 GitError::Cancelled => GatherError::Cancelled,
                 error => error.into(),

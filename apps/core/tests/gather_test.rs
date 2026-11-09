@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use common::{commit, repository, skill, url, workspace, write_files};
 use mindweaver_core::gather::{self, GatherError, Progress, Request, Warning, Watch};
 use mindweaver_core::ledger::{Action, Ledger, SourceKind};
-use mindweaver_core::value::SourceName;
+use mindweaver_core::value::{Pin, SourceName};
 use mindweaver_core::{Kind, MindProject, ValidationIssue, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
 use tempfile::TempDir;
 
@@ -855,11 +855,12 @@ impl mindweaver_core::Remote for Forge {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &std::path::Path,
         watch: &Watch,
     ) -> Result<mindweaver_core::port::Cloned, mindweaver_core::port::GitError> {
         self.asked.lock().unwrap().push(url.to_owned());
-        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, into, watch)
+        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, pin, into, watch)
     }
 
     fn scrub(&self, clone: &std::path::Path) -> Result<bool, mindweaver_core::port::GitError> {

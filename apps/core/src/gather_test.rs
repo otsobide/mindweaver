@@ -14,6 +14,7 @@ use tempfile::TempDir;
 
 use crate::mother::random;
 use crate::mother::{SkillMother, SourceMother, UrlMother, WorkspaceMother};
+use crate::value::Pin;
 
 const DRAWS: usize = 200;
 
@@ -34,6 +35,7 @@ impl Remote for Unreached {
         &self,
         _url: &str,
         _reference: Option<&str>,
+        _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
     ) -> Result<crate::port::Cloned, GitError> {
@@ -125,7 +127,7 @@ fn a_request_fetches_through_the_remote_it_is_handed() {
 
     let _ = request
         .remote
-        .fetch("u", None, Path::new("/nowhere"), &request.watch);
+        .fetch("u", None, None, Path::new("/nowhere"), &request.watch);
 
     assert_eq!(*remote.asked.lock().unwrap(), 1);
 }

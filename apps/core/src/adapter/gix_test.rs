@@ -119,9 +119,10 @@ fn a_url_gix_cannot_parse_is_named_without_its_credentials_and_so_is_what_gix_sa
     let cache = tempfile::TempDir::new().unwrap();
     let error = clone(
         "https://me:hunter2@exa mple.com/acme/private.git",
-        None,
+        Wanted::Branch(None),
         &cache.path().join("clone"),
         &Watch::new(),
+        &[],
     )
     .unwrap_err();
 
@@ -249,4 +250,121 @@ fn the_step_read_off_gix_progress_is_the_latest_under_way() {
             total: Some(12)
         })
     );
+}
+
+/// What `gix` is told to turn protocol v2 off with: git's own server over
+/// protocol v1 hands out what its branches and tags are at, and no other
+/// commit by its id, as a server that keeps `uploadpack.allowAnySHA1InWant`
+/// off does.
+const NO_COMMIT_BY_ITS_ID: &[&str] = &["protocol.version=1"];
+
+/// A repository on the disk at its third commit, with a branch `side` left
+/// at the first, and the second, which no branch is at: its skill's file
+/// as it was then, and the commit, as a pin.
+fn moved_on() -> (tempfile::TempDir, String, Pin) {
+    let deploy = |description: &str| crate::mother::SkillMother::create("deploy", description);
+    let repository = crate::mother::GitRepositoryMother::create(&[(
+        "skills/deploy/SKILL.md",
+        &deploy("Ship it, as it was first"),
+    )]);
+    let head = || {
+        let opened = gix::open_opts(repository.path(), gix::open::Options::isolated()).unwrap();
+        Pin::parse(&opened.head_id().unwrap().to_string()).unwrap()
+    };
+    let heads = repository.path().join(".git").join("refs").join("heads");
+    fs::write(heads.join("side"), format!("{}\n", head())).unwrap();
+    let second = deploy("Ship it, as it was");
+    for text in [second.as_str(), &deploy("Ship it, as it is now")] {
+        crate::mother::GitRepositoryMother::write(
+            repository.path(),
+            &[("skills/deploy/SKILL.md", text)],
+        );
+        crate::mother::GitRepositoryMother::commit(repository.path());
+    }
+    let opened = gix::open_opts(repository.path(), gix::open::Options::isolated()).unwrap();
+    let parent = opened
+        .head_commit()
+        .unwrap()
+        .parent_ids()
+        .next()
+        .unwrap()
+        .to_string();
+    (repository, second, Pin::parse(&parent).unwrap())
+}
+
+#[test]
+fn a_server_that_hands_out_no_commit_by_its_id_has_the_pin_found_on_its_branch_instead() {
+    let (repository, first, pin) = moved_on();
+    let url = repository.path().to_string_lossy().into_owned();
+    let cache = tempfile::TempDir::new().unwrap();
+    let into = cache.path().join("clone");
+
+    // Asked for alone, the commit is refused.
+    let refused = clone(
+        &url,
+        Wanted::Commit(&pin),
+        &into,
+        &Watch::new(),
+        NO_COMMIT_BY_ITS_ID,
+    )
+    .unwrap_err();
+    assert_eq!(refused.code(), "git_fetch_failed", "{refused}");
+
+    let cloned = pinned(&url, None, &pin, &into, &Watch::new(), NO_COMMIT_BY_ITS_ID).unwrap();
+
+    assert_eq!(cloned.revision, Some(pin.revision()));
+    assert_eq!(
+        fs::read_to_string(cloned.root.join("skills/deploy/SKILL.md")).unwrap(),
+        first
+    );
+    // HEAD detached at the pin, as a clone at a commit leaves it, and the
+    // branch's whole history there, which is how the pin was found.
+    let opened = gix::open_opts(&into, gix::open::Options::isolated()).unwrap();
+    assert!(opened.head().unwrap().is_detached());
+    assert_eq!(opened.head_id().unwrap().to_string(), pin.as_str());
+    assert!(!into.join(".git").join("shallow").exists());
+}
+
+#[test]
+fn a_pin_the_branch_does_not_reach_is_refused_when_no_commit_is_handed_out_by_its_id() {
+    // The second commit, which `side`, left at the first, does not reach.
+    let (repository, _, ahead) = moved_on();
+    let url = repository.path().to_string_lossy().into_owned();
+    let cache = tempfile::TempDir::new().unwrap();
+    let into = cache.path().join("clone");
+
+    let error = pinned(
+        &url,
+        Some("side"),
+        &ahead,
+        &into,
+        &Watch::new(),
+        NO_COMMIT_BY_ITS_ID,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code(), "git_pin_unreachable", "{error}");
+    assert_eq!(
+        error.to_string(),
+        format!("{url}: has no commit {ahead} that `side` reaches, so nothing is gathered at it")
+    );
+    assert!(!into.exists());
+}
+
+#[test]
+fn a_pin_is_fetched_alone_where_the_server_hands_one_out_by_its_id() {
+    let (repository, first, pin) = moved_on();
+    let url = repository.path().to_string_lossy().into_owned();
+    let cache = tempfile::TempDir::new().unwrap();
+    let into = cache.path().join("clone");
+
+    let cloned = pinned(&url, None, &pin, &into, &Watch::new(), &[]).unwrap();
+
+    assert_eq!(cloned.revision, Some(pin.revision()));
+    assert_eq!(
+        fs::read_to_string(cloned.root.join("skills/deploy/SKILL.md")).unwrap(),
+        first
+    );
+    // One commit, not the branch's history.
+    assert!(into.join(".git").join("shallow").exists());
 }

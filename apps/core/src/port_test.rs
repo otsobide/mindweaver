@@ -61,6 +61,14 @@ fn every_own_error(url: &str, detail: &str) -> Vec<(GitError, &'static str)> {
             },
             "git_checkout_failed",
         ),
+        (
+            GitError::PinUnreachable {
+                url: url.to_owned(),
+                pin: crate::mother::PinMother::random(),
+                reference: Some(detail.to_owned()),
+            },
+            "git_pin_unreachable",
+        ),
         (GitError::Cancelled, "git_clone_cancelled"),
     ]
 }
@@ -80,6 +88,31 @@ fn each_git_error_of_its_own_gives_its_own_code() {
     for (error, code) in every_own_error("https://example.com/acme/skills.git", "refused") {
         assert_eq!(error.code(), code, "{error:?}");
     }
+}
+
+#[test]
+fn a_pin_no_branch_reaches_is_said_with_the_branch_it_was_looked_for_on() {
+    let pin = crate::mother::PinMother::random();
+    let unreachable = |reference: Option<&str>| GitError::PinUnreachable {
+        url: String::from("https://github.com/acme/skills"),
+        pin: pin.clone(),
+        reference: reference.map(str::to_owned),
+    };
+
+    assert_eq!(
+        unreachable(None).to_string(),
+        format!(
+            "https://github.com/acme/skills: has no commit {pin} that its default branch \
+             reaches, so nothing is gathered at it"
+        )
+    );
+    assert_eq!(
+        unreachable(Some("stable")).to_string(),
+        format!(
+            "https://github.com/acme/skills: has no commit {pin} that `stable` reaches, so \
+             nothing is gathered at it"
+        )
+    );
 }
 
 #[test]
