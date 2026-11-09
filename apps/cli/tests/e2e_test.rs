@@ -26,7 +26,8 @@
 //! gathering them from git, keeping copies up to date, reading what is
 //! where, saying which workspace a command is about, changing a project's
 //! agents, share and targets, adopting a skill somebody keeps, removing
-//! one everywhere, loading another workspace, upgrading what an older
+//! one everywhere, loading another workspace, exporting the library
+//! elsewhere, upgrading what an older
 //! Mindweaver made, and reading it all as JSON.
 //!
 //! Unix alone: the reference's paths are a Unix home's, which a Windows
@@ -71,6 +72,9 @@ mod removing;
 
 #[path = "e2e/loading.rs"]
 mod loading;
+
+#[path = "e2e/exporting.rs"]
+mod exporting;
 
 #[path = "e2e/upgrading.rs"]
 mod upgrading;
