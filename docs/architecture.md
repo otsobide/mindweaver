@@ -3173,6 +3173,33 @@ the callback to arrive through anyway. That other half is
 if they were carried, tying its version to gix's, so `GitError` keeps what they
 said and not what they were.
 
+### Private repositories, as they were checked
+
+#109 gathered a private GitHub repository on 2026-11-09, with gix 0.87.1, gh
+2.102.1, git 2.56.0 and OpenSSH 10.6p1 on Linux, through `mindweaver gather
+git` and #26's callback, each run with its own workspace (`--home` and `-W`)
+and with no display, so no askpass could be shown:
+
+- **HTTPS, no helper:** refused at once as `git_credentials_needed`, with the
+  two ways to give a credential, also with a terminal attached (a pty), where
+  it returned in under a second rather than waiting for a prompt.
+- **HTTPS, gh's helper:** cloned, given `!gh auth git-credential` for
+  `https://github.com` either as `gh auth setup-git` writes it into a global
+  config file (`GIT_CONFIG_GLOBAL`) or through `GIT_CONFIG_COUNT`, so `gix`
+  reads the helper wherever git config puts it, and runs it with the prompt
+  off.
+- **HTTPS, a helper with a refused token:** `git_credentials_needed`, no
+  retry and no prompt.
+- **SSH, no agent:** cloned with the account's own key, which needs no
+  passphrase; the system `ssh` authenticated it without the callback. A key
+  that needs one, with no agent holding it, is ssh's question on the
+  terminal, the open question below, and was not tried. Nor was ssh-agent
+  itself, which this machine's session did not run.
+
+So the callback keeps what was promised: a helper git config names still
+authenticates, and nothing asks. A token handed over for one run (D-16) is
+#110's.
+
 ### A URL is kept without its credentials
 
 A source is stored, logged, listed and named in errors by its URL, so a token
@@ -12948,8 +12975,9 @@ it once as it closes.
   be given is decided in
   [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt): a
   provider the front end supplies, through that same callback. #110 carries it
-  out, and #109 checks the helpers and ssh-agent against a real private
-  repository. ssh's own questions are still open: a passphrase for a key the
+  out. #109 checked the helpers against a real private repository
+  ([as they were checked](#private-repositories-as-they-were-checked)):
+  they do get through, and nothing prompts. ssh's own questions are still open: a passphrase for a key the
   agent does not hold, a password when the server accepts password
   authentication, or whether to trust a host seen for the first time, is asked
   by ssh on the terminal, out of the callback's reach. `BatchMode=yes` in
