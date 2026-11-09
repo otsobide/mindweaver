@@ -68,9 +68,13 @@ ts-rs = { version = "12", optional = true, features = ["no-serde-warnings"] }
 # says a type either as serde writes it or as serde reads it: an `Option`
 # field is always written, and may be left out of what is read. Only under
 # `schema`, as ts-rs is under `ts`. MIT, as are its derive and the two small
-# crates it brings; serde_json beside it to write what a type says by hand.
+# crates it brings; serde_json, below, to write what a type says by hand.
 schemars = { version = "1.2", optional = true }
-serde_json = { version = "1", optional = true }
+# What a catalog answers over HTTP is JSON, read into what core makes of it
+# (`http::Client::json`, `http::Client::pages`), and what the HTTP cache
+# keeps of an answer begins with a line of it. The version the server and
+# the CLI build.
+serde_json = "1"
 # What a fixture mother holds its folder in (`mother::fixture`), only under
 # `mother`, as the dev-dependency below is for core's own tests.
 tempfile = { version = "3", optional = true }
@@ -82,7 +86,7 @@ ts = ["dep:ts-rs"]
 # The JSON Schema of what core hands a front end and takes from one: `make
 # api/schemas` builds with it to write them into docs/api/schemas, and
 # nothing else does.
-schema = ["dep:schemars", "dep:serde_json"]
+schema = ["dep:schemars"]
 # The object mothers tests build the domain with (`mother`): core's own
 # compile them under `cfg(test)`, and its integration tests and the CLI's
 # through a dev-dependency that turns this on, so no binary holds them.

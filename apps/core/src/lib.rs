@@ -39,6 +39,7 @@ pub mod exclude;
 pub mod frontmatter;
 pub mod gather;
 pub mod hash;
+pub mod http;
 pub mod install;
 pub mod kind;
 pub mod known;
