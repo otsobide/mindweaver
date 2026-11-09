@@ -20,12 +20,12 @@ use mindweaver_core::hash;
 use mindweaver_core::install::{is_folder_name, is_installable_name};
 use mindweaver_core::mother::random;
 use mindweaver_core::mother::{
-    ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, ProjectIdMother,
-    RedactedMother, RevisionMother, SourceMother, UrlMother, VariableNameMother,
+    ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, PinMother,
+    ProjectIdMother, RedactedMother, RevisionMother, SourceMother, UrlMother, VariableNameMother,
 };
 use mindweaver_core::url::carries_credentials;
 use mindweaver_core::value::{
-    ArtifactName, ContentHash, InputName, Origin, ProjectId, Redacted, Revision, VariableName,
+    ArtifactName, ContentHash, InputName, Origin, Pin, ProjectId, Redacted, Revision, VariableName,
 };
 use mindweaver_core::Kind;
 use serde::Serialize;
@@ -723,6 +723,60 @@ fn a_revision_is_read_from_a_string_and_from_nothing_else() {
             "{refused}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Pin: made by the parser, a commit in full, 40 lowercase digits.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_pin_reads_as_the_commit_it_holds() {
+    for _ in 0..DRAWS {
+        let pin = PinMother::random();
+        let text = pin.as_str().to_owned();
+
+        assert_eq!(text.len(), Pin::LEN);
+        reads_as_its_text(&pin, &text);
+        assert_eq!(PinMother::create(&text), pin);
+    }
+}
+
+#[test]
+fn any_40_hex_digits_are_a_pin_kept_in_lowercase() {
+    for _ in 0..DRAWS {
+        let digits = random::hex(Pin::LEN);
+        let shouted = digits.to_ascii_uppercase();
+
+        assert_eq!(Pin::parse(&digits).unwrap(), digits.as_str());
+        assert_eq!(Pin::parse(&shouted).unwrap(), digits.as_str());
+    }
+}
+
+#[test]
+fn a_text_that_names_no_commit_in_full_is_no_pin_whatever_keeps_it_from_being_one() {
+    for (why, text) in PinMother::not_pins() {
+        assert_eq!(Pin::parse(&text), None, "{why}: {text:?}");
+    }
+}
+
+#[test]
+fn a_pin_is_the_revision_a_gather_at_it_takes() {
+    for _ in 0..DRAWS {
+        let revision = RevisionMother::random();
+        let pin = PinMother::of(&revision);
+
+        assert_eq!(pin.revision(), revision);
+        assert_eq!(PinMother::of(&pin.revision()), pin);
+    }
+}
+
+#[test]
+fn a_pin_is_written_as_its_digits_and_nothing_around_them() {
+    let pin = PinMother::random();
+
+    assert_eq!(written(&pin), json!(pin.as_str()));
+    assert_eq!(written(&Some(pin.clone())), json!(pin.as_str()));
+    assert_eq!(written(&None::<Pin>), json!(null));
 }
 
 // ---------------------------------------------------------------------------

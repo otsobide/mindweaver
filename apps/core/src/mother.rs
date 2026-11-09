@@ -42,8 +42,8 @@ pub use ledger::{
 pub use settings::SettingsMother;
 pub use url::{Credentialed, UrlMother};
 pub use value::{
-    ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, ProjectIdMother,
-    RedactedMother, RevisionMother, VariableNameMother,
+    ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, PinMother,
+    ProjectIdMother, RedactedMother, RevisionMother, VariableNameMother,
 };
 
 #[cfg(test)]

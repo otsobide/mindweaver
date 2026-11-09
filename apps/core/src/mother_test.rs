@@ -77,6 +77,21 @@ fn every_text_a_hash_mother_calls_no_hash_is_refused_for_its_own_reason() {
 }
 
 #[test]
+fn every_text_a_pin_mother_calls_no_pin_is_refused_for_its_own_reason() {
+    let not = PinMother::not_pins();
+    let reasons: BTreeSet<&str> = not.iter().map(|(why, _)| *why).collect();
+
+    assert_eq!(reasons.len(), not.len(), "a reason named twice");
+    for (why, text) in not {
+        assert!(crate::value::Pin::parse(&text).is_none(), "{why}");
+    }
+    for _ in 0..DRAWS {
+        let pin = PinMother::random();
+        assert_eq!(crate::value::Pin::parse(&pin), Some(pin.clone()), "{pin}");
+    }
+}
+
+#[test]
 fn every_text_an_id_mother_calls_no_id_is_refused() {
     for (why, text) in ProjectIdMother::not_ids() {
         assert!(crate::value::ProjectId::parse(&text).is_none(), "{why}");
