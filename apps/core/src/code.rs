@@ -72,7 +72,7 @@ use crate::mcp::{Inexpressible, McpError};
 use crate::migrate::{MigrateError, NamesFailure, ProjectFailure, Refusal};
 use crate::opencode_mcp::{self, OpenCodeMcpError};
 use crate::policy::PolicyError;
-use crate::port::GitError;
+use crate::port::{GitError, HttpError};
 use crate::reapply::{ReapplyError, ReapplyFailure};
 use crate::relink::{Duplicate, RelinkError};
 use crate::resolve::ResolveError;
@@ -227,6 +227,7 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("gather::Leftover", Leftover::CODES),
     ("gather::ScrubFailure", ScrubFailure::CODES),
     ("port::GitError", GitError::CODES),
+    ("port::HttpError", HttpError::CODES),
     ("install::InstallError", InstallError::CODES),
     ("install::entries::ConfigUnread", ConfigUnread::CODES),
     ("install::LoadFailure", LoadFailure::CODES),

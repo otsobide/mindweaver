@@ -92,7 +92,7 @@ pub use lifecycle::{LifecycleError, Target};
 pub use lock::{LockError, WorkspaceLock};
 pub use mcp::{McpDefinition, McpError, MCP_FORMAT};
 pub use names::Names;
-pub use port::{Clock, Remote};
+pub use port::{Clock, Http, Remote};
 pub use reapply::{Change, ReapplyError};
 pub use resolve::{resolve, resolve_except, Inputs, Intent, Reason, ResolveError, Resolved};
 pub use rule::{Lenient, RuleManifest};
