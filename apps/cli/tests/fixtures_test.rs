@@ -25,7 +25,7 @@ use common::*;
 use mindweaver_cli::backend::{PanelBackend, Query};
 use mindweaver_core::ledger::{Action, Outcome as Logged};
 use mindweaver_core::SourceKind;
-use mindweaver_server::Backend;
+use mindweaver_server::{Backend, Underway};
 use serde_json::{json, Value};
 
 /// Where the fixtures go: the panel's tests, beside this crate, whichever
@@ -845,7 +845,7 @@ fn write_what_previewing_and_running_a_few_tasks_is_answered_with() {
         let preview = backend
             .preview(&task)
             .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
-        let outcome = backend.run(task).unwrap();
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
         let ran = json!({"lines": preview.lines, "outcome": outcome});
         answers.push(json!({"task": sent, "preview": preview, "ran": ran}));
     };
@@ -1090,7 +1090,7 @@ fn write_what_applying_a_plan_is_answered_with() {
         let preview = backend
             .preview(&task)
             .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
-        let outcome = backend.run(task).unwrap();
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
         assert!(outcome.ok, "{outcome:?}");
         let ran = json!({"lines": preview.lines, "outcome": outcome});
         let answer = json!({"task": sent, "preview": preview, "ran": ran});
@@ -1133,7 +1133,7 @@ fn write_what_each_change_the_page_of_loads_sends_is_answered_with() {
         let preview = backend
             .preview(&task)
             .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
-        let outcome = backend.run(task).unwrap();
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
         let ran = json!({"lines": preview.lines, "outcome": outcome});
         let answer = json!({"task": sent, "preview": preview, "ran": ran});
         let json = serde_json::to_string(&answer).unwrap();
@@ -1305,7 +1305,7 @@ fn write_what_each_change_the_page_of_updates_sends_is_answered_with() {
         let preview = backend
             .preview(&task)
             .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
-        let outcome = backend.run(task).unwrap();
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
         let ran = json!({"lines": preview.lines, "outcome": outcome});
         let answer = json!({"task": sent, "preview": preview, "ran": ran});
         let json = serde_json::to_string(&answer).unwrap();
@@ -1526,7 +1526,7 @@ fn write_what_each_change_authoring_sends_is_answered_with() {
         let preview = backend
             .preview(&task)
             .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
-        let outcome = backend.run(task).unwrap();
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
         let ran = json!({"lines": preview.lines, "outcome": outcome});
         let answer = json!({"task": sent, "preview": preview, "ran": ran});
         let json = serde_json::to_string(&answer).unwrap();
@@ -1779,7 +1779,7 @@ fn write_what_each_change_the_page_of_mcp_servers_sends_is_answered_with() {
         let preview = backend
             .preview(&task)
             .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
-        let outcome = backend.run(task).unwrap();
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
         assert!(
             outcome.runs.iter().all(|run| run.error.is_none()),
             "{sent}: {outcome:?}"

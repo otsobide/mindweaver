@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cancelling",
+  "description": "What a cancel is answered with: the run asked to stop and its lines,\n`{\"run\": 3, \"lines\": [...]}`. Whether it stopped is for how it finishes\nto say: a run past the point where it can stop runs to its end.",
+  "type": "object",
+  "properties": {
+    "lines": {
+      "description": "Its lines, each as somebody would type it.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "run": {
+      "description": "The run's number.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "run",
+    "lines"
+  ]
+}

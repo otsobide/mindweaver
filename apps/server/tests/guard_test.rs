@@ -535,7 +535,7 @@ async fn without_being_told_of_it_the_server_refuses_the_dev_servers_pages() {
 /// Every route under the version as a script or the panel's page asks for
 /// it, with what it is sent: one for each of the fake's reads, and each of
 /// the server's own.
-fn versioned() -> [(Method, &'static str, Option<Value>); 9] {
+fn versioned() -> [(Method, &'static str, Option<Value>); 10] {
     [
         (Method::GET, "/api/v1/echo?echo=hi", None),
         (Method::GET, "/api/v1/words?word=a", None),
@@ -546,6 +546,11 @@ fn versioned() -> [(Method, &'static str, Option<Value>); 9] {
             Some(json!({ "name": "a" })),
         ),
         (Method::POST, "/api/v1/tasks", Some(json!({ "name": "a" }))),
+        (
+            Method::POST,
+            "/api/v1/tasks/cancel",
+            Some(json!({ "run": 1 })),
+        ),
         (
             Method::POST,
             "/api/v1/switch",
@@ -566,7 +571,8 @@ fn versioned() -> [(Method, &'static str, Option<Value>); 9] {
 /// the code of the guard that turned it away. Every refusal, and every
 /// answer, carries the policy, `nosniff` and `no-store`;
 /// and either credential, sent as a script or the page sends it, is
-/// answered.
+/// answered: a cancel, with nothing under way, by the route itself, past
+/// every guard.
 #[tokio::test]
 async fn every_versioned_route_holds_every_guard_by_bearer_and_cookie_alike() {
     let (server, _) = launch();
@@ -692,7 +698,12 @@ async fn every_versioned_route_holds_every_guard_by_bearer_and_cookie_alike() {
                 (stream.status, stream.headers)
             } else {
                 let reply = send(&server, method.clone(), path, auth, body.clone()).await;
-                (reply.status, reply.headers)
+                if path == "/api/v1/tasks/cancel" {
+                    assert_eq!(reply.json()["code"], "not_running", "{case}");
+                    (StatusCode::OK, reply.headers)
+                } else {
+                    (reply.status, reply.headers)
+                }
             };
             assert_eq!(status, StatusCode::OK, "{case}");
             carries_the_policy(&headers, &case);

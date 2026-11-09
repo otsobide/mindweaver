@@ -42,7 +42,6 @@ export type Code =
   | "opens_editor"
   | "reads_stdin"
   | "prints_shell_code"
-  | "gather_unwatched"
   | "show_unheld"
   | "serves_panel"
   | "token_required"
@@ -63,5 +62,7 @@ export type Code =
   | "invalid_parameters"
   | "unknown_route"
   | "method_not_allowed"
+  | "not_running"
+  | "uncancellable"
   | "backend_failed"
   | "writer_stopped";

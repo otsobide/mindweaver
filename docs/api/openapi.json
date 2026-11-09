@@ -159,6 +159,45 @@
         ],
         "type": "object"
       },
+      "Cancel": {
+        "additionalProperties": false,
+        "description": "What `POST /api/v1/tasks/cancel` is sent: the run to stop, by its number\nas `command_started` told it, `{\"run\": 3}`.\n\nBy its number rather than \"whatever runs now\", so a cancel that crosses\nthe end of the run it was meant for never stops the one queued behind\nit: by then that one has a number of its own. A field it does not have\nis refused, as a task's is.",
+        "properties": {
+          "run": {
+            "description": "The run's number, as the events tell it.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run"
+        ],
+        "type": "object"
+      },
+      "Cancelling": {
+        "description": "What a cancel is answered with: the run asked to stop and its lines,\n`{\"run\": 3, \"lines\": [...]}`. Whether it stopped is for how it finishes\nto say: a run past the point where it can stop runs to its end.",
+        "properties": {
+          "lines": {
+            "description": "Its lines, each as somebody would type it.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "run": {
+            "description": "The run's number.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run",
+          "lines"
+        ],
+        "type": "object"
+      },
       "Caution": {
         "description": "What a command line takes away, which a front end asks somebody to\nconfirm before it runs the line: what [`cautions`] reads off the parsed\ncommand, as [`refused`] reads a refusal, so a line is asked about the\nsame way whatever task it came from, and by every front end.\n\nOne list, here, rather than one per front end: the panel holds no rules\n(D-18), so which of its lines need a yes first is said with each preview\nit is answered with, in these words, and a list in TypeScript would be a\nsecond place for a command to be forgotten. The TUI asks its own\nquestions, worded for the row they are about, before it builds a task.\n\nOnly what takes something away, or writes over somebody's work: a line\nthat only adds, or that changes what is installed where its agents now\nread, is shown before it runs and runs once asked. And never a dry run,\nwhich a line of a command that takes `--yes` is without it: it takes\nnothing away, and says what it would.",
         "oneOf": [
@@ -277,7 +316,6 @@
           "opens_editor",
           "reads_stdin",
           "prints_shell_code",
-          "gather_unwatched",
           "show_unheld",
           "serves_panel"
         ],
@@ -1065,13 +1103,21 @@
             "type": "object"
           },
           {
-            "description": "A task's lines started to run on the writer thread.",
+            "description": "A task's lines started to run on the writer thread, as run `run`:\ncounted from 1 in the order runs start, the number a cancel names\nit by. With whether it takes a cancel, as the backend's preview\nsaid ([`Preview::cancellable`]), so a panel offers one for a run\nanother tab or a script sent too.\n\n[`Preview::cancellable`]: crate::Preview::cancellable",
             "properties": {
+              "cancellable": {
+                "type": "boolean"
+              },
               "lines": {
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "run": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               },
               "type": {
                 "const": "command_started",
@@ -1080,18 +1126,99 @@
             },
             "required": [
               "type",
-              "lines"
+              "run",
+              "lines",
+              "cancellable"
             ],
             "type": "object"
           },
           {
-            "description": "They stopped, however that went: the reply to the run says how.",
+            "description": "How run `run` is going, as the backend reported it\n([`Underway::report`]): its own JSON, carried unread, as a changed\npath's scope is.\n\n[`Underway::report`]: crate::Underway::report",
+            "properties": {
+              "progress": true,
+              "run": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "const": "progress",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "run",
+              "progress"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Run `run` was asked to stop (`POST /api/v1/tasks/cancel`), from\nthis tab, another or a script: whether it stopped, and where, its\nfinish and its outcome say. Told once, however often it is asked.",
+            "properties": {
+              "run": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "const": "cancelling",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "run"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The writer thread is busy with run `run`, so whatever is sent now\nwaits its turn behind it: told when a run or a switch is queued\nwhile a run is under way, and to a subscriber as it subscribes\nwhile one is, with the run's latest [`Progress`](Event::Progress)\nafter it. With its lines, whether it takes a cancel and whether it\nwas asked to stop, as its start and any cancel said.",
+            "properties": {
+              "cancellable": {
+                "type": "boolean"
+              },
+              "cancelling": {
+                "type": "boolean"
+              },
+              "lines": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "run": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "const": "busy",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "run",
+              "lines",
+              "cancellable",
+              "cancelling"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Run `run` stopped, however that went: the reply to the run says how.",
             "properties": {
               "lines": {
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "run": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               },
               "type": {
                 "const": "command_finished",
@@ -1100,6 +1227,7 @@
             },
             "required": [
               "type",
+              "run",
               "lines"
             ],
             "type": "object"
@@ -2672,8 +2800,12 @@
         "type": "object"
       },
       "Preview": {
-        "description": "What a task would run, worked out with none of it run: what\n[`Backend::preview`] answers, and `POST /api/v1/tasks/preview` sends as\nit is, `{\"lines\": [...], \"confirm\": [...]}`.",
+        "description": "What a task would run, worked out with none of it run: what\n[`Backend::preview`] answers, and `POST /api/v1/tasks/preview` sends as\nit is, `{\"lines\": [...], \"confirm\": [...], \"cancellable\": false}`.",
         "properties": {
+          "cancellable": {
+            "description": "Whether a run of it can be asked to stop while it runs (`POST\n/api/v1/tasks/cancel`): one of its lines reports how it goes and\nstops when asked, a gather, as only the front end can say of its\ncommands.\n\nSaid with the lines, so the server knows which run takes a cancel\nfrom the moment it starts, the very preview it runs by, and refuses\none of a run that takes none (`uncancellable`) rather than pass on a\ncancel that would do nothing; and so the panel knows to offer one\nbefore the first step is reported.",
+            "type": "boolean"
+          },
           "confirm": {
             "description": "What the panel has somebody confirm before it asks for the run, one\nitem for each thing a line takes away; none for a task the panel\nruns once it is asked to.\n\nThe backend's own JSON, carried to the panel unread, as a watched\npath's scope is: which lines take something away is a rule of the\nfront end's, and so are the words for it. Said where the lines are,\nso the panel is told it of the very lines it shows, rather than\nasking a second time about a disk that may have changed between.\nThe server only carries it: a run sent without the panel having\nasked anybody is run, as a shell runs the line typed into it, since\nwhoever holds the token is the person at this machine and the\nquestion is for their slips, which is the panel's to ask.",
             "items": true,
@@ -2689,7 +2821,8 @@
         },
         "required": [
           "lines",
-          "confirm"
+          "confirm",
+          "cancellable"
         ],
         "type": "object"
       },
@@ -3436,6 +3569,41 @@
         ],
         "type": "string"
       },
+      "Stage": {
+        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them.",
+        "oneOf": [
+          {
+            "const": "connecting",
+            "description": "Reaching the source, before it has sent anything.",
+            "type": "string"
+          },
+          {
+            "const": "receiving",
+            "description": "Receiving the objects it sends.",
+            "type": "string"
+          },
+          {
+            "const": "resolving",
+            "description": "Resolving the deltas among them.",
+            "type": "string"
+          },
+          {
+            "const": "checking_out",
+            "description": "Writing the fetched revision's files into the clone.",
+            "type": "string"
+          },
+          {
+            "const": "harvesting",
+            "description": "Reading the folders that hold a manifest.",
+            "type": "string"
+          },
+          {
+            "const": "placing",
+            "description": "Putting what was read on the shelf.",
+            "type": "string"
+          }
+        ]
+      },
       "Starts": {
         "description": "What an agent asks before it starts an MCP server its project's config\nfile gives it ([`Agent::starts_a_server`]).\n\nBy its name in snake_case in JSON, `\"once_approved\"`: a word of core's\na front end says in words of its own, as it says a state, and no word a\ncommand line takes, so derived.",
         "oneOf": [
@@ -3484,6 +3652,49 @@
         "required": [
           "state",
           "count"
+        ],
+        "type": "object"
+      },
+      "Step": {
+        "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no gather's shape but its stages: a run of\nanother command that reports steps, a backup's checking out, exporting,\ncommitting and pushing, says them in the same five fields with stages\nof its own.",
+        "properties": {
+          "cancellable": {
+            "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf.",
+            "type": "boolean"
+          },
+          "done": {
+            "description": "How much of it is done, when the stage counts anything.",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "said": {
+            "description": "The step in words, as `mindweaver gather` draws it on a terminal\nand the TUI in its box ([`said`]): `receiving objects 120/340`.",
+            "type": "string"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage",
+            "description": "What it is doing, as one word."
+          },
+          "total": {
+            "description": "Of how much, once that is known.",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "stage",
+          "done",
+          "total",
+          "said",
+          "cancellable"
         ],
         "type": "object"
       },
@@ -6573,6 +6784,9 @@
                     },
                     {
                       "properties": {
+                        "progress": {
+                          "$ref": "#/components/schemas/Step"
+                        },
                         "scopes": {
                           "items": {
                             "$ref": "#/components/schemas/Holder"
@@ -6701,7 +6915,7 @@
             }
           }
         },
-        "summary": "What happens as it happens, a change on disk or a run starting and finishing, as server-sent events"
+        "summary": "What happens as it happens, a change on disk or a run starting, going and finishing, as server-sent events"
       }
     },
     "/files": {
@@ -9137,6 +9351,274 @@
           }
         },
         "summary": "Run a task, once every one sent before it has run: its lines, and what the command said"
+      }
+    },
+    "/tasks/cancel": {
+      "post": {
+        "operationId": "post_tasks_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Cancel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cancelling"
+                }
+              }
+            },
+            "description": "The run asked to stop, and its lines: how it finishes says whether it stopped."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "malformed_json",
+                            "body_unreadable",
+                            "body_refused",
+                            "unknown_parameter"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "What the request sent could not be read, a parameter or a body, as the code says."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "token_required"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Without the launch token, or with another server's.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "How to bring the token: as a Bearer token.",
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "unknown_host",
+                            "foreign_origin",
+                            "same_origin_required",
+                            "x_mindflayer_required"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Turned away by a guard: a Host the server does not answer to, a page of another origin, or a change by cookie the panel's own page would not send."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "method_not_allowed"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Asked by another method than the one its path takes, which `Allow` names: the answer to every other method here, never to this one.",
+            "headers": {
+              "Allow": {
+                "description": "The methods the path takes.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "not_running",
+                            "uncancellable"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Not the run under way, or one that takes no cancel, as the code says: nothing was asked of any run."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "body_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "A body larger than the server reads."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "json_required"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "A body not sent as `application/json`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_body"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Read, and not one to act on: a body that is not what the route reads, or what the front end will not do, as the code says."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Refused"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "backend_failed"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "What the request was handed on to failed, as the code says."
+          }
+        },
+        "summary": "Ask the run under way to stop, by its number as the events tell it: one that takes a cancel stops where it can, as how it finishes says"
       }
     },
     "/tasks/preview": {

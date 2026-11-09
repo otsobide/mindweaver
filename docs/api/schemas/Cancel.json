@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cancel",
+  "description": "What `POST /api/v1/tasks/cancel` is sent: the run to stop, by its number\nas `command_started` told it, `{\"run\": 3}`.\n\nBy its number rather than \"whatever runs now\", so a cancel that crosses\nthe end of the run it was meant for never stops the one queued behind\nit: by then that one has a number of its own. A field it does not have\nis refused, as a task's is.",
+  "type": "object",
+  "properties": {
+    "run": {
+      "description": "The run's number, as the events tell it.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "run"
+  ]
+}

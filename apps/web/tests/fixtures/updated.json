@@ -1,6 +1,7 @@
 [
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Updating update --all --yes"
@@ -51,6 +52,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mind -W /home/you/Updating -C /home/you/Updating/api update --yes"
@@ -85,6 +87,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mind -W /home/you/Updating -C /home/you/Updating/api update --yes skill:lint"
@@ -119,6 +122,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [
         {
           "caution": "forces",
@@ -159,6 +163,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [
         {
           "caution": "uninstalls",
@@ -199,6 +204,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [
         {
           "caution": "uninstalls",
@@ -244,6 +250,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [
         {
           "caution": "uninstalls",

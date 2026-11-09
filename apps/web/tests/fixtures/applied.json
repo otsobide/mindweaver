@@ -1,6 +1,7 @@
 [
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Assign install -p /home/you/Assign/api -p /home/you/Assign/docs --from https://github.com/acme/skills skill:format"
@@ -42,6 +43,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Assign install -p /home/you/Assign/api --from workspace skill:deploy"

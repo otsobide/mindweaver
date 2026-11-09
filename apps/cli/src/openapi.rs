@@ -29,12 +29,13 @@ use mindweaver_core::code::CoreCode;
 use mindweaver_core::known::Switchable;
 use mindweaver_core::schema::{self as core, given_settings, taken_settings, Visitor};
 use mindweaver_server::schema::{self as server, Called, Carried, Describe, Way};
-use mindweaver_server::{Backend, Grounds, Method, Sent, API};
+use mindweaver_server::{Backend, Cancel, Grounds, Method, Sent, API};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde_json::{json, Map, Value};
 
 use crate::backend::{Confirm, Outcome, PanelBackend, Switch};
 use crate::error::CliCode;
+use crate::progress::Step;
 use crate::task::{Holder, Task};
 
 /// What the document is in, as the versions of OpenAPI go: 3.1, whose
@@ -231,10 +232,12 @@ impl Describe for Described {
     }
 
     /// A task and a switch, as `POST /tasks/preview`, `/tasks` and
-    /// `/switch` read them into the backend's types.
+    /// `/switch` read them into the backend's types, and the run a cancel
+    /// names, as `POST /tasks/cancel` reads it into the server's own.
     fn sent(&mut self, sent: Sent) -> Value {
         match sent {
             Sent::Task => self.sent.subschema_for::<Task>(),
+            Sent::Cancel => self.sent.subschema_for::<Cancel>(),
             Sent::Switch => self.sent.subschema_for::<Switch>(),
         }
         .to_value()
@@ -242,13 +245,15 @@ impl Describe for Described {
 
     /// What the CLI's backend hands over at each place: an item of what to
     /// confirm, a run's outcome, the holder a watched path is of, as a
-    /// query names it, and the row of the workspace switched to, or none
-    /// when the list it is read from no longer holds it.
+    /// query names it, each step a run under way reports, and the row of
+    /// the workspace switched to, or none when the list it is read from no
+    /// longer holds it.
     fn carried(&mut self, carried: Carried) -> Value {
         match carried {
             Carried::Confirm => self.answered.subschema_for::<Confirm>(),
             Carried::Outcome => self.answered.subschema_for::<Outcome>(),
             Carried::Scope => self.answered.subschema_for::<Holder>(),
+            Carried::Progress => self.answered.subschema_for::<Step>(),
             Carried::Switched => self.answered.subschema_for::<Option<Switchable>>(),
         }
         .to_value()

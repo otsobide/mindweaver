@@ -245,6 +245,7 @@ fn removing_one_of_the_librarys_own_everywhere_says_first_all_it_takes() {
                     "message": "takes copies Mindweaver installed out of projects",
                 },
             ],
+            "cancellable": false,
         }));
     assert!(scenario.exists("~/Projects/.mindweaver/library/skills/review"));
 }

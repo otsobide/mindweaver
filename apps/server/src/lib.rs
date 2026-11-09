@@ -21,6 +21,7 @@ pub mod schema;
 mod server;
 mod token;
 mod transcript;
+mod underway;
 mod watcher;
 mod writer;
 
@@ -32,4 +33,5 @@ pub use panel::Panel;
 pub use route::{Answer, Arguments, Method, Own, Parameter, Route, Sent, Shape, API};
 pub use server::{Listening, Server};
 pub use transcript::Ran;
+pub use underway::{Cancel, Cancelling, Underway};
 pub use watcher::{Watcher, DEBOUNCE};

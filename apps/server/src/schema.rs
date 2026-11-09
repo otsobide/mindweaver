@@ -34,24 +34,29 @@ use serde_json::{json, Map, Value};
 use crate::auth::COOKIE_PREFIX;
 use crate::guard::PANEL_HEADER;
 use crate::route::{Answer, Method, Own, Parameter, Reaches, Route, Sent, Shape};
-use crate::{Condition, Event, Grounds, Preview, Ran, Refused};
+use crate::{Cancel, Cancelling, Condition, Event, Grounds, Preview, Ran, Refused};
 
-/// What [`roots`] is handed: each type the server answers with of its own,
-/// for whatever is made of its schema. Only what is given, as serde writes
-/// it, since everything the server is sent is the backend's.
+/// What [`roots`] is handed: each type the server answers with or is sent
+/// of its own, for whatever is made of its schema.
 pub trait Visitor {
     /// A type the server answers with, described as serde writes it.
     fn given<T: JsonSchema + ?Sized>(&mut self);
+    /// A type the server is sent, described as serde reads it.
+    fn taken<T: JsonSchema + ?Sized>(&mut self);
 }
 
-/// Every type the server answers with of its own, whatever the backend:
-/// what a task's preview is ([`Preview`]), what a run did, which the
-/// transcript lists too ([`Ran`]), each event the stream tells ([`Event`]),
-/// and what every answer under `/api` that is no success holds
-/// ([`Refused`]).
+/// Every type the server answers with or is sent of its own, whatever the
+/// backend: what a task's preview is ([`Preview`]), what a run did, which
+/// the transcript lists too ([`Ran`]), the run a cancel names and what it
+/// is answered with ([`Cancel`], [`Cancelling`]), each event the stream
+/// tells ([`Event`]), and what every answer under `/api` that is no
+/// success holds ([`Refused`]). Everything else it is sent is the
+/// backend's.
 pub fn roots(visitor: &mut impl Visitor) {
     visitor.given::<Preview>();
     visitor.given::<Ran>();
+    visitor.taken::<Cancel>();
+    visitor.given::<Cancelling>();
     visitor.given::<Event>();
     visitor.given::<Refused>();
 }
@@ -71,6 +76,10 @@ pub enum Carried {
     /// A scope of a `changed` event, the backend's word for what a watched
     /// path is of ([`Watched::scope`](crate::Watched::scope)).
     Scope,
+    /// What a `progress` event, and the run a stream is told of on its
+    /// own, carries: how a run is going, as the backend reported it
+    /// ([`Underway::report`](crate::Underway::report)).
+    Progress,
     /// What a switch answers with, whole
     /// ([`Backend::switch`](crate::Backend::switch)).
     Switched,
@@ -112,7 +121,9 @@ pub trait Describe {
     /// [`Route::answers`], never with the `[]` of a list), the way it goes.
     fn named(&mut self, name: &str, way: Way) -> Value;
     /// What the body of one of the server's own routes holds, as it is
-    /// sent: the backend's `Task` or `Switch`.
+    /// sent: the backend's `Task` or `Switch`, or the server's own
+    /// [`Cancel`], which the front end lists among its roots as it lists
+    /// every one of the server's.
     fn sent(&mut self, sent: Sent) -> Value;
     /// What the backend hands over at a place the server carries it, as it
     /// is answered.
@@ -200,7 +211,10 @@ pub fn paths<Q>(routes: &[Route<Q>], describe: &mut impl Describe) -> Value {
             let body = describe.sent(body);
             operation.insert("requestBody".into(), sent(body));
         }
-        let called = (own.reaches() != Reaches::Nothing).then_some(Called::Own(own));
+        // A cancel reaches the run under way, and hands the backend nothing
+        // it was sent, so nothing of it is the backend's to refuse.
+        let called =
+            matches!(own.reaches(), Reaches::Backend | Reaches::Writer).then_some(Called::Own(own));
         let mut responses = refusals(&own.conditions(), called, describe);
         responses.insert("200".into(), answered(own.answers(), describe));
         operation.insert("responses".into(), Value::Object(responses));
@@ -260,15 +274,20 @@ pub fn answered(answer: Answer, describe: &mut impl Describe) -> Value {
             "Every run the session made, oldest first.",
             json!({"type": "array", "items": ran(describe)}),
         ),
+        Answer::Cancelling => json_answer(
+            "The run asked to stop, and its lines: how it finishes says whether it stopped.",
+            describe.own::<Cancelling>(),
+        ),
         Answer::Switched => json_answer(
             "What the backend acts on from now on.",
             describe.carried(Carried::Switched),
         ),
         Answer::Events => {
             let scope = describe.carried(Carried::Scope);
+            let progress = describe.carried(Carried::Progress);
             let event = json!({"allOf": [
                 describe.own::<Event>(),
-                {"properties": {"scopes": {"items": scope}}},
+                {"properties": {"scopes": {"items": scope}, "progress": progress}},
             ]});
             json!({
                 "description": "Server-sent events, `resync` first, until the server stops.",
@@ -375,6 +394,10 @@ fn said(status: u16) -> &'static str {
         405 => {
             "Asked by another method than the one its path takes, which `Allow` names: the \
              answer to every other method here, never to this one."
+        }
+        409 => {
+            "Not the run under way, or one that takes no cancel, as the code says: nothing was \
+             asked of any run."
         }
         413 => "A body larger than the server reads.",
         415 => "A body not sent as `application/json`.",

@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 use crate::backend::{Confirm, Outcome, Planned, Query, Scanned, Switch};
 use crate::commands::ui::Handed;
 use crate::error::{CliCode, Code};
+use crate::progress::Step;
 use crate::render::Envelope;
 use crate::routes::{Drafted, Selected};
 use crate::task::Task;
@@ -36,10 +37,11 @@ use crate::CODES;
 /// part of the API it serves, each with every type it names: a query, a
 /// task, a switch and what a plan and a draft to judge are sent as, each
 /// taken; what a scan, a plan, a preview and a run are answered with, the
-/// last two what to confirm and what it produced, the envelope a reading
-/// command's `--json` prints, the token file a script reads first, every
-/// code core, the CLI and the server give, and the server's own answers,
-/// each given.
+/// last two what to confirm and what it produced, each step a run under
+/// way reports, the envelope a reading command's `--json` prints, the
+/// token file a script reads first, every code core, the CLI and the
+/// server give, each given, and the server's own, a cancel taken and the
+/// rest given.
 pub fn roots(visitor: &mut impl Visitor) {
     visitor.taken::<Query>();
     visitor.taken::<Task>();
@@ -50,6 +52,7 @@ pub fn roots(visitor: &mut impl Visitor) {
     visitor.given::<Planned>();
     visitor.given::<Confirm>();
     visitor.given::<Outcome>();
+    visitor.given::<Step>();
     visitor.given::<Envelope<'static, Value>>();
     visitor.given::<Handed<'static>>();
     visitor.given::<Code>();
@@ -64,6 +67,10 @@ struct Server<'a, V>(&'a mut V);
 impl<V: Visitor> mindweaver_server::schema::Visitor for Server<'_, V> {
     fn given<T: JsonSchema + ?Sized>(&mut self) {
         self.0.given::<T>();
+    }
+
+    fn taken<T: JsonSchema + ?Sized>(&mut self) {
+        self.0.taken::<T>();
     }
 }
 

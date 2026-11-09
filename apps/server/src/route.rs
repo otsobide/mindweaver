@@ -9,9 +9,9 @@
 //! values each parameter's [`Shape`] says, and a body. So it can refuse what
 //! no route takes before the backend is asked anything, as
 //! `deny_unknown_fields` refuses a field, and hand over the rest without
-//! knowing what any of it means. Its own routes, a task previewed or run, a
-//! switch, the transcript and the events, are data too ([`Own`]), so a
-//! description walks both and describes nothing by hand.
+//! knowing what any of it means. Its own routes, a task previewed, run or
+//! cancelled, a switch, the transcript and the events, are data too
+//! ([`Own`]), so a description walks both and describes nothing by hand.
 //!
 //! [`Backend::routes`]: crate::Backend::routes
 
@@ -43,15 +43,17 @@ pub const API: &str = "/api/v1";
 /// the two cannot disagree. None takes a parameter. What each is sent and
 /// answers is named by what it is ([`Sent`], [`Answer`]) rather than by a
 /// type's name, as a backend's route names its own: a body is the
-/// backend's `Task` or `Switch`, and an answer carries its `Outcome` or its
-/// JSON, types the server never names, so a description names each as the
-/// backend's types do.
+/// backend's `Task` or `Switch`, or the run a cancel names, and an answer
+/// carries its `Outcome` or its JSON, types the server never names, so a
+/// description names each as the backend's types do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Own {
     /// `POST /tasks/preview`.
     Preview,
     /// `POST /tasks`.
     Run,
+    /// `POST /tasks/cancel`.
+    Cancel,
     /// `POST /switch`.
     Switch,
     /// `GET /transcript`.
@@ -64,9 +66,10 @@ pub enum Own {
 
 impl Own {
     /// Every one, in the order a description of the API lists them.
-    pub const ALL: [Own; 6] = [
+    pub const ALL: [Own; 7] = [
         Own::Preview,
         Own::Run,
+        Own::Cancel,
         Own::Switch,
         Own::Transcript,
         Own::Events,
@@ -76,7 +79,7 @@ impl Own {
     /// How it is asked for: a POST takes its body, and a GET nothing.
     pub fn method(self) -> Method {
         match self {
-            Own::Preview | Own::Run | Own::Switch => Method::Post,
+            Own::Preview | Own::Run | Own::Cancel | Own::Switch => Method::Post,
             Own::Transcript | Own::Events | Own::Document => Method::Get,
         }
     }
@@ -86,6 +89,7 @@ impl Own {
         match self {
             Own::Preview => "/tasks/preview",
             Own::Run => "/tasks",
+            Own::Cancel => "/tasks/cancel",
             Own::Switch => "/switch",
             Own::Transcript => "/transcript",
             Own::Events => "/events",
@@ -104,13 +108,17 @@ impl Own {
                 "Run a task, once every one sent before it has run: its lines, and what \
                  the command said"
             }
+            Own::Cancel => {
+                "Ask the run under way to stop, by its number as the events tell it: one \
+                 that takes a cancel stops where it can, as how it finishes says"
+            }
             Own::Switch => {
                 "Act on what the body names from now on, once every task sent before it \
                  has run: what is acted on then"
             }
             Own::Transcript => "Every task the session ran, oldest first, with what each said",
             Own::Events => {
-                "What happens as it happens, a change on disk or a run starting and \
+                "What happens as it happens, a change on disk or a run starting, going and \
                  finishing, as server-sent events"
             }
             Own::Document => "This description of the API, as an OpenAPI 3.1 document",
@@ -121,6 +129,7 @@ impl Own {
     pub fn body(self) -> Option<Sent> {
         match self {
             Own::Preview | Own::Run => Some(Sent::Task),
+            Own::Cancel => Some(Sent::Cancel),
             Own::Switch => Some(Sent::Switch),
             Own::Transcript | Own::Events | Own::Document => None,
         }
@@ -131,6 +140,7 @@ impl Own {
         match self {
             Own::Preview => Answer::Preview,
             Own::Run => Answer::Ran,
+            Own::Cancel => Answer::Cancelling,
             Own::Switch => Answer::Switched,
             Own::Transcript => Answer::Runs,
             Own::Events => Answer::Events,
@@ -147,23 +157,28 @@ impl Own {
     }
 
     /// What it hands a request on to: a preview the backend, a run and a
-    /// switch the writer thread, and the rest nothing, answered from what
-    /// the server holds.
+    /// switch the writer thread, a cancel the run under way, and the rest
+    /// nothing, answered from what the server holds.
     pub(crate) fn reaches(self) -> Reaches {
         match self {
             Own::Preview => Reaches::Backend,
             Own::Run | Own::Switch => Reaches::Writer,
+            Own::Cancel => Reaches::Underway,
             Own::Transcript | Own::Events | Own::Document => Reaches::Nothing,
         }
     }
 }
 
 /// What the body of one of the server's own routes ([`Own`]) holds: one
-/// of the backend's types, which the server never names.
+/// of the backend's types, which the server never names, or the server's
+/// own [`Cancel`](crate::Cancel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sent {
     /// A task, the backend's [`Task`](crate::Backend::Task).
     Task,
+    /// The run to stop, the server's own [`Cancel`](crate::Cancel):
+    /// `{"run": 3}`, whatever the backend.
+    Cancel,
     /// What to act on from now on, the backend's
     /// [`Switch`](crate::Backend::Switch).
     Switch,
@@ -183,6 +198,9 @@ pub enum Answer {
     /// Every run the session made, oldest first: a list of what
     /// [`Answer::Ran`] is.
     Runs,
+    /// The run asked to stop, the server's
+    /// [`Cancelling`](crate::Cancelling): `{"run": 3, "lines": [...]}`.
+    Cancelling,
     /// What the backend acts on after the switch, as its own JSON
     /// ([`Backend::switch`](crate::Backend::switch)).
     Switched,
@@ -338,6 +356,10 @@ pub(crate) enum Reaches {
     /// The backend, on the writer thread every run and switch takes its
     /// turn on.
     Writer,
+    /// The run under way on the writer thread, and what the backend said
+    /// a cancel of it does: never queued behind it, which would reach it
+    /// only once it is over.
+    Underway,
 }
 
 /// Every condition a request to a route asked by `method`, taking
@@ -386,6 +408,7 @@ fn conditions(
         Condition::InvalidParameters => read && !post,
         // A path no route names: never one route's.
         Condition::UnknownRoute => false,
+        Condition::NotRunning | Condition::Uncancellable => reaches == Reaches::Underway,
         Condition::BackendFailed => reaches != Reaches::Nothing,
         Condition::WriterStopped => reaches == Reaches::Writer,
     };
