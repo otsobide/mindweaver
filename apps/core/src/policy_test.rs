@@ -8,6 +8,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::known;
+use crate::mother::UrlMother;
 use crate::workspace::{MindProject, WEAVER_DIR};
 
 /// A workspace linking `alpha` under it and `beside` next to it, and loading
@@ -63,6 +64,61 @@ fn a_url_is_refused_as_one() {
         "ssh://git@host/x",
     ] {
         assert_eq!(code(path(given)), "path_url", "{given:?}");
+    }
+}
+
+/// An address is the gather's to judge, a credential in it among what it
+/// refuses: every form a source is typed in, with or without one, is
+/// taken here as given.
+#[test]
+fn an_address_to_gather_from_is_a_value_the_gather_judges() {
+    // Every clean form but the two that name a folder on this machine.
+    let typed = UrlMother::every_clean()
+        .into_iter()
+        .filter(|url| !url.starts_with("file://") && !url.starts_with('/'))
+        .chain(
+            UrlMother::every_credentialed()
+                .into_iter()
+                .map(|url| url.typed),
+        );
+
+    for given in typed {
+        assert!(source(&given).is_ok(), "{given:?}");
+    }
+    assert!(source("github.com:acme/skills.git").is_ok());
+}
+
+/// A folder on this machine, as a path or behind `file://`, is held as a
+/// folder to link is, so what the preview shows is the repository read.
+#[test]
+fn a_folder_to_gather_from_is_held_as_a_folder_to_link_is() {
+    let (dir, workspace) = fixture();
+    let beside = spelled_under(dir.path(), &["src", "acme-skills"]);
+    let inside = spelled_under(&workspace.weaver_dir(), &["cache", "acme"]);
+
+    assert!(source(&beside).is_ok());
+    // A `file://` URL's path, as a Unix path is spelled after it.
+    #[cfg(unix)]
+    {
+        assert!(source(&format!("file://{beside}")).is_ok());
+        assert!(source(&format!("FILE://{beside}")).is_ok());
+        assert_eq!(
+            code(source(&format!("file://{inside}"))),
+            "path_in_mindflayer"
+        );
+    }
+    for (given, refused) in [
+        (String::from("../src/acme-skills"), "path_relative"),
+        (String::from("acme-skills"), "path_relative"),
+        (String::from("./acme:skills"), "path_relative"),
+        (String::from("file://acme/skills"), "path_relative"),
+        (
+            spelled_under(dir.path(), &["src", "..", "src"]),
+            "path_unnormalized",
+        ),
+        (inside, "path_in_mindflayer"),
+    ] {
+        assert_eq!(code(source(&given)), refused, "{given:?}");
     }
 }
 
