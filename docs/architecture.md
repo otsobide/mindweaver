@@ -373,9 +373,22 @@ rewritten, and a new one is its author's to watch.
 
 `mindweaver-core` knows what a mind project is, what a weaver workspace is, and
 what each kind of artifact is. It reads and writes files, and the only other
-I/O it does is fetching a repository when asked to gather, through a port whose
-adapter is `gix`, and reading the clock ([values, ports and
-adapters](#values-ports-and-adapters)). It has no idea a terminal exists.
+I/O it does goes through a port ([values, ports and
+adapters](#values-ports-and-adapters)): fetching a repository when asked to
+gather, whose adapter is `gix`; reading a catalog over HTTP, whose adapter is
+reqwest ([catalogs over HTTP](#catalogs-over-http)); and reading the clock.
+It has no idea a terminal exists.
+
+HTTP is core's for the reason every rule is
+([D-14](#d-14-core-owns-http-behind-a-seam)): which redirect is followed and
+with which headers, what a status means, how one page of a catalog leads to
+the next, what is kept and for how long, and what a catalog's JSON is read
+into are rules, and a front end that fetched the bytes and handed them over
+would hold them itself, where a second front end could disagree. What the
+front end still decides is what it alone can know, as it does for a gather:
+which workspace the answers are kept in, and, once a catalog needs one, the
+credential a request carries, read for the run and never stored
+([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)).
 
 `mindweaver-cli` parses a command line, asks core for values, and renders them.
 It holds no rules about artifacts: not the name limits, not the front matter
@@ -454,7 +467,8 @@ Core is written hexagonally, at the owner's request
 ([D-25](#d-25-core-is-values-and-ports)): the rules in the middle, built of
 value objects, depend on nothing outside them; what they need from outside
 is a port; and an adapter on the edge implements each port with a library:
-`gix` for a source, SQLite for the ledger, the system's clock for the time.
+`gix` for a source, reqwest for a catalog over HTTP, SQLite for the ledger,
+the system's clock for the time.
 The front ends are the other side's adapters, so a new store or a new
 interaction module is written against what is there, and no rule changes
 for it.
@@ -500,7 +514,10 @@ the same way.
 
 **Ports.** `port` holds what core needs of the world beyond its files, each
 a trait in core's own words: a `Remote` fetches a source into the cache and
-scrubs a clone of what a credential left in it, a `LedgerStore` keeps a
+scrubs a clone of what a credential left in it, an `Http` asks a catalog for
+one `GET` and hands back whatever it answered (an `HttpRequest`, an
+`HttpResponse` holding only the headers core reads, and an `HttpError`, all
+the port's own), a `LedgerStore` keeps a
 workspace's records (its sources and what each supplied, every installation
 and its copies, the projects it knew, the action log), and a `Clock` tells
 the time the ledger stamps by. A port speaks only core's types: what an adapter's
@@ -508,7 +525,8 @@ library says is turned into those at the edge (an error into text, a commit
 into a `Revision`), never carried through, which would tie core's public API
 to the library's version and let a rule lean on how one library works. So
 `GitError` and the clone a fetch answers with (`port::Cloned`) are the
-port's, since they carry only text, and `LedgerError` carries what a store
+port's, since they carry only text, as are `HttpError` and what a request
+is answered (`port::HttpResponse`), and `LedgerError` carries what a store
 said boxed (`Box<dyn Error + Send + Sync>`), so it names no store's type;
 the SQLite adapter, which alone knows what it put there, looks inside it
 with a `downcast_ref` where it has to tell one failure from another.
@@ -517,21 +535,26 @@ with a `downcast_ref` where it has to tell one failure from another.
 with `gix` and asks the credential helpers through the callback that never
 prompts ([a gather never prompts for a credential
 itself](#d-16-credentials-come-from-the-front-end-never-from-a-prompt));
-`adapter::sqlite::Sqlite`, every query, every schema step and the backup
-before one ([why the ledger is SQLite](#why-the-ledger-is-sqlite)); and
-`SystemClock`. Each is the default its port is given wherever nothing else
-is handed over, the seam [D-14](#d-14-core-owns-http-behind-a-seam) chose
-for HTTP: a gather's `Request` fetches through the remote it is handed
-(`Request::through`), `Gix` unless another is, and the ledger stamps by the
-clock it is given (`Ledger::with_clock`), the system's unless another is,
-and keeps its records in the store it is handed (`Ledger::new`), SQLite
-unless another is: every other constructor opens a `Sqlite`. A
-test's fake is one more adapter: `port_test.rs` gathers through a remote
-that writes files and has no git at all, and stamps the ledger by a clock
-that does not move, and what each comes to is what it comes to through the
-real ones. The scrub `ledger_to_write` runs goes through `Gix` whatever a
-gather is handed, since what it repairs is what an older build's gix clones
-kept.
+`adapter::reqwest::Reqwest`, reqwest's blocking client over rustls, which
+follows no redirect and keeps nothing between requests ([catalogs over
+HTTP](#catalogs-over-http)); `adapter::sqlite::Sqlite`, every query, every
+schema step and the backup before one ([why the ledger is
+SQLite](#why-the-ledger-is-sqlite)); and `SystemClock`. Each is the default
+its port is given wherever nothing else is handed over, the seam
+[D-14](#d-14-core-owns-http-behind-a-seam) chose for HTTP: a gather's
+`Request` fetches through the remote it is handed (`Request::through`),
+`Gix` unless another is, a catalog is read through the `Http` its
+`http::Client` is handed (`Client::through`), `Reqwest` unless another is,
+and the ledger stamps by the clock it is given (`Ledger::with_clock`), the
+system's unless another is, and keeps its records in the store it is
+handed (`Ledger::new`), SQLite unless another is: every other constructor
+opens a `Sqlite`. A test's fake is one more adapter: `port_test.rs`
+gathers through a remote that writes files and has no git at all, and
+stamps the ledger by a clock that does not move, `http_test.rs` reads
+catalogs from sites kept in memory, and what each comes to is what it
+comes to through the real ones. The scrub `ledger_to_write` runs goes
+through `Gix` whatever a gather is handed, since what it repairs is what
+an older build's gix clones kept.
 
 **What is not behind a port.** The files are not. What core promises of
 them is how they are written (`create_new`, a temporary renamed into place,
@@ -2224,6 +2247,10 @@ An MCP server's definition carries a format of its own, `format = 1`
 (`MCP_FORMAT`), since it is an artifact, copied and gathered with no marker
 beside it, and is refused from a newer format as a marker is ([what an MCP
 server's definition declares](#what-an-mcp-servers-definition-declares)).
+So does an answer the HTTP cache keeps (`CACHE_FORMAT`), in the line it
+starts with, and one from a newer format is left as it is, neither read nor
+written over, rather than refused: it is only a cache, and the answer is
+asked of the server instead ([catalogs over HTTP](#catalogs-over-http)).
 Adding the kind moved no marker's version: a new `weaver.toml` and a new
 `settings.toml` name no folder for it, so they read to an older build as
 they did, and one that names `mcp` by hand names a key an older build reads
@@ -3035,6 +3062,7 @@ the workspace and belonging to no project yet.
   mindweaver.db
   lock                       held by whoever is writing
   cache/<source>/            the clone
+  cache/http/                what catalogs answered over HTTP
   skills/<source>/<name>/    what was taken out of it
 ```
 
@@ -3294,6 +3322,108 @@ offering each skill under one origin. Deleting the old
 clones instead of rewriting them would have been simpler and was rejected:
 the clone is kept so a gather can be looked at afterwards, and a scrub has no
 reason to take that away.
+
+### Catalogs over HTTP
+
+The MCP Registry (#106) and the skill directories (#108) are HTTP APIs, not
+repositories, so they are read over HTTP rather than cloned
+([D-14](#d-14-core-owns-http-behind-a-seam)). #105 built the seam they are
+read through, and nothing calls it yet: each of those issues is the first
+caller of its catalog.
+
+**The port** is one `GET` (`port::Http::get`), answered whatever its status.
+An `HttpRequest` is made only through `HttpRequest::get` and `at`, which
+refuse a URL that is not `http` or `https`, names no host, holds a space
+or a control character (`http_url_invalid`), or carries a credential
+(`http_url_credentialed`, said redacted): a credential goes in a header
+instead, added as a secret (`HttpRequest::secret`, and `Authorization`,
+`Cookie` and `Proxy-Authorization` however they are added), which `Debug`
+never shows and no cache keeps. A header's name and value are held to what
+every HTTP library sends (`http_header_invalid`, never quoting the value),
+since a line break in one would start another header. Every request says
+who asks, `mindweaver/<version>` (`USER_AGENT`), which GitHub's API
+refuses a request without. Its timeout (`HTTP_TIMEOUT`, 30 seconds) is the
+whole exchange, from asking to the body's last byte, redirects included,
+rather than each read on its own, which a server sending a byte now and
+then would never run out of; its limit (`HTTP_LIMIT`, 8 MiB) is held as
+the body comes, a length said beyond it refused before a byte is read and
+a body that says none, or lies, refused one chunk past it rather than read
+to its end. An `HttpResponse` keeps the status, the body and only the
+headers core reads (`KEPT_HEADERS`: type, tag, time, `Link`, `Location`,
+`Retry-After`), so a `Set-Cookie`, a credential, never reaches core to be
+kept by mistake. A failure is an `HttpError`, each variant with a code of
+its own (unreachable, timed out, too large, or anything else the library
+said), every URL in it the one asked and what the library said
+`Redacted`.
+
+An adapter follows no redirect. It hands one back with its `Location` made
+absolute against the URL asked, the one part of a redirect that takes a URL
+parser, and core follows it (`http::Client`): at most `MOST_REDIRECTS`
+times, never from `https` to anything else (`http_redirect_downgraded`), and
+to another site only without the request's secrets, as curl and browsers
+drop them. Following them in reqwest was the other way, and is rejected:
+the rule would be the adapter's, a fake would not keep it, and reqwest
+drops only the headers it knows to be credentials, where a catalog's key
+may travel in one of its own name.
+
+**The adapter**, `adapter::reqwest::Reqwest`, is reqwest's blocking client,
+already built by gix's HTTP transport, so the lock gains no crate: rustls
+with the system's roots, none of reqwest's default features, no cookie
+store, and no proxy, which it would otherwise read from the environment
+behind core's back (an [open question](#open-questions)). Its client is
+made on the first request and kept for the next, so a front end that never
+reads a catalog never starts the thread a blocking client runs on. It is
+called from a front end's own threads, as all of core is, never from an
+async task.
+
+**What core makes of an answer** is `http::Client`'s: a status that is no
+success is a failure by its status (`http_status_unsuccessful`), never the
+body; JSON is read into what the caller asks for (`http_json_invalid`); and
+a catalog's pages follow one another as each says (`Client::pages`), by a
+cursor put into the first page's URL (`with_query`) or by the `Link` an
+answer names (`next_link`). Paging stops, said beside the pages read rather
+than in their place, at a page that fails, at one past the most it was told
+to read (`http_pages_exceeded`), at one it read already, which would go round
+for ever (`http_page_repeated`), and at one on another site, where the first
+page's headers were never meant to go (`http_page_elsewhere`). Failures are
+collected, as everywhere: `Paged` holds what was read and why there is no
+more.
+
+**The cache** keeps answers in the workspace, `cache/http` inside its
+folder (`WeaverWorkspace::http_cache_dir`, `.mindflayer/cache/http` in one a
+Mindflayer build made), so a listing read twice asks once (`http::Cache`,
+made only for a workspace). Each answer is one file, named by the SHA-256
+of what tells its request from another (`hash::request`: the URL and every
+header but `User-Agent`, so another `Accept` is another answer and another
+version of Mindweaver is not), which says nothing a URL said and is a name
+every filesystem takes. It holds a line of JSON, its format
+(`CACHE_FORMAT`), the URL, when it was kept, the status and the kept
+headers, then the body. What a secret was sent for is never kept: keyed
+without the secret, the next request without one would be handed it, and
+keyed with it, something of a credential would be on the disk. An answer is
+fresh for as long as the caller says, by the clock the cache is told
+(`Cache::with_clock`, the system's unless another), and asked again after
+that by its tag and its time (`If-None-Match`, `If-Modified-Since`), a 304
+keeping it as of then. Written through a temporary renamed onto it, so two
+writers at once leave one whole answer, and so it takes [the workspace's
+lock](#writers-at-the-same-time) no more than a read does: a command reading
+a catalog should not wait for an install, nor hold one up. A folder that is
+a link is said and neither read nor written; a file that is one is read as
+nothing and replaced, never written through; one written by a newer build
+is left as it is, as every format is ([formats are
+versioned](#formats-are-versioned)). What it cannot do is a warning beside
+the answer (`http_cache_unreadable`, `http_cache_unwritable`,
+`http_cache_linked`), never a failure, since the cache only saves asking
+again. The cache sits beside the clones, each in a folder its source is
+given, so the ledger gives no source the name `http`
+(`RESERVED_IN_CACHE`): one whose URL reads as it is given `http-2`.
+
+**Tested** as the other ports are: `tests/http_test.rs` holds `Reqwest`,
+asking a server the test starts on 127.0.0.1, and a fake keeping its sites
+in memory to one contract, the timeout and the limit among it, with answers
+slower than the one and longer than the other, and runs core's client,
+redirects, pages and cache included, through both. Nothing reaches the
+network.
 
 ### Why the ledger is SQLite
 
@@ -10972,6 +11102,11 @@ How the lock behaves, and why:
   `ledger_for_reading` migrates an older ledger as `ledger` does, in the same
   transaction, so the most a read waits for is another process's migration,
   once after an upgrade.
+- **Nor does the HTTP cache.** What a catalog answered is kept in
+  `cache/http` by a reader, a file an answer, each replaced whole by a
+  rename, so two commands reading one catalog at once leave one whole
+  answer and neither waits for an install to finish
+  ([catalogs over HTTP](#catalogs-over-http)).
 - **Not re-entrant.** Two handles on the file are two writers even in one
   process, which is what lets threads stand in for processes in the tests,
   from a link on each of two threads at once to every writer waiting for a
@@ -11552,6 +11687,16 @@ line between core and a front
 end](#where-the-line-between-core-and-a-front-end-falls) and AGENTS.md's "only
 I/O is files". Unblocks #105, #106 and #108.
 
+#105 carried out the seam ([catalogs over HTTP](#catalogs-over-http)): the
+`Http` port, `adapter::reqwest::Reqwest` as its default, with rustls and
+none of reqwest's default features, core's `http::Client` following
+redirects, reading JSON and paging, and the answers a workspace keeps in
+`cache/http`, the issue's `.mindflayer/cache/http` under the names
+[D-26](#d-26-the-product-is-mindweaver) has given the folder since. Retries
+are not among it yet: no catalog has said what it needs, so a `429` or a
+`503` is a failure by its status, its `Retry-After` kept for the caller
+that first acts on it. #106 and #108 are its first callers.
+
 ### D-15: Skill search is GitHub plus opt-in finders
 
 `mindweaver gather search` queries GitHub code search when a token is supplied,
@@ -11963,6 +12108,29 @@ it once as it closes.
   names a file a store kept elsewhere may not have. Splitting the repairs
   off into a port of their own waits for a second store to say which of
   them it can answer, rather than guessing now.
+- **A proxy for a catalog.** `Reqwest` reads no proxy, since one read from
+  `HTTPS_PROXY` would be the environment read behind core's back, and a
+  test asking a server on loopback would ask a developer's proxy instead
+  ([catalogs over HTTP](#catalogs-over-http)). gix's transport does read
+  one, through reqwest's defaults, so somebody behind a proxy can gather
+  and, once #106 lands, not read a catalog. A proxy the front end reads and
+  hands to the adapter, as it will a credential
+  ([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
+  closes it when the first catalog does.
+- **A source an older build named `http`.** The ledger gives no source the
+  name of the HTTP cache's folder any more (`RESERVED_IN_CACHE`), but one
+  a build from before #105 gave it keeps it, its clone in the folder the
+  cache keeps answers in: a gather of it removes the answers with the
+  clone it replaces, and the cache would find a clone's files under names
+  of 64 hex digits only by chance. Only a URL whose readable name is
+  exactly `http` (`https://http`, `file:///http`) was ever given it;
+  moving such a source's folders waits for one to be found.
+- **The HTTP cache is never pruned.** An answer is replaced when its
+  request is asked again, and never removed: one for a request no longer
+  asked, a cursor's page of a listing since reordered, stays until the
+  folder is removed by hand, which loses nothing but the next request's
+  saving. Pruning by age waits for a catalog whose pages are many enough
+  to matter.
 - **Values not named yet.** A project's name, a registry entry and a path
   inside a project are still `String`s, and so are an error's fields, as
   the read types that hold them were. Each joins `value` when a rule is
