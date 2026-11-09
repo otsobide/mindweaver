@@ -209,7 +209,11 @@ under `apps/` with its own `Makefile`:
   workspace's own from every project it links before the library
   (`everywhere`), and bringing a skill somebody keeps in a project's agents'
   folders into the library, its copies recorded as installed from there
-  (`adopt`), what keeps a project's agents from what it gives them, which
+  (`adopt`), writing the library into a folder laid out as a workspace of
+  its own, a plan until told yes when that would change or remove what is
+  there (`export`), and sending it to a git repository, an export into a
+  fresh check-out committed and pushed (`backup`), what keeps a project's
+  agents from what it gives them, which
   no agent says, found from file reads alone and told the agent homes and
   the names of the variables set (`doctor`, `doctor::Machine`), the stable
   code each of its errors gives (`code`), the
@@ -239,10 +243,12 @@ under `apps/` with its own `Makefile`:
   on). Its only I/O beyond files
   goes through a port (`port`: a `Remote` a gather fetches through, a
   `LedgerStore` the ledger keeps its records in, a `Clock` it stamps them
-  by), each implemented by an adapter in `adapter` (`adapter::gix::Gix`,
-  its credentials callback in `adapter/gix/credentials.rs`;
-  `adapter::sqlite::Sqlite`, every query and schema step, its tests in
-  `adapter/sqlite_test.rs`; and `SystemClock`). `ledger::Ledger` is the
+  by, an `Upstream` a backup is checked out from and pushed to, with the
+  `Token` a front end read for the run), each implemented by an adapter in
+  `adapter` (`adapter::gix::Gix`, its credentials callback in
+  `adapter/gix/credentials.rs`; `adapter::sqlite::Sqlite`, every query and
+  schema step, its tests in `adapter/sqlite_test.rs`; `adapter::git::SystemGit`,
+  the one place core runs `git` (D-27); and `SystemClock`). `ledger::Ledger` is the
   facade every caller holds, reaching its store's methods through `Deref`.
   It never reads the environment. Under its `ts` feature, `typescript` gives what it hands a
   front end TypeScript (the roots its export writes), under its `schema`
@@ -259,7 +265,9 @@ under `apps/` with its own `Makefile`:
   (workspaces, workspaces forget), `artifact` (add, edit, rename, remove,
   templates), `read` (list, show, validate), `status`, `doctor`, `settings`
   (agents, share, targets), `gather`, `install`, `update` and `migrate`
-  (each at both levels), `adopt` (mindweaver adopt) and `ui` (the panel, at
+  (each at both levels), `adopt` (mindweaver adopt), `export` and `backup`
+  (mindweaver export, mindweaver backup, which reads the token
+  `--token-env` names) and `ui` (the panel, at
   both levels).
   `add mcp`'s options for how a server is started or reached are one
   struct both binaries' `add` and `edit` flatten (`ServerOptions`), which
@@ -481,7 +489,7 @@ These are easy to break from a single file without noticing.
   unless `through` hands another), the ledger keeps its records only in its
   `LedgerStore` (SQLite unless `Ledger::new` hands another) and reads the
   time only through its `Clock` (`with_clock`), and no module but
-  `adapter` names `gix` for a fetch or `rusqlite` at all: a store's error
+  `adapter` names `gix` for a fetch or `rusqlite` at all, nor runs `git`: a store's error
   reaches `LedgerError` boxed, so the port names no store's type. A new library outside core is an adapter of a port, injected
   with the default built in, as D-14 has it for HTTP; a new front end is
   one more driver of the command lines (`commands::run_line`), never a
@@ -705,7 +713,10 @@ These are easy to break from a single file without noticing.
   - `rename` rewrites only the `name:` line (`frontmatter::with_key`).
   - `remove` (`mindweaver remove --everywhere` too), `migrate` at either level,
     `agents`, `share`, `targets`, `update` and `mindweaver adopt` are dry runs
-    without `--yes`.
+    without `--yes`, and so is `mindweaver export` when it would change or
+    remove what an earlier export wrote (`export::export`, told `yes`); a
+    folder it did not make, a workspace in use or one keeping a kind outside
+    its library, is refused, never written into.
     A migration of the library moves nothing a project holds, refuses as a
     whole, and keeps the marker it rewrites as `weaver.toml.v<version>`
     (`create_new`). A project's (`migrate::project`) writes its
@@ -1176,7 +1187,11 @@ These are easy to break from a single file without noticing.
   connects to a remote takes the same callback. Two gaps are open questions in
   the architecture doc: what the system ssh asks on the terminal, and `gix`'s
   retry after a remote branch named `HEAD`, a connection the callback cannot
-  reach.
+  reach. Nor does a backup, the one thing sent with the system's `git`
+  (`adapter::git`): it runs with `GIT_TERMINAL_PROMPT=0`, no askpass and no
+  standard input, a login nothing answers is `UpstreamError::Credentials`,
+  and a token reaches it only through a credential helper on its command
+  line reading a variable of the child's environment, never an argument.
 - **Formats are versioned.** Each marker carries its own `version`
   (`MIND_FORMAT_VERSION` for a project's, `WEAVER_FORMAT_VERSION` for
   `weaver.toml`, so bumping one never makes older builds refuse the other)
@@ -1672,7 +1687,7 @@ These are easy to break from a single file without noticing.
 - The CLI end to end is `apps/cli/tests/e2e_test.rs`, one target whose
   modules under `tests/e2e/` group the use cases by what a person is
   doing (projects, authoring, installing, gathering, updating, reading,
-  workspaces, settings, adopting, removing, loading, upgrading, json,
+  workspaces, settings, adopting, removing, loading, exporting, upgrading, json,
   mistakes). Each test is one use case: it builds its own
   scenario (`e2e/scenario.rs`, `Scenario`), runs one command line as a
   person types it, and holds its exit status, stdout and stderr word for

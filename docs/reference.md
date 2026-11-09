@@ -26,6 +26,7 @@ says why each part is the way it is.
 - [Gathering skills from elsewhere](#gathering-skills-from-elsewhere)
 - [Installing into a project](#installing-into-a-project)
 - [Loading another workspace](#loading-another-workspace)
+- [Exporting and backing up the library](#exporting-and-backing-up-the-library)
 - [What each project has](#what-each-project-has)
 - [Machine-readable output](#machine-readable-output)
 - [Following a project that moved](#following-a-project-that-moved)
@@ -535,6 +536,13 @@ mindweaver adopt -p PROJECT <NAME> [--yes]
                            # a skill a project keeps by hand in an agent's
                            # folder, into the library and managed from there;
                            # without --yes, say what would happen
+mindweaver export <DIR> [--kind KIND]... [--yes]
+                           # its own skills, rules and MCP servers into DIR,
+                           # as a workspace `load` reads; without --yes,
+                           # nothing there is changed or removed
+mindweaver backup <URL> [--branch BRANCH] [--kind KIND]... [-m MESSAGE] [--token-env VAR]
+                           # the same, committed and pushed to a git
+                           # repository with the git on the PATH
 mindweaver agents|share|targets -p PROJECT ...
                            # mind's agents, share and targets, for one of its
                            # projects
@@ -1262,6 +1270,174 @@ route no rule may be named; a symlink pointing out of the loaded workspace is
 not followed, and nothing it keeps as its own is ever overwritten or removed
 from a project that shares its folder. Each of these is a `warning:` line,
 like a skill that cannot be read or a loaded workspace that has gone.
+
+
+## Exporting and backing up the library
+
+The library is the one thing in a workspace that cannot be gathered again from
+somewhere: the skills, rules and MCP servers you wrote yourself. `mindweaver
+export` writes a copy of it into a folder, laid out as a workspace of its own,
+named after yours and linking nothing:
+
+```
+$ cd ~/Projects
+$ mw export ../backup
+/home/you/backup, a workspace named Projects made there
+  added  skill  deploy
+  added  rule   git/commits
+  added  mcp    github
+
+3 artifacts: 3 added, 0 updated, 0 removed, 0 unchanged
+```
+
+So the way back is one you know: [`mindweaver load`](#loading-another-workspace)
+of that folder offers all of it to the projects of any workspace, and its
+skills can be [gathered](#gathering-skills-from-elsewhere) with `--path
+.mindweaver/library/skills`.
+
+```
+$ cd ~/elsewhere
+$ mw load ../backup
+loaded Projects as ../backup: 1 skill and 1 rule and 1 MCP server to install
+  into the workspace at /home/you/elsewhere
+```
+
+`--kind` takes one kind, `skills`, `rules` or `mcp`, and can be given once for
+each; without it every kind is exported.
+
+```
+$ mw export ../backup --kind rules
+/home/you/backup, a workspace named Projects made there
+  added  rule  git/commits
+
+1 artifact: 1 added, 0 updated, 0 removed, 0 unchanged
+```
+
+Exported again, the folder is brought up to date with the library, each kind
+copied whole, so what you removed from the library goes from the export too.
+Adding to it needs nothing more, but changing or removing what an earlier
+export wrote, which somebody may have edited there since, is only said until
+`--yes`:
+
+```
+$ mw export ../backup
+/home/you/backup
+  would add     skill  review
+  would remove  rule   git/commits
+  unchanged     skill  deploy
+  unchanged     mcp    github
+
+4 artifacts: 1 to add, 0 to update, 1 to remove, 2 unchanged
+nothing exported: add --yes to go ahead
+
+$ mw export ../backup --yes
+/home/you/backup
+  added      skill  review
+  removed    rule   git/commits
+  unchanged  skill  deploy
+  unchanged  mcp    github
+
+4 artifacts: 1 added, 0 updated, 1 removed, 2 unchanged
+```
+
+A folder that is not an export is refused before anything is written: a
+workspace in use (one with a ledger, projects linked, workspaces loaded or
+others known), one whose marker keeps a kind anywhere but its library, a
+`.mindweaver` with no marker, a folder inside any workspace's own, and the
+workspace itself:
+
+```
+$ mw export .
+error: /home/you/Projects is where this workspace keeps what it would export: export into a folder of its own
+```
+
+So is a library holding an MCP server whose definition has what looks like a
+token written in it, or one that does not read, where that cannot be told: an
+export goes wherever the folder goes, a public repository included, and a
+definition [holds no secret](#what-an-mcp-server-looks-like).
+
+### Backing it up to a git repository
+
+`mindweaver backup` is the same export, made into a fresh check-out of a git
+repository, committed and pushed. The repository can be an https or ssh URL,
+or a path; a new, empty one is fine.
+
+```
+$ mw backup ../backups/library.git
+/home/you/backups/library.git, branch main
+  added  skill  deploy
+  added  rule   git/commits
+  added  mcp    github
+
+3 artifacts: 3 added, 0 updated, 0 removed, 0 unchanged
+pushed 4e1d2c9 to main
+```
+
+Run again with nothing changed, it pushes nothing:
+
+```
+$ mw backup ../backups/library.git
+/home/you/backups/library.git, branch main
+  unchanged  skill  deploy
+  unchanged  rule   git/commits
+  unchanged  mcp    github
+
+3 artifacts: 0 added, 0 updated, 0 removed, 3 unchanged
+nothing to push: main holds this already
+```
+
+It commits to the branch the repository names as its own, or to the one
+`--branch` names, started from that one when the repository has none of its
+name. `--kind` works as for `export`, and `-m` says what the commit says
+instead of `Back up the library of <name>`. A backup needs no `--yes`: what it
+takes out of the branch is still in the branch's history.
+
+```
+$ mw backup ../backups/library.git --kind skills --branch skills
+/home/you/backups/library.git, branch skills
+  added  skill  deploy
+
+1 artifact: 1 added, 0 updated, 0 removed, 0 unchanged
+pushed 9b7a310 to skills
+```
+
+To get it back, clone the repository and `mindweaver load` the clone.
+
+The check-out is made in the workspace's `.mindweaver/tmp` and taken away
+afterwards, whatever came of it, so nothing of the repository stays on the
+machine, and two machines backing up to one branch each start from what the
+other pushed.
+
+**Logging in.** It is pushed with the `git` on your PATH, logged in as that git
+logs in: its credential helper (`gh auth setup-git` makes `gh` one), or ssh's
+keys and agent for an ssh URL. A token can be given instead, for one run,
+through the environment variable `--token-env` names; it reaches `git` through
+a credential helper given on its command line, and is never written anywhere
+nor shown:
+
+```
+$ GITHUB_TOKEN=$(gh auth token) mw backup https://github.com/you/library-backup.git --token-env GITHUB_TOKEN
+```
+
+It never asks for a credential: one nothing has is an error naming the ways to
+give one, as for a [gather](#gathering-skills-from-elsewhere). A variable that
+holds nothing is refused, and so is a token for an ssh URL, which logs in with
+keys of its own, and a URL with a credential written in it, which would be kept
+in the check-out and said in every error:
+
+```
+$ mw backup https://github.com/you/library-backup.git --token-env GITHUB_TOKEN
+error: $GITHUB_TOKEN holds no token: set it for this command, or leave --token-env out to log in as git does
+
+$ mw backup https://you:hunter2@github.com/you/library-backup.git
+error: https://github.com/you/library-backup.git: carries a credential, which would be kept in the check-out and said in every error: name a variable holding a token with --token-env instead
+```
+
+The commit is made as the identity your git configuration names, or as
+`Mindweaver <mindweaver@localhost>` when it names none, and runs no hook.
+`backup` is run from a shell only, never from the TUI or the control panel: it
+sends over the network for as long as that takes, with no progress to show,
+and ssh may ask on the terminal it was started from.
 
 ## What each project has
 
