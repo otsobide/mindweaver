@@ -312,10 +312,12 @@ export function commanding(snapshot: Snapshot = fixture('workspace'), known: Com
       if (mode === 'preview') {
         return structuredClone(found.preview)
       }
-      tell({ type: 'command_started', lines: found.ran.lines })
+      // Numbered as the server numbers runs, from 1 in the order they start.
+      const run = ran.length + 1
+      tell({ type: 'command_started', run, lines: found.ran.lines, cancellable: found.preview.cancellable })
       await control.finishing
       ran.push(structuredClone(found.ran))
-      tell({ type: 'command_finished', lines: found.ran.lines })
+      tell({ type: 'command_finished', run, lines: found.ran.lines })
       return structuredClone(found.ran)
     },
     transcript: () => Promise.resolve(structuredClone(ran)),

@@ -205,7 +205,14 @@ export function listen(transport: Transport, client: QueryClient, page: Document
           tellSwitched()
         }
         break
+      // A run under way, how it goes, and that it was asked to stop or is
+      // what a run just sent waits behind: nothing on disk is told by any
+      // of them, so nothing is asked for again. What a view draws of them
+      // is the page following a run's (#113).
       case 'command_started':
+      case 'progress':
+      case 'cancelling':
+      case 'busy':
         break
       case 'watching':
         live.state = 'watching'
