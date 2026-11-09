@@ -73,6 +73,120 @@ pub trait Remote: Debug + Send + Sync {
     fn scrub(&self, clone: &Path) -> Result<bool, GitError>;
 }
 
+/// Where a backup is committed: a repository a copy of is checked out,
+/// written into by an export, and sent back (`mindweaver backup`).
+///
+/// A port of its own rather than more of [`Remote`]'s: a gather only ever
+/// reads, and the library it reads with cannot send (D-27, in
+/// docs/architecture.md), so what sends is another adapter, the system's
+/// `git`, behind words of core's. What a backup writes is core's
+/// ([`crate::export`]); this only checks out, commits and pushes.
+///
+/// Neither method ever asks a person for anything: a credential nobody
+/// supplied is an error ([`UpstreamError::Credentials`]), as a gather's is.
+pub trait Upstream: Debug + Send + Sync {
+    /// Check `url` out into `into`, a folder not there yet, on `branch`, or
+    /// the branch the remote names as its own when none is given, starting
+    /// it from that one when the remote has no `branch` yet, and from
+    /// nothing when it has no commit at all. The branch it is on is handed
+    /// back.
+    fn check_out(
+        &self,
+        url: &str,
+        branch: Option<&str>,
+        into: &Path,
+        token: Option<&Token>,
+    ) -> Result<CheckedOut, UpstreamError>;
+
+    /// Commit what `paths` (routes from the work tree's root) hold now in
+    /// the work tree at `work`, as `message`, and push it to where it was
+    /// checked out from, on its branch: nothing at all when they hold what
+    /// the branch held and the remote has the branch, and the commit it was
+    /// started from, uncommitted to, when the remote has not got it yet.
+    fn publish(
+        &self,
+        work: &Path,
+        paths: &[&str],
+        message: &str,
+        token: Option<&Token>,
+    ) -> Result<Published, UpstreamError>;
+}
+
+/// A token a front end was handed for one run (D-16): sent where the run
+/// sends it, and never kept, printed or written into a `Debug`.
+///
+/// No `Display`, `Serialize` or text value, so nothing that says what a
+/// command did can hold it by mistake: only an adapter reads it, through
+/// [`reveal`](Self::reveal).
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token(String);
+
+impl Token {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// What it holds, for the adapter that sends it.
+    pub(crate) fn reveal(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Token(..)")
+    }
+}
+
+/// A repository checked out for a backup: [`Upstream::check_out`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedOut {
+    /// The branch the work tree is on, which a publish pushes to.
+    pub branch: String,
+}
+
+/// What [`Upstream::publish`] sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Published {
+    /// The paths held what the branch held: nothing was committed or sent.
+    Unchanged,
+    /// A commit was made, and the branch now points at it.
+    Pushed { revision: Revision },
+}
+
+/// Why a backup's repository could not be checked out or sent.
+///
+/// As [`GitError`], the failure as text, never the library's or the
+/// process's error, and every URL in it [`redacted`](crate::url::redacted):
+/// what `git` said is shown as it said it.
+#[derive(Debug, Error)]
+pub enum UpstreamError {
+    #[error("`git` could not be run, and a backup is sent with it: {detail}")]
+    Unavailable { detail: String },
+    #[error("{url}: cannot be checked out: {detail}")]
+    CheckOut { url: String, detail: String },
+    /// The server asked who is sending, and nothing that may answer had a
+    /// credential it would take. `url` is shown without its credentials.
+    #[error(
+        "{url}: needs credentials, and a backup never prompts for them: configure a git \
+         credential helper, use ssh-agent for an ssh URL, or name a variable holding a token \
+         with --token-env"
+    )]
+    Credentials { url: String },
+    #[error("the backup could not be committed: {detail}")]
+    Commit { detail: String },
+    #[error("{url}: the backup could not be pushed: {detail}")]
+    Push { url: String, detail: String },
+}
+
+codes!(UpstreamError {
+    Self::Unavailable { .. } => "backup_git_unavailable",
+    Self::CheckOut { .. } => "backup_check_out_failed",
+    Self::Credentials { .. } => "backup_credentials_needed",
+    Self::Commit { .. } => "backup_commit_failed",
+    Self::Push { .. } => "backup_push_failed",
+});
+
 /// The time, for what the ledger stamps an action or a gather with.
 ///
 /// A port rather than a call to the system clock where the time is read, so a

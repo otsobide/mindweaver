@@ -2,13 +2,14 @@
 //! a library or the system, the one place a build says which.
 //!
 //! Each is the default its port is given wherever nothing else is handed
-//! over, as D-14 chose for HTTP: [`gix::Gix`] fetches a source, and
-//! [`SystemClock`] tells the time. Another adapter is written beside them
+//! over, as D-14 chose for HTTP: [`gix::Gix`] fetches a source,
+//! [`git::SystemGit`] sends a backup, and [`SystemClock`] tells the time. Another adapter is written beside them
 //! against the same port and handed to what takes the port, a gather's
 //! [`Request::through`](crate::gather::Request::through) or the ledger's
 //! [`with_clock`](crate::ledger::Ledger::with_clock); nothing behind the port
 //! changes. A test's fake is one more adapter, and lives with the test.
 
+pub mod git;
 pub mod gix;
 pub mod sqlite;
 
