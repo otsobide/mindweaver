@@ -273,9 +273,12 @@ under `apps/` with its own `Makefile`:
   homes, and gathers them with `-W` and `$MINDWEAVER_WORKSPACE` into a
   `Lookup`. `src/task.rs` holds `Task`, work a front end asks for as the
   command lines it is, every front end's rather than the TUI's alone,
-  `Refusal`, what a front end with no terminal does not run, and
+  `Refusal`, what a front end with no terminal does not run,
   `Caution`, what a line takes away, which such a front end asks about
-  first.
+  first, and `Followed`, what a line does that a front end follows while
+  it runs and can stop, a gather. `src/progress.rs` says a gather's steps
+  in words, the line `mindweaver gather` draws and the TUI's box, and as
+  the `Step` the panel's backend reports, paced (`progress::reported`).
   `commands::run_line` runs one line a front end built, for the TUI and the
   panel alike. `src/admit.rs` holds a task sent from outside to the path
   policy (`Admission`), and `src/backend.rs` is the panel's backend
@@ -309,7 +312,11 @@ under `apps/` with its own `Makefile`:
   cookie and Bearer checks, `src/guard.rs` the Host, Origin and Fetch
   Metadata checks and the CSP, `src/api.rs` the JSON endpoints,
   `src/writer.rs` the thread every run and every switch goes through,
-  `src/transcript.rs` what
+  each run numbered and kept where a cancel reaches it (`Current`),
+  `src/underway.rs` the run under way as the backend holds it
+  (`Underway`: where it reports a step, and says what a cancel does) and
+  what `POST /api/v1/tasks/cancel` is sent and answers (`Cancel`,
+  `Cancelling`), `src/transcript.rs` what
   the session ran, `src/events.rs` the bus `/api/v1/events` streams,
   `src/watcher.rs` what watches the paths the backend names and tells the
   bus what changed, `src/log.rs` the redacting log, a line for each
@@ -517,7 +524,13 @@ These are easy to break from a single file without noticing.
   the task the page offering it sends (`UPDATE_ALL`, the link form's, one
   box's plan applied with `batchOf`), through the same runner. A gather's lines run on a
   thread of their own (`Task::runs_apart`), still through the same parsers:
-  the thread changes where they run, not what they are. The install screen applies the same way, in the TUI or
+  the thread changes where they run, not what they are. Which lines a front
+  end follows as they run and can stop is one list, `task::Followed`, read
+  off the parsed command by a match with no wildcard (`Followed::of_mind`,
+  `of_weaver`, `task::followed`): the TUI runs a task with such a line
+  apart, and the panel's backend says with its preview that a run of it
+  takes a cancel (`Preview::cancellable`), reports each step to the
+  server's `Underway` and hands the server's cancel to the watch. The install screen applies the same way, in the TUI or
   opened by `mindweaver install` (`install::apply`): its marks are the
   `mindweaver install` and `mindweaver uninstall` lines they amount to
   (`Screen::task`), as core plans them (`install::Plan::of`), each change
@@ -574,7 +587,9 @@ These are easy to break from a single file without noticing.
   type reaches a front end. A cancel is honoured until the shelf starts to
   change, and leaves the shelf and the ledger as they were, so a write to
   either before that last check is undone on a cancel, as registering the
-  source is.
+  source is. Whether a step is still `cancellable` is core's
+  (`Progress::cancellable`), which the TUI's box and the panel's `Step`
+  both say, never a front end's guess.
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -1051,7 +1066,10 @@ These are easy to break from a single file without noticing.
     a scan is to look under or the explorer is to list, by an absolute,
     normalized path outside every `.mindweaver`, verbatim, each folder a
     listing holds held to the policy again and left out when refused
-    (`browse`). The
+    (`browse`). A gather's source is an address, held to the gather's own
+    rules, which refuse a credential in it, or a folder on this machine,
+    as a path or a `file://` URL, held as a folder to link is
+    (`policy::source`). The
     browser supplies no `-C`, `--home`, `-W` or agent home: the backend runs
     every line with the launch's, against the workspace it acts on, the one
     it was launched on or one switched to since, named with `-W` in the
@@ -1355,7 +1373,19 @@ These are easy to break from a single file without noticing.
   is the server's `Preview`, the lines and what the backend says to
   confirm, carried unread as a watched path's scope is; the server
   enforces none of it, so a run sent without the question is run, as a
-  shell runs what is typed into it. Queries and
+  shell runs what is typed into it. Beside them it says whether a run
+  takes a cancel (`cancellable`), which the server does hold a cancel to.
+  Each run is numbered as it starts, its `command_started` and
+  `command_finished` carrying `run`, and handed to the backend as an
+  `Underway`: what it reports is told as `progress`, the backend's JSON
+  carried unread, nothing once its call has returned, and what it says a
+  cancel does is what `POST /api/v1/tasks/cancel`, `{"run": n}`, reaches,
+  off the writer thread, never queued behind the run it stops; a cancel of
+  a run not under way is `not_running` and of one whose preview took none
+  `uncancellable`, each a 409 asking nothing of anything. What is queued
+  behind a run under way tells every subscriber `busy`, and a stream opened
+  while one runs is told it and its latest step; a stop asks it to stop
+  before the bus closes. Queries and
   previews run on tokio's blocking pool, and every run on the one writer
   thread, in the order it arrived, and so does a switch of what the backend
   acts on (`POST /api/v1/switch`, `Backend::switch`), which only the backend
@@ -1766,7 +1796,9 @@ These are easy to break from a single file without noticing.
   `routes_test.rs` holds the server to the table: a path and its
   parameters reach the backend as the route makes them, and what no route
   takes is refused with its status; `guard_test.rs` holds every route
-  under `/api/v1` to every guard. They bind 127.0.0.1 on port 0 and send
+  under `/api/v1` to every guard; `progress_test.rs` holds a run's steps,
+  its cancel and `busy` to what the fake's task says it reports, takes
+  and waits for at its hold (`common::Hold`). They bind 127.0.0.1 on port 0 and send
   requests through the router in process (`common::send`), or over loopback,
   and serve a fixture panel (`tests/panel`), so they need no Node. Every
   request names the server in Host, and `Auth::Cookie` sends what the panel's

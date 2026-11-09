@@ -3088,8 +3088,9 @@ know how it is going, and to change their mind. A `gather::Request` carries a
 `Watch`: a callback the gather tells each `Progress` to, and a flag that
 cancels it. Both are core's own types. `gix` has a progress tree and an
 interrupt flag of its own, and handing those to the front ends would tie each
-of them, the server that will stream progress (#112) included, to gix's
-version and to the names it gives its steps.
+of them, the server that streams progress ([a run under
+way](#a-run-under-way-followed-and-stopped)) included, to gix's version and
+to the names it gives its steps.
 
 The steps are connecting, receiving objects, resolving deltas, checking out
 files, reading the folders that hold a manifest, `n` of `m`, and placing what
@@ -3135,7 +3136,11 @@ so what it prints there is what it always printed. The binaries run every
 line with that line's watch (`run_watched`, `run_weaver_cli_watched`), and
 `run` and `run_weaver_cli`, which the tests call, with one nobody follows. The
 TUI runs a gather on a thread of its own, and `esc` cancels it ([A gather runs
-apart](#a-gather-runs-apart)).
+apart](#a-gather-runs-apart)). The panel's backend reports each step to the
+server, which streams it, and hands the server's cancel to the watch ([a run
+under way](#a-run-under-way-followed-and-stopped)). Which lines a front end
+follows so is one list, `task::Followed`, read off the parsed command as a
+refusal is, `gather git` its one entry so far.
 
 ### Why `gix` rather than running `git`
 
@@ -5400,9 +5405,7 @@ run. A screen of its own; `edit` in an editor, which hands the terminal to
 one, and `edit --contents -`, which reads standard input, the terminal's
 too, where a file given in its place runs ([contents given
 whole](#contents-given-whole)); `activate`, which prints code for a shell;
-`gather git`, the network for as long as it
-takes, until #112 brings to the server the progress and the cancel only a
-screen has now; and `show`, which prints an artifact whole, read through any
+and `show`, which prints an artifact whole, read through any
 link on the way, as a terminal's user may ask of their own disk, where a
 front end without one reads a file at a time, held to its holder
 ([what a browser may name](#what-a-browser-may-name)). And `ui`, which
@@ -5416,12 +5419,14 @@ is a match over every command with no wildcard, so a new command does not
 compile until it says whether it is refused. A task is refused for the first
 of its lines that is (`Task::refusal`), whichever variant it is, and each
 refusal has a code of its own (`opens_screen`, `opens_editor`,
-`reads_stdin`, `prints_shell_code`, `gather_unwatched`, `show_unheld`,
-`serves_panel`),
+`reads_stdin`, `prints_shell_code`, `show_unheld`, `serves_panel`),
 held to the rules core's codes are ([a code for what went
 wrong](#a-code-for-what-went-wrong)). A list of tasks was the alternative,
 and it would leave out a line no task builds: a front end that runs lines it
-is sent would run one the list never named.
+is sent would run one the list never named. `gather git` was on it, as the
+network for as long as it takes, until #112 brought the server the progress
+and the cancel only a screen had; its code, `gather_unwatched`, went with
+it, given to nothing else, as no code is ever given to another condition.
 
 Beside it, and read the same way, is what a line takes away
 (`task::Caution`, `task::cautions`): `remove --yes` deletes, `uninstall`
@@ -5433,6 +5438,18 @@ a line, the panel with each preview ([its changes](#its-changes)); a match
 over every command with no wildcard (`Caution::of_mind`, `of_weaver`), so a
 new command says what it takes away before it compiles. The TUI asks its own
 questions still, worded for its rows ([open questions](#open-questions)).
+
+And beside both, read the same way again, is what a line does that a front
+end follows while it runs and can stop (`task::Followed`, `task::followed`):
+`gather git`, which reports each step through core's watch and stops on its
+cancel. The TUI runs a task with such a line apart, drawing its steps with
+a key that cancels it (`Task::runs_apart`), and the panel's backend says
+with each preview that a run of it takes a cancel, and hands it the
+server's ([a run under way](#a-run-under-way-followed-and-stopped)). A match
+over every command with no wildcard (`Followed::of_mind`, `of_weaver`), so
+a new command says whether it is followed before it compiles; a backup, the
+next that takes long enough to want watching, joins it once it reports its
+phases and stops on a cancel.
 
 The exceptions are named, not hidden: opening the install screen builds the
 screen `mindweaver install` opens, as a read, rather than running a line, and
@@ -5472,7 +5489,9 @@ editors.
 ### A gather runs apart
 
 A gather is the network, and the one task that runs apart
-(`Task::runs_apart`). `step` starts its lines on a thread of their own and
+(`Task::runs_apart`): asked of its lines, any of which `task::followed`
+says a front end follows, so the TUI runs apart what the panel's backend
+says takes a cancel, by one list. `step` starts its lines on a thread of their own and
 returns at once, with a [watch](#following-a-gather-and-stopping-it) whose
 steps come back over a channel. Before each frame the loop calls `settle`,
 which takes in the last step and, once the task is over, shows what came of it
@@ -5660,9 +5679,10 @@ description), and none of that would differ between two front ends.
 
 What it serves is the backend's reads, each at a route of its own from a
 table the backend hands over ([a table of reads](#a-table-of-reads)), and
-six routes of its own, from a table of its own (`Own`):
+seven routes of its own, from a table of its own (`Own`):
 [D-18](#d-18-the-panel-writes-by-running-commands) in HTTP, with the
-switch, the transcript, the events and the API's description beside it.
+cancel of the run under way, the switch, the transcript, the events and the
+API's description beside it.
 
 ### Its routes, under `/api/v1`
 
@@ -5707,19 +5727,23 @@ name](#what-a-browser-may-name)) and each answered with the backend's JSON:
 
 The server's own:
 
-- `POST /api/v1/tasks/preview`: the command lines a task is, and what of
-  them the panel has somebody confirm first, with nothing run.
+- `POST /api/v1/tasks/preview`: the command lines a task is, what of
+  them the panel has somebody confirm first, and whether a run of it takes
+  a cancel, with nothing run.
 - `POST /api/v1/tasks`: run a task; the reply is its lines and what the
   command said, its outcome, its text and each warning with its code, and
   the state is read again afterwards, as D-24 has it, rather than answered
   with a typed result every command would have to build.
+- `POST /api/v1/tasks/cancel` with `{"run": <n>}`: ask the run under way,
+  by its number, to stop, which a gather does before it places anything
+  ([a run under way](#a-run-under-way-followed-and-stopped)).
 - `POST /api/v1/switch`: have the backend act on something else from now
   on, which only it can say it may; the reply is the backend's JSON for
   what it acts on then ([switching what it acts on](#switching-what-it-acts-on)).
 - `GET /api/v1/transcript`: every task the session ran, with what each
   produced.
 - `GET /api/v1/events`: what happens as it happens, a change on disk or a
-  run starting and finishing, as server-sent events ([live
+  run starting, going and finishing, as server-sent events ([live
   updates](#live-updates)).
 - `GET /api/v1/openapi.json`: the API described, every route above and
   below with what it takes, what it answers and every way it may be
@@ -5778,11 +5802,13 @@ of the server's own (`Condition`, `apps/server/src/code.rs`):
 | 404 | `unknown_route` | a path under `/api` no route names, a version not served and the panel's old unversioned endpoints among them |
 | 404 | the backend's | a read whose parameters name what is not there |
 | 405 | `method_not_allowed` | a method the route does not take |
+| 409 | `not_running` | a cancel of a run that is not the one under way: over, not started, or none |
+| 409 | `uncancellable` | a cancel of the run under way, whose preview said it takes none |
 | 413 | `body_too_large` | a body larger than the server reads |
 | 415 | `json_required` | a body not sent as `application/json` |
 | 422 | `invalid_body` | JSON that is not what the route reads: a task, a switch, or a read's body its route cannot make a query of |
 | 422 | the backend's | anything else the backend refuses |
-| 500 | `backend_failed` | the backend panicked while it answered, previewed, ran or switched |
+| 500 | `backend_failed` | the backend panicked while it answered, previewed, ran or switched, or what it said a cancel does panicked |
 | 500 | `writer_stopped` | the thread every run and switch goes through has stopped |
 
 **The server's codes are its own**, written once. Core's `codes!` would
@@ -5910,7 +5936,7 @@ against the old name unnoticed, and the change is made as one that moves
 the API to `/api/v2`; `ui_test` calls every one over loopback with the
 token as Bearer.
 
-The server's own six routes are data too, so the description walks two
+The server's own seven routes are data too, so the description walks two
 tables and describes nothing by hand: `Own::ALL`, each with its method, its path,
 what its body holds and what it answers, and a sentence on each. The
 server serves each from there, its handler asked by the method the table
@@ -5918,14 +5944,16 @@ says, so the table and what answers cannot disagree, and `route::check`
 keeps a backend's route off every path in it. What a body holds and what an
 answer carries are named by what they are (`Sent`, `Answer`) rather than by
 a type's name, as a backend's route names its own: a body is the backend's
-`Task` or `Switch`, a run's answer carries its `Outcome` and a switch's is
-its JSON, all types the server never names, so the description names each
-as the backend's types do, and `Answer::Events` says the stream is
-server-sent events rather than JSON. What the server answers with of its
-own, a `Preview`, a `Ran`, each `Event` and a `Refused`, has a schema of
-the server's, where what it carries of the backend's is any JSON: which of
-the backend's types fills each the description names from these words,
-and from a word for each place it carries the backend's JSON (`Carried`).
+`Task` or `Switch`, or the server's own `Cancel`, a run's answer carries its
+`Outcome` and a switch's is its JSON, all types the server never names, so
+the description names each as the backend's types do, and `Answer::Events`
+says the stream is server-sent events rather than JSON. What the server
+answers with or is sent of its own, a `Preview`, a `Ran`, a `Cancel` and
+its `Cancelling`, each `Event` and a `Refused`, has a schema of the
+server's, where what it carries of the backend's is any JSON: which of the
+backend's types fills each the description names from these words, and
+from a word for each place it carries the backend's JSON (`Carried`), a
+step a run reports among them (`Carried::Progress`).
 A string naming each type, as a
 backend's route has, was the alternative, and it would have the server
 spell the CLI's names, or the trait grow one constant for each. A test pins
@@ -5956,6 +5984,11 @@ panel has somebody confirm before it asks for the run (`confirm`), each item
 the backend's JSON, carried unread as a watched path's scope is. In the one
 answer, so the panel is told what takes something away of the very lines it
 shows, rather than asking again of a disk that may have changed between.
+Beside them it says whether a run of the task takes a cancel
+(`cancellable`), which the server holds a cancel to from the moment the run
+starts ([a run under way](#a-run-under-way-followed-and-stopped)). `run`
+is handed the run as whoever follows it sees it, an `Underway`: where it
+reports how it goes and says what a cancel does.
 `watched_paths` names what to watch for [live updates](#live-updates): each
 path with its scope (`Watched`), a word of the backend's own carried to the
 panel as JSON, as a query's answer is, so the server names no type of the
@@ -6014,6 +6047,10 @@ waiting on the same thread.
   ([Writers at the same time](#writers-at-the-same-time)). And a long run
   holds that thread rather than one of the pool's, so the panel goes on
   reading while it waits.
+- **A cancel** never takes its turn there, behind the very run it means to
+  stop: it reaches the run under way where the writer thread keeps it, and
+  hands it, on tokio's blocking pool, to what the backend said a cancel
+  does ([a run under way](#a-run-under-way-followed-and-stopped)).
 - **The watcher** is a `std::thread` of its own, which owns the system's
   watches and asks the backend for its list again after each change, and
   after a switch, when the writer thread asks it to and waits until it has
@@ -6295,6 +6332,20 @@ of it a browser may name.
   to make or a workspace to load. The path goes to the command verbatim, so
   the preview shows the folder the command acts on. A mark to unlink, or
   what `mind unload` takes out, must be one an entry points at too.
+- **A gather's source as an address, or a folder named as one to link is**
+  (`policy::source`). An address, a URL whose scheme is not `file` or git's
+  `host:path`, is a value, which the gather holds to its own rules as it
+  holds one typed at a terminal: one carrying a credential is refused
+  there (`credentials_in_url`), saying nothing of it, and none is ever
+  prompted for ([a gather never prompts](#following-a-gather-and-stopping-it)).
+  A folder on this machine, as a path or behind `file://`, is held to the
+  rule above, so a relative one, which a terminal reads from where it is
+  typed and a browser has no place for, is refused (`path_relative`), and
+  no workspace's own folder, its clones among them, is gathered from
+  (`path_in_mindflayer`). The folder in the source and the reference are
+  values the gather holds to its own rules. What a gather can reach is no
+  more than a page holding the token could already: link any folder and
+  read its skills ([open questions](#open-questions)).
 - **A scan only under the folders the browser names** (`Query::Scan`), each
   held to the same rule as a folder to link, and refused with its code
   otherwise before anything is walked; none named is the workspace's root,
@@ -6436,6 +6487,81 @@ task among the rest. A body of JSON rather than a fourth type would have
 spared the fake backend one, and left the server's suites nothing typed to
 carry.
 
+### A run under way, followed and stopped
+
+A gather is the network, and could not run from the panel until it said
+how it was going, could be stopped and never prompted (#112, after #102 and
+#26). The server carries both for any run, and knows neither a gather nor
+its steps:
+
+- **A run is numbered.** The writer thread counts the runs it starts, from
+  1, and tells each by its number: `command_started` with `run`, its
+  `lines` and whether it is `cancellable`, as its preview said, and
+  `command_finished` with `run` and `lines`. A number rather than the
+  lines, which two runs can share, so a cancel names one run, and one that
+  crosses the end of its run never stops the run queued behind it, which by
+  then has a number of its own. Counted for each launch, so a number means
+  nothing to another server.
+- **The backend reports, and says what a cancel does.** `Backend::run` is
+  handed an `Underway` beside the task: `report` tells every subscriber a
+  step as `progress`, the backend's JSON carried unread as a watched path's
+  scope is, and `on_cancel` says what asking the run to stop does. A struct
+  of the server's rather than a trait the backend implements, so a backend
+  run outside a server, as the CLI's suite drives one, makes one
+  (`Underway::new`, `Underway::unfollowed`). A step reported once the
+  backend's call has returned reaches nobody, so no stream hears that a run
+  is going after it was told finished; and a cancel asked before the
+  backend says what one does is kept, and done as soon as it says.
+- **What a cancel does is the backend's.** `POST /api/v1/tasks/cancel`
+  with `{"run": n}` reaches the run under way where the writer thread keeps
+  it, never queued behind it, and hands it, on tokio's blocking pool, to
+  what the backend said a cancel does. It answers `{"run", "lines"}` and
+  tells every subscriber `cancelling`, once however often it is asked.
+  Whether the run stopped, and where, is the run's: its finish and its
+  outcome say. A run other than the one under way is refused,
+  `not_running`, a 409, with nothing asked of anything; so is the run under
+  way when its preview did not say `cancellable` (`uncancellable`, a 409),
+  rather than pass on a cancel that would do nothing. Both are the server's
+  own conditions: which run is under way, and what its preview said, is
+  what the server holds, no rule of the front end's. What the backend said
+  a cancel does panicking is `backend_failed`, and the run goes on.
+- **Whatever is sent behind a run waits, and is told so.** One run at a time
+  is the writer thread's already, so a second gather, an install or a
+  switch sent during a gather waits its turn, in the order it came.
+  Queuing one while a run is under way tells every subscriber `busy`, with
+  the run's number, its lines, whether it takes a cancel and whether one
+  was asked, so the panel says what it waits behind rather than look hung
+  for as long as the network takes. The bus keeps the run under way as its
+  events tell it, as it keeps how things are watched: a stream opened, or
+  opened again, while one runs is told `busy` after `resync` and `watching`,
+  then the latest step the run reported.
+- **A stop asks the run under way to stop.** Ctrl-C or `SIGTERM` cancels a
+  run that takes a cancel before the bus is closed, as leaving the TUI
+  stops its gather: a graceful stop would otherwise wait as long as the
+  network does. One that takes none runs to its end, as before.
+
+The CLI's backend follows a gather (`task::Followed`): its preview says
+`cancellable` of a task any of whose lines is followed, its run builds one
+watch for every line, as the TUI's does, reports each step as a `Step` (its
+stage as one word, `done` of `total`, the step in the words a terminal
+draws it in, `said`, and whether a cancel still stops it, core's
+`Progress::cancellable`), and says a cancel cancels the watch, before any
+line runs. Steps are paced there (`progress::reported`): each stage's first
+and last, and no more than one a tenth of a second in between, since a
+gather reads and places a folder at a time as fast as the disk goes, and a
+few hundred events at once would leave every subscriber behind the bus's
+capacity, told to read everything again. In the CLI rather than the
+server, where a stage is known, so the pace never drops a step that says
+something new. A gather's source is held to the path policy where it names
+a folder on this machine ([what a browser may
+name](#what-a-browser-may-name)), and an address to the gather's own rules,
+which refuse a credential in it and never prompt for one.
+
+A backup (#265) plugs in the same way, with nothing of the server changed:
+its line joins `Followed`, its phases (checking out, exporting, committing,
+pushing) become stages of a `Step` it reports as it goes, and what a cancel
+does, which `on_cancel` says, is kill the `git` child under way.
+
 ### Live updates
 
 The panel shows a change made from a terminal, the TUI or an editor without
@@ -6532,10 +6658,15 @@ subscriber hears all of, and out at `GET /api/v1/events` as server-sent events,
 one `data:` line of JSON each, tagged by `type` as a task is:
 
 - `changed`, with `scopes`, each scope a change reached;
-- `command_started` and `command_finished`, with a run's `lines`: told on
-  the writer thread once its preview passed and once it stopped, however it
+- `command_started` and `command_finished`, with a run's `run`, its number,
+  and its `lines`, the first with whether it is `cancellable`: told on the
+  writer thread once its preview passed and once it stopped, however it
   stopped, a refusal or a panic included, the finish once the run is in the
   transcript;
+- `progress`, `cancelling` and `busy`, each with a run's `run`: a step it
+  reported, that it was asked to stop, and that what was just queued waits
+  behind it, told too on a stream opened while it runs ([a run under
+  way](#a-run-under-way-followed-and-stopped));
 - `switched`: the backend acts on something else since, from this tab or
   another, and what it names now is watched; everything is to be read
   again, and nothing shown before kept. With `switches`, how many the bus
@@ -6560,9 +6691,10 @@ cookie included. A comment every 15 seconds while nothing happens
 from taking the connection for one that died. The bus and the watcher know
 nothing of axum, so a desktop shell answering the panel without HTTP
 (D-17) takes events from the same two; `Listening::events` hands the bus to
-a front end. Stopping the server closes the bus first, which ends every
-stream: each is a request under way for as long as a browser keeps the page
-open, and a graceful stop would wait for it without end.
+a front end. Stopping the server closes the bus first, once it has asked
+the run under way to stop, which ends every stream: each is a request
+under way for as long as a browser keeps the page open, and a graceful
+stop would wait for it without end.
 
 **Six connections a browser.** The server speaks HTTP/1.1 only, and a
 browser opens at most six HTTP/1.1 connections to one host and port;
@@ -6714,7 +6846,10 @@ which a handler would answer even under `nohup`, replacing the ignoring
 `nohup` asks for, so a panel meant to outlive its terminal would stop with
 it. The first stops the server taking connections and lets every
 request under way be answered, a run above all, so a change is not cut off
-half way, and ends every event stream, which would otherwise be answered
+half way, asks a run under way that takes a cancel to stop first, so a
+gather does not hold the stop as long as the network does ([a run under
+way](#a-run-under-way-followed-and-stopped)), and ends every event stream,
+which would otherwise be answered
 for as long as a tab stays open ([live updates](#live-updates)); the
 second stops at once, for whoever would rather have that than wait. What comes back once it stops is what the TUI hands back when it
 closes: every line the panel ran for a task that changes something
@@ -6917,8 +7052,9 @@ names the answer. Only the server's own replies, `{lines, confirm}` for a
 preview, `{lines, outcome}` for a run and `{error, code}` for a refusal, and
 the events its stream tells (`LiveEvent`), are still spelled in
 `transport.ts` ([open questions](#open-questions)); a preview's items to
-confirm are the generated `Confirm` and a change's scopes the generated
-`Holder`, since both are the backend's words.
+confirm are the generated `Confirm`, a change's scopes the generated
+`Holder` and a step a run reports the generated `Step`, since each is the
+backend's words.
 
 - **Derived beside serde.** Each type derives `ts_rs::TS` beside its
   `Serialize` or `Deserialize`, under a `ts` feature of core's and the
@@ -7401,7 +7537,10 @@ say when to ask again ([live updates](#live-updates)), and `src/api/live.ts`
 turns each into what Vue Query is to ask for again, never a read of its own
 and never a scan: `changed` marks the snapshot stale, and what was read of
 an artifact in a holder among its scopes; `resync` and `command_finished`
-mark all of those, since a command can change what nothing watches. Those
+mark all of those, since a command can change what nothing watches; and
+`command_started`, `progress`, `cancelling` and `busy` mark nothing, since
+a run says nothing of the disk until it finishes, however long a gather
+takes, which the page following one draws (#113). Those
 queries, and the matrix's plan and the preview of its lines, which are of
 the disk as it stands (`src/api/plan.ts`, keyed `plan` and `preview`), and
 what an update would do, which is too (`src/api/updates.ts`, keyed
@@ -12968,7 +13107,26 @@ it once as it closes.
   drops every key but `esc` and Ctrl-C, so the loop races the prompt for its
   answer; and neither key stops a gather waiting on one, since `gix` takes a
   cancel only once it is receiving. `BatchMode=yes` would close the TUI's ssh
-  case too.
+  case too. From the panel it is worse again: ssh asks on the terminal
+  `mindweaver ui` was started in, which nobody may be watching, while the
+  gather holds the writer thread and every task sent behind it waits, told
+  `busy`; a cancel reaches it only once ssh is answered, and a stop
+  (Ctrl-C) waits for that too.
+- **A cancel reaches only the run under way.** A task queued behind a long
+  gather cannot be taken back: it runs once its turn comes, as a client that
+  stops waiting leaves its task to run. Taking one off the queue would need
+  a number before it runs, which only a run started has
+  ([a run under way](#a-run-under-way-followed-and-stopped)). Nor is a task
+  queued in the moment between one run's finish and the next one's start
+  told `busy`: the bus knows a run under way from its `command_started`,
+  which the next run tells only once its preview is worked out.
+- **A gather from the panel reaches any repository the account can read.**
+  A folder named as a source is held to the path policy, as a folder to
+  link is, and nothing more: what a page holding the token learns of it is
+  its skills' names and descriptions in the snapshot, which linking the
+  folder could already show it, and more. A list of the places a panel may
+  gather from, as a list of what it may switch to, would close it, at the
+  price of a terminal command for every new source.
 - **When the scrub can stop.** `gather::scrub` runs whenever a command
   opens the ledger to write (`WeaverWorkspace::ledger_to_write`), because an
   older build could write a token into the same file. Schema 3 (#30) changes
