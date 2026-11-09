@@ -174,14 +174,118 @@ pub fn canonical(url: &str) -> String {
 /// that name happened to be there was the other way, and is rejected: which
 /// repository a command names would then depend on where it ran.
 pub fn fetched(url: &str) -> Cow<'_, str> {
-    match url.split_once('/') {
-        Some((owner, repo))
-            if is_plain(owner) && is_plain(repo) && !owner.starts_with('.') && repo != ".." =>
-        {
-            Cow::Owned(format!("https://github.com/{owner}/{repo}"))
-        }
-        _ => Cow::Borrowed(url),
+    match owner_and_repo(url) {
+        Some((owner, repo)) => Cow::Owned(format!("https://github.com/{owner}/{repo}")),
+        None => Cow::Borrowed(url),
     }
+}
+
+/// `text` as the `owner/repo` a person types for a GitHub repository, when
+/// it is one ([`fetched`]).
+fn owner_and_repo(text: &str) -> Option<(&str, &str)> {
+    let (owner, repo) = text.split_once('/')?;
+    (is_plain(owner) && is_plain(repo) && !owner.starts_with('.') && repo != "..")
+        .then_some((owner, repo))
+}
+
+/// What a typed source names: the repository a gather fetches, and the
+/// branch and the folder in it that the text itself says, when it says
+/// them ([`located`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    /// What a gather fetches, as [`fetched`] reads it.
+    pub url: String,
+    /// The branch or tag the text names.
+    pub reference: Option<String>,
+    /// The folder the text names, as it spells it, from the repository's
+    /// root: a gather holds it to being inside the repository, not this.
+    pub path: Option<String>,
+}
+
+/// What `typed` names (#101), as `gh skill` and `npx skills` read it:
+/// `owner/repo@ref` is the GitHub repository [`fetched`] reads `owner/repo`
+/// as, at that branch or tag; the address of a folder on github.com or
+/// gitlab.com, `/tree/<ref>/<path>` after the repository (GitLab's
+/// `/-/tree/` too), is that repository, at that branch, and that folder;
+/// anything else is the repository [`fetched`] reads it as, and says
+/// neither.
+///
+/// The branch is the one part after `tree`, as both tools read it: a
+/// branch with a `/` in it reads as a shorter branch and a folder, and is
+/// given with `--ref` and `--path` instead. Asking the remote which of its
+/// branches the address starts with was the other way, and is rejected: it
+/// would make reading what was typed a fetch of its own. A tree address is
+/// fetched over https from the forge's own host, `www.` left off, as the
+/// repository a browser was showing.
+///
+/// Read after a gather has refused a credential in what was typed, so what
+/// it hands back holds none of one.
+pub fn located(typed: &str) -> Located {
+    if let Some((repository, reference)) = typed.split_once('@') {
+        if !reference.is_empty() {
+            if let Some((owner, repo)) = owner_and_repo(repository) {
+                return Located {
+                    url: format!("https://github.com/{owner}/{repo}"),
+                    reference: Some(reference.to_owned()),
+                    path: None,
+                };
+            }
+        }
+    }
+    tree(typed).unwrap_or_else(|| Located {
+        url: fetched(typed).into_owned(),
+        reference: None,
+        path: None,
+    })
+}
+
+/// The repository, branch and folder the address of a folder on a forge's
+/// website names, when `typed` is one ([`located`]).
+fn tree(typed: &str) -> Option<Located> {
+    let (scheme, rest) = typed.split_once("://")?;
+    if !["https", "http"]
+        .iter()
+        .any(|web| scheme.eq_ignore_ascii_case(web))
+    {
+        return None;
+    }
+    // What a browser adds after the address is no part of the folder.
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    let (host, path) = rest.split_once('/')?;
+    let host = host.to_ascii_lowercase();
+    let forge = forge(host.strip_prefix("www.").unwrap_or(&host))?;
+    let parts: Vec<&str> = path.split('/').collect();
+    // Where the repository's own path ends, and where the branch is.
+    let (end, branch) = match forge {
+        "github.com" => (2, 3),
+        _ => match parts.iter().position(|part| *part == "-") {
+            Some(dash) => (dash, dash + 2),
+            None => {
+                let tree = parts.iter().position(|part| *part == "tree")?;
+                (tree, tree + 1)
+            }
+        },
+    };
+    if end < 2 || parts.get(branch - 1) != Some(&"tree") {
+        return None;
+    }
+    let repository = &parts[..end];
+    let reference = parts
+        .get(branch)
+        .filter(|reference| !reference.is_empty())?;
+    if repository.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    let folder: Vec<&str> = parts[branch + 1..]
+        .iter()
+        .copied()
+        .filter(|part| !part.is_empty())
+        .collect();
+    Some(Located {
+        url: format!("https://{forge}/{}", repository.join("/")),
+        reference: Some((*reference).to_owned()),
+        path: (!folder.is_empty()).then(|| folder.join("/")),
+    })
 }
 
 /// Whether `part` is a name a forge takes for an owner or a repository:
