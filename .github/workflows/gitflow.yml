@@ -5,7 +5,8 @@ name: Gitflow
 #     release/*), or from main itself (a post-release back-merge).
 #   - PRs into main are releases and must come from dev, only.
 # Both checks are required by the branch rulesets, so a PR from any other
-# source branch cannot be merged.
+# source branch cannot be merged. They run on the repository's own runner, as
+# test-and-build's Linux jobs do, and for its reason.
 on:
   pull_request:
     branches: [dev, main]
@@ -14,7 +15,7 @@ jobs:
   branch-name:
     name: gitflow branch name
     if: github.base_ref == 'dev'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Check the head branch follows gitflow
         env:
@@ -31,7 +32,7 @@ jobs:
   release-source:
     name: release source branch
     if: github.base_ref == 'main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Check the release comes from dev
         env:
