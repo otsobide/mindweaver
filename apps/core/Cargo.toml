@@ -33,6 +33,14 @@ jsonc-parser = { version = "0.34", features = ["cst"] }
 # (`gather::git`). It builds no new crate: the tree is prodash's, which
 # gix-features already builds with the tree in.
 gix = { version = "0.87", features = ["blocking-network-client", "blocking-http-transport-reqwest-rust-tls", "progress-tree"] }
+# The HTTP a catalog is read over (D-14), behind the `Http` port as gix is
+# behind `Remote`: the client gix's own HTTP transport builds already, so
+# the lock gains no crate. `blocking`, since core is synchronous; `rustls`,
+# the TLS gix's transport is built with, trusting the system's roots
+# through rustls-platform-verifier; and none of the defaults beside them,
+# which would add a proxy read from the environment behind core's back.
+# MIT or Apache-2.0, as is what it brings, which GPL-3.0-only takes in.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
 # `backup`, for the copy taken before a schema step: SQLite's own online
 # backup, since reading the file from outside while a connection holds it
 # would drop that connection's locks on Unix.
