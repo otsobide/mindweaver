@@ -75,6 +75,7 @@ use crate::ledger::LedgerError;
 use crate::lifecycle::LifecycleError;
 use crate::lock::LockError;
 use crate::mcp::{Inexpressible, McpError};
+use crate::mcp_registry::{ImportError, Manual, Note, RegistryError};
 use crate::migrate::{MigrateError, NamesFailure, ProjectFailure, Refusal};
 use crate::opencode_mcp::{self, OpenCodeMcpError};
 use crate::policy::PolicyError;
@@ -258,6 +259,10 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("lock::LockError", LockError::CODES),
     ("mcp::McpError", McpError::CODES),
     ("mcp::expressible::Inexpressible", Inexpressible::CODES),
+    ("mcp_registry::RegistryError", RegistryError::CODES),
+    ("mcp_registry::import::ImportError", ImportError::CODES),
+    ("mcp_registry::import::Manual", Manual::CODES),
+    ("mcp_registry::import::Note", Note::CODES),
     ("migrate::MigrateError", MigrateError::CODES),
     ("migrate::Refusal", Refusal::CODES),
     ("migrate::project::ProjectFailure", ProjectFailure::CODES),

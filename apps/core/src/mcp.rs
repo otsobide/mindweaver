@@ -69,7 +69,7 @@ mod runs;
 mod token;
 
 pub use expressible::{Expressibility, Inexpressible};
-pub(crate) use given::retransported;
+pub(crate) use given::{inline, quoted, retransported};
 pub use given::{Address, Given, Program, Repeated, Unsayable};
 pub use runs::{Running, Runs};
 

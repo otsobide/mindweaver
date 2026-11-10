@@ -937,7 +937,9 @@ holds it whole as `body`. A definition is written by `add` from how a
 command line says the server is started or reached, or from a template
 ([adding one](#adding-an-mcp-server)), and installing one writes an entry
 into each agent's config file ([installing an MCP
-server](#installing-an-mcp-server)); gathering one and adopting one wait.
+server](#installing-an-mcp-server)); importing one from the official
+registry is core's ([the official MCP Registry](#the-official-mcp-registry))
+and waits for a command (#107), and gathering one and adopting one wait.
 `add`, `edit --contents` and `rename` hold a definition to every problem
 `validate` reports (`artifact::mcp_strict_issues`, a name an agent only
 uses for its own being a warning and no problem), its name to its file as
@@ -3938,7 +3940,7 @@ repositories, so they are read over HTTP rather than cloned
 read through, and the skill directories a search asks are its first
 caller ([searching the skill
 directories](#searching-the-skill-directories)), the MCP Registry its
-next.
+next ([the official MCP Registry](#the-official-mcp-registry)).
 
 **The port** is one `GET` (`port::Http::get`), answered whatever its status.
 An `HttpRequest` is made only through `HttpRequest::get` and `at`, which
@@ -4172,6 +4174,198 @@ would make the cache a channel between a command and a screen; asking the
 finders from the TUI's own thread rather than through a line, a path of the
 TUI's own into core; and a branch dropped from a result that names one,
 which would gather a folder from a branch that may not hold it.
+### The official MCP Registry
+
+#106 is the second caller of [catalogs over HTTP](#catalogs-over-http),
+after the skill directories ([searching the skill
+directories](#searching-the-skill-directories)): `mcp_registry` reads the
+official MCP Registry,
+`registry.modelcontextprotocol.io` (`OFFICIAL`), at its `/v0.1` read API
+(`API`), which the registry froze as stable while it is in preview, and
+makes one of its servers into a definition of the library's ([what an MCP
+server's definition declares](#what-an-mcp-servers-definition-declares)).
+Nothing calls it from a command yet, and nothing in it writes a file:
+`mindweaver gather mcp` (#107) is the first front end to.
+
+**Reading it.** A `Registry` is an address and an `http::Client`:
+`Registry::official`, or `Registry::at` for a mirror serving the same API,
+or a test's own, an address refused when no request could ask it
+(`HttpRequest::get`) or when it holds a query or a fragment, which the
+API's paths would follow (`mcp_registry_base_invalid`). It reads three ways:
+
+- `search(query)` asks for the latest version of every server whose name
+  holds the query (`search`, `version=latest`), a page of `PAGE_LIMIT`
+  (100, the most the registry gives) at a time, each next page by the
+  `nextCursor` the last named, put into the first page's URL, through
+  `Client::pages`, at most `MOST_PAGES` (20) of them: a query as wide as
+  `mcp` stops and says so (`http_pages_exceeded`) rather than read tens of
+  thousands of servers a page at a time. A query shorter than three
+  characters, which the registry refuses, asks nothing
+  (`mcp_registry_query_short`). What it finds is a `Listing`: one `Entry` a
+  server, sorted by the name the registry gives it, `as_of` the newest
+  time the registry gave anything read into it, and `whole` when every
+  page was read.
+- `refresh(listing)` asks only for what changed since the listing's
+  `as_of` (`updated_since`), and expects deleted servers in the answer:
+  the registry includes them whenever `updated_since` is given, so that
+  whoever holds a copy can take them out. One deleted since is taken out
+  of the listing and said (`Listed::dropped`); every other replaces what
+  the listing held of its server, or joins it. A listing that stopped
+  short, or holds no time, is searched again whole instead, since a change
+  to a server on a page it never read would never be asked for, and a
+  refresh that stops short leaves a listing that is not whole, so the next
+  is a whole search.
+- `server(name, version)` asks for one version, or `latest`, by the
+  registry's name for the server, a `value::UpstreamName`
+  (`io.github.owner/server`), named apart and held to the registry's rule
+  before anything is asked (`mcp_registry_name_invalid`); the name and the
+  version each go into the path encoded as one part, a slash and all. The
+  registry answers a version it never held, and one deleted, with a 404,
+  which is `mcp_registry_server_unknown`.
+
+The times are the registry's, never the machine's: what a refresh asks
+from is a time the registry wrote, so a clock set wrong costs nothing.
+They are RFC 3339 as Go writes them, the fraction of a second as short as
+it can be, so two are ordered once read (`mcp_registry/time.rs`, with no
+date library, as the ledger keeps its times) rather than as text, where
+`.7Z` sorts after `.72Z`. An answer is cached as every catalog's is, when
+the client was given a cache; a listing is the front end's to hold and
+refresh, for as long as it runs (the TUI's search, #107). Lenient, as every
+read is: a server's fields core reads are typed and every other one read
+past (`wire.rs`), a list Go writes as `null` reads as empty, a server in a
+page that does not read is a warning beside the rest
+(`mcp_registry_entry_unreadable`), and its packages and remotes are read
+one at a time when they are asked for (`Entry::ways`), so one that does not
+read hides neither the server nor its other ways. A status is `active`,
+`deprecated` or `deleted`, and a word this build does not know is kept as
+written (`Status::Other`); an answer without the registry's own part reads
+as active, since only the official registry says a status and a mirror may
+not.
+
+**Making one a definition** (`Registry::import`, `mcp_registry/import.rs`)
+takes one way, a package or a remote, by its place among `Entry::ways`, or
+else the first that can be written, in the order that runs least on the
+machine: a remote over streamable HTTP, which nothing has to be installed
+for and every agent reaches, then a package, then a remote over
+server-sent events. A package is started by its registry type's command,
+pinned to its version where the registry gives one:
+
+| Registry type | Command |
+|---|---|
+| `npm` | `npx -y <id>@<version>` |
+| `pypi` | `uvx <id>==<version>` |
+| `nuget` | `dnx <id>@<version>` |
+| `oci` | `docker run -i --rm -e <name>... <image>`, the tag in the image's identifier |
+| `mcpb`, `cargo`, any other | a manual step |
+
+A package with no version, which the 2025-12-11 schema allows, is started
+by its identifier alone and said (`mcp_registry_unversioned`), since an
+agent then runs whatever is latest each time it starts it. An image named
+without its tag, as a schema before 2025-09-29 wrote one, is given its
+version as its tag. Each of an image's environment variables is passed
+into the container with `-e <name>`, which the issue's command leaves out:
+a definition's `env` is the `docker` process's, and no container sees it
+otherwise. A package's `packageArguments` follow it. Its
+`runtimeArguments` are left out and said
+(`mcp_registry_runtime_arguments_left_out`), but for those the command
+holds already: the command is the registry type's, as #106 fixes it, and
+what publishers hand a runtime ranges from `-y` again to the whole `docker`
+command line, a mount of somebody's folder or a published port, which
+somebody gives by hand once they have read it, rather than an import
+writing it for an agent to run unread. What no command of the type's
+starts is a manual step, said with what to do instead and never guessed: a
+bundle, with its address and its SHA-256 (`mcp_registry_bundle`), a crate,
+whose program the registry does not name (`mcp_registry_crate`), a
+registry type this build does not know (`mcp_registry_type_unknown`), and
+a package that serves over HTTP once started, which no agent starts and
+reaches in one entry (`mcp_registry_package_serves`). So is an identifier
+no command line takes as one word, holding a space, a brace or a control
+character, or starting with a dash, which a runtime would read as an
+option of its own (`mcp_registry_identifier_unfit`). A remote is an `http`
+transport, or an `sse` one, said (`mcp_registry_sse`), since the MCP
+specification has replaced server-sent events and Codex and OpenCode take
+none; one whose address carries a credential is a manual step
+(`mcp_registry_url_credentialed`), and so is a transport this build does
+not know (`mcp_registry_transport_unknown`).
+
+What somebody supplies is an input read from an environment variable and
+never given a value (D-11): a value the registry leaves to whoever runs
+the server, every `{name}` in one, and the whole value of anything the
+registry calls a secret, whatever it wrote there (a publisher's `Bearer
+<YOUR_API_KEY>` among it), so no definition an import makes holds a
+secret's value. A value with nothing to supply is written as it is. One
+asking for something is written only when the registry says it, or a
+variable in it, is required, and every input written is `required`: an
+agent given a reference to a variable nobody set starts the server with
+nothing there, and Claude Code, by its docs, fails to parse a whole
+`.mcp.json` one of whose references names such a variable with no default
+(docs-only, not among #18's checks), so an optional one is left out and
+said (`mcp_registry_optional_left_out`), as are a header or a variable
+with no name, or named twice (`mcp_registry_value_left_out`). Where a value
+somebody would supply has a default and is no secret, the default is
+written. Each `{name}` is described by the `variables` beside it when they
+name it, a header's own or, as servers write them, the remote's beside its
+URL, and by the value it stands in otherwise: the registry's schema says a
+name no `variables` hold stays as it is written, but its servers write
+`Bearer {api_key}` with no `variables` at all, and an agent sent the
+braces would only be refused. `${name}`, as a shell writes one, is read
+the same way, and a brace around anything else (`{"debug":true}`) is text,
+as in any definition. The variable an input is read from is the
+environment variable's own name when the input is its whole value, the
+shape `add --secret-env` writes, which every agent passes on, Codex's
+`env_vars` among them; a name already spelled as a variable
+(`{INFOBIP_API_KEY}`) as it is; and otherwise the definition's name and
+the input's in capitals (`DEVMARGIN_TOKEN` for `{token}`), so that two
+servers asking for an `api_key` ask for two. Two inputs of one name and
+different kinds are told apart by a number (`region-2`).
+
+The definition is named after the server and its owner, the last word of
+its namespace (`ai.clawfetch/mcp` is `clawfetch-mcp`), unless the server's
+own name starts with the owner already
+(`io.github.buildkite/buildkite-mcp-server` is `buildkite-mcp-server`): a
+server's own name is so often a word every publisher uses, `mcp` or
+`server`, that two imports would be one definition otherwise. A front end
+can name it otherwise. Its provenance is the registry's address, the
+server's name, the version imported and when it was fetched, by the
+registry's clock (`Registry::with_clock`), written as a TOML date and
+time. A deprecated server is imported, and said with why
+(`mcp_registry_deprecated`); a deleted one never is
+(`mcp_registry_server_deleted`), nor one of a status this build does not
+know (`mcp_registry_status_unknown`). The status is the import's to say,
+and is not written into the definition, where it would go stale.
+
+Every import is held to the strict function `add` holds a definition to
+(`artifact::mcp_strict_issues`) before it is handed back, so it never
+makes one `validate` would call invalid: a value the registry fixes that
+looks like a token, which a published server holds now and then, refuses
+the way (`mcp_registry_import_unfit`), and so does a name an agent keeps
+for itself, for a front end to give another. A way refused so is passed
+over for the next; with none left, the first refusal is said, or else each
+way's manual step (`mcp_registry_import_manual`).
+
+**Tested** with no network: `tests/mcp_registry_test.rs` serves, through
+a fake `Http`, answers the real registry sent on 2026-11-10, recorded once
+with curl into `tests/fixtures/mcp-registry`: servers written in the
+2025-09-29 and 2025-12-11 schemas (and one in 2025-10-17), a search three
+pages long, the changes a refresh asks for with a server deleted among
+them, and a version no longer held, each saved as it came but for an em
+dash written as its JSON escape, which reads back as the same text. Every
+recorded server that is not deleted is held to make a definition
+`validate` passes once written in a library, or a manual step, and none to
+hold a value the registry calls a secret. Each registry type is mapped from
+a recorded server, and what none recorded holds (a package with no
+version, a registry type nobody publishes to) from a recorded one the test
+changes and says so. The import's rules are unit-tested on answers
+`RegistryMother` draws.
+
+Rejected: following a package's `runtimeHint`, which publishers write as
+freely as `node >=22.6.0` or a paragraph, where the issue fixes the command
+by registry type; writing its `runtimeArguments`, for the reason above;
+keeping the registry's `server.json` as it is (D-10); writing optional
+inputs, every one of which somebody would then have to set, or Claude, by
+its docs, reads no server of the file; and a copy of the whole registry
+kept and refreshed, tens of thousands of servers, which a search narrow
+enough to choose from never needs.
 
 ### Why the ledger is SQLite
 
@@ -12628,7 +12822,10 @@ takes out only the entries it recorded that nobody changed since
 commands' words: a server named bare as every kind is, what each agent
 will run said from its renderer's own entry, and one from elsewhere than
 the library written only with `--yes`, on the command line and from the
-install screen alike.
+install screen alike. #106 makes a server the official registry lists into
+one ([the official MCP Registry](#the-official-mcp-registry)), the
+registry's subset of `server.json` this format was shaped as, with the
+registry as its provenance, and writes nothing yet.
 
 Checking it, #18 added MCP checks to `scripts/agent-probe`, run by hand.
 Claude Code's and OpenCode's ran on 2026-11-05; Codex's were not run, since
@@ -12819,6 +13016,9 @@ it first: a rate limit is a failure of its own, `FetchError::RateLimited`,
 saying when it lets a request through again, and is not retried, since a
 search waiting out GitHub's limit would hold a command for as long as it
 lasts.
+#106 reads the MCP Registry through it ([the official MCP
+Registry](#the-official-mcp-registry)), retrying nothing either: a rate
+limit ends a listing as any failure does, said beside what was read.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -13336,8 +13536,8 @@ repository, stays on `gix`.
   test asking a server on loopback would ask a developer's proxy instead
   ([catalogs over HTTP](#catalogs-over-http)). gix's transport does read
   one, through reqwest's defaults, so somebody behind a proxy can gather
-  and not search the skill directories (#108), nor, once #106 lands, read
-  the MCP Registry. A proxy the front end reads and hands to the adapter,
+  and neither search the skill directories (#108) nor read the MCP
+  Registry (#106). A proxy the front end reads and hands to the adapter,
   as it does a credential
   ([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
   closes it; the first catalog read left it for somebody behind one to
@@ -13455,11 +13655,38 @@ repository, stays on `gix`.
 - **An imported value holding its own placeholder as text.** Format 1 has
   no escape, and needs none while a definition's author chooses its inputs'
   names ([what an MCP server's definition
-  declares](#what-an-mcp-servers-definition-declares)). A registry entry
-  (#106) whose value holds `{name}` as text while it declares a variable of
-  that name is the one case an author does not choose: the import renames
-  the input, or the format gains an escape, which an older build would read
-  as text.
+  declares](#what-an-mcp-servers-definition-declares)). A registry's server
+  is the one case an author does not choose, and #106 reads every `{name}`
+  in a value as something to supply ([the official MCP
+  Registry](#the-official-mcp-registry)), since servers write a variable so
+  whether or not they declare it: a value meaning braces around a name as
+  text is imported as asking for one. Telling the two apart needs the
+  format to gain an escape, which an older build would read as text.
+- **Whether `dnx` asks before it downloads.** A NuGet package is started
+  by `dnx <id>@<version>`, the issue's command ([the official MCP
+  Registry](#the-official-mcp-registry)). Microsoft's guide to MCP servers
+  on NuGet writes `--yes` after it, which answers the question `dotnet tool
+  exec` asks before it downloads a tool it has not cached, and which an
+  agent starting the server would leave unanswered. No run has checked
+  what `dnx` does with no terminal to ask on; adding `--yes` waits for one.
+- **A listing kept across runs.** A refresh asks only what changed since
+  for a front end that holds the listing it refreshes, the TUI's or the
+  panel's; the same search typed again an hour later reads it whole,
+  cached as every answer is ([the official MCP
+  Registry](#the-official-mcp-registry)). Keeping listings in the
+  workspace's cache beside the answers, in a folder reserved from the
+  sources' clones as `http` is, waits for a search wide enough to matter.
+- **What a registry says of an import later.** An import says a server is
+  deprecated when it is imported, and nothing says so after: what the
+  registry deprecated or deleted since, and a newer version, are asked of
+  it by the changes since the newest time any import holds, as a refresh
+  asks, once a command updates an imported definition.
+- **The runtime arguments an import leaves out.** What a package's
+  publisher hands its runtime, a mount, a published port, a Python version
+  for `uvx`, is said and never written, for somebody to add by hand
+  ([the official MCP Registry](#the-official-mcp-registry)). A server whose
+  image needs a folder mounted starts without it until then. Writing the
+  ones a rule could judge safe waits for a rule.
 
 - **A known workspace that has gone is offered nothing.** The page of
   loads and the header's switcher list it, with why it does not open, and
