@@ -346,7 +346,8 @@ fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
         route: random::word(),
     };
     for _ in 0..50 {
-        let (added, updated, unchanged) = (
+        let (added, updated, unchanged, removed) = (
+            random::between(0, 4),
             random::between(0, 4),
             random::between(0, 4),
             random::between(0, 4),
@@ -364,6 +365,8 @@ fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
             warnings: Vec::new(),
             left_out: Vec::new(),
             pin: None,
+            // Off the shelf now, so in no count of what is on it.
+            removed: (0..removed).map(|_| harvested()).collect(),
         };
 
         assert_eq!(report.total(), added + updated + unchanged);
@@ -787,6 +790,20 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
         "/w/.mindweaver/skills/s/deploy: put on the shelf, but cannot be read back to be hashed: \
          denied"
     );
+    let unremoved = Failure::Unremoved {
+        path: PathBuf::from("/w/.mindweaver/skills/s/review"),
+        source: io::Error::other("busy"),
+    };
+    assert_eq!(unremoved.code(), "gathered_unremoved");
+    assert_eq!(
+        unremoved.path(),
+        Path::new("/w/.mindweaver/skills/s/review")
+    );
+    assert_eq!(
+        unremoved.to_string(),
+        "/w/.mindweaver/skills/s/review: no longer in its source, and cannot be taken off the \
+         shelf: busy"
+    );
     assert_eq!(
         Failure::CODES,
         [
@@ -796,6 +813,7 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
             "gathered_link_outside",
             "gathered_root_unnamed",
             "gathered_unhashed",
+            "gathered_unremoved",
         ]
     );
 }

@@ -206,6 +206,7 @@ every_store![
     every_licence_a_gather_reads_comes_back_as_it_was_recorded,
     a_source_is_pinned_while_its_last_gather_was_and_followed_once_one_was_not,
     gathering_a_name_again_from_one_source_replaces_it_and_from_another_adds_it,
+    forgetting_what_a_source_gathered_forgets_its_one_and_no_other_sources,
     what_was_gathered_is_listed_by_name_then_source,
     a_shelf_moved_moves_every_path_under_it_and_nothing_else,
     no_credential_typed_into_a_url_comes_back_from_the_store,
@@ -1773,6 +1774,52 @@ fn gathering_a_name_again_from_one_source_replaces_it_and_from_another_adds_it(m
     assert_eq!(replaced[0].summary, None);
     assert_eq!(replaced[0].revision.as_ref(), Some(&revision));
     assert_eq!(of(&second)[0].summary.as_deref(), Some("Other"));
+}
+
+fn forgetting_what_a_source_gathered_forgets_its_one_and_no_other_sources(mut store: Store) {
+    let first = source(&store, &UrlMother::https());
+    let second = source(&store, &UrlMother::https());
+    let names = distinct_names(2);
+    for (from, name) in [
+        (&first, &names[0]),
+        (&first, &names[1]),
+        (&second, &names[0]),
+    ] {
+        store
+            .record(
+                from,
+                &TakenMother::create(Kind::Skill, name, &random::word()),
+            )
+            .unwrap();
+    }
+
+    let forgot = store
+        .forget_gathered(&first, Kind::Skill, &names[0])
+        .unwrap();
+    let again = store
+        .forget_gathered(&first, Kind::Skill, &names[0])
+        .unwrap();
+    let as_a_rule = store
+        .forget_gathered(&first, Kind::Rule, &names[1])
+        .unwrap();
+
+    assert!(forgot, "{} was gathered from the first", names[0]);
+    assert!(!again, "{} is forgotten already", names[0]);
+    assert!(!as_a_rule, "{} was gathered as a skill", names[1]);
+    store.reopen();
+    let mut left: Vec<(i64, String)> = store
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|artifact| (artifact.source.id, artifact.name.into_string()))
+        .collect();
+    left.sort();
+    let mut expected = vec![
+        (first.id, names[1].to_string()),
+        (second.id, names[0].to_string()),
+    ];
+    expected.sort();
+    assert_eq!(left, expected);
 }
 
 fn a_shelf_moved_moves_every_path_under_it_and_nothing_else(mut store: Store) {

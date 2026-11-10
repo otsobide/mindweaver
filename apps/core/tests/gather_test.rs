@@ -1394,6 +1394,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         name: SourceName::parse("acme-skills").unwrap(),
         left_out: Vec::new(),
         pin: None,
+        removed: vec![harvested("lint")],
     };
 
     let serialized = serde_json::to_string(&report).unwrap();
@@ -1409,7 +1410,150 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
             r#""unchanged":[{"name":"review","directory":"review","summary":"About review","#,
             r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review","#,
             r#""route":"skills/review"}],"#,
-            r#""name":"acme-skills","pin":null}"#,
+            r#""name":"acme-skills","pin":null,"#,
+            r#""removed":[{"name":"lint","directory":"lint","summary":"About lint","#,
+            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/lint","#,
+            r#""route":"skills/lint"}]}"#,
         )
     );
+}
+
+// ---------------------------------------------------------------------------
+// What a source offers no more (#100)
+// ---------------------------------------------------------------------------
+
+/// `deploy` and `review` gathered from a repository, which then drops
+/// `review`: what a gather of it again finds no more.
+fn gathered_then_dropped() -> (TempDir, TempDir, WeaverWorkspace, Ledger, Request) {
+    let source = repository(&[
+        ("skills/deploy/SKILL.md", &skill("deploy", "Ship it")),
+        ("skills/review/SKILL.md", &skill("review", "Read a change")),
+    ]);
+    let (dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let request = Request::git(url(&source));
+    gather::gather(&workspace, &ledger, &request).unwrap();
+    fs::remove_dir_all(source.path().join("skills/review")).unwrap();
+    commit(source.path());
+    (source, dir, workspace, ledger, request)
+}
+
+/// The names of what the shelf holds, in the order the ledger lists them.
+fn shelved(ledger: &Ledger) -> Vec<String> {
+    ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|gathered| gathered.name.into_string())
+        .collect()
+}
+
+#[test]
+fn a_skill_its_source_no_longer_has_is_taken_off_the_shelf_and_said_as_removed() {
+    let (_source, _dir, workspace, ledger, request) = gathered_then_dropped();
+
+    let report = gather::gather(&workspace, &ledger, &request).unwrap();
+
+    let removed: Vec<(&str, &str)> = report
+        .removed
+        .iter()
+        .map(|gone| (gone.name.as_str(), gone.route.as_str()))
+        .collect();
+    assert_eq!(removed, [("review", "skills/review")]);
+    assert_eq!(report.unchanged.len(), 1, "{report:?}");
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    let shelf = workspace.gathered_dir(Kind::Skill).join(&report.directory);
+    assert!(!shelf.join("review").exists());
+    assert!(shelf.join("deploy").join("SKILL.md").is_file());
+    assert_eq!(shelved(&ledger), ["deploy"]);
+    assert_eq!(
+        ledger.history(1).unwrap()[0].detail.as_deref(),
+        Some("0 added, 0 updated, 1 unchanged, 1 removed, 0 failed")
+    );
+}
+
+#[test]
+fn a_dry_run_says_what_a_gather_would_take_off_the_shelf_and_takes_nothing() {
+    let (_source, _dir, workspace, ledger, request) = gathered_then_dropped();
+
+    let report = gather::dry_run(&workspace, &ledger, &request).unwrap();
+
+    let removed: Vec<&str> = report
+        .removed
+        .iter()
+        .map(|gone| gone.name.as_str())
+        .collect();
+    assert_eq!(removed, ["review"]);
+    let shelf = workspace.gathered_dir(Kind::Skill).join(&report.directory);
+    assert!(shelf.join("review").join("SKILL.md").is_file());
+    assert_eq!(shelved(&ledger), ["deploy", "review"]);
+}
+
+#[test]
+fn a_skill_that_will_not_read_this_time_is_left_on_the_shelf_as_it_was() {
+    let source = repository(&[
+        ("skills/deploy/SKILL.md", &skill("deploy", "Ship it")),
+        ("skills/review/SKILL.md", &skill("review", "Read a change")),
+    ]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let request = Request::git(url(&source));
+    gather::gather(&workspace, &ledger, &request).unwrap();
+    write_files(
+        source.path(),
+        &[("skills/review/SKILL.md", "no front matter at all\n")],
+    );
+    commit(source.path());
+
+    let report = gather::gather(&workspace, &ledger, &request).unwrap();
+
+    assert!(report.removed.is_empty(), "{:?}", report.removed);
+    assert_eq!(report.failures.len(), 1, "{:?}", report.failures);
+    let shelf = workspace.gathered_dir(Kind::Skill).join(&report.directory);
+    assert!(shelf.join("review").join("SKILL.md").is_file());
+    assert_eq!(shelved(&ledger), ["deploy", "review"]);
+}
+
+#[test]
+fn a_skill_renamed_in_its_folder_forgets_its_old_name_and_keeps_the_folder() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let request = Request::git(url(&source));
+    gather::gather(&workspace, &ledger, &request).unwrap();
+    write_files(
+        source.path(),
+        &[("skills/deploy/SKILL.md", &skill("ship", "Ship it"))],
+    );
+    commit(source.path());
+
+    let report = gather::gather(&workspace, &ledger, &request).unwrap();
+
+    let removed: Vec<&str> = report
+        .removed
+        .iter()
+        .map(|gone| gone.name.as_str())
+        .collect();
+    assert_eq!(removed, ["deploy"]);
+    let shelf = workspace.gathered_dir(Kind::Skill).join(&report.directory);
+    assert!(shelf.join("deploy").join("SKILL.md").is_file());
+    assert_eq!(shelved(&ledger), ["ship"]);
+}
+
+#[test]
+fn what_another_source_offers_under_the_name_stays_when_one_drops_it() {
+    let (_source, _dir, workspace, ledger, request) = gathered_then_dropped();
+    let other = repository(&[("skills/review/SKILL.md", &skill("review", "Elsewhere"))]);
+    let elsewhere = gather::gather(&workspace, &ledger, &Request::git(url(&other))).unwrap();
+
+    gather::gather(&workspace, &ledger, &request).unwrap();
+
+    let review: Vec<String> = ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .filter(|gathered| gathered.name == "review")
+        .map(|gathered| gathered.source.directory)
+        .collect();
+    assert_eq!(review, [elsewhere.directory]);
 }

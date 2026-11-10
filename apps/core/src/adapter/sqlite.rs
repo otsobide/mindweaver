@@ -700,6 +700,21 @@ impl LedgerStore for Sqlite {
             .map_err(|error| self.failed("recording an artifact", error))
     }
 
+    fn forget_gathered(
+        &self,
+        source: &Source,
+        kind: Kind,
+        name: &str,
+    ) -> Result<bool, LedgerError> {
+        self.connection
+            .execute(
+                "DELETE FROM artifacts WHERE source_id = ?1 AND kind = ?2 AND name = ?3",
+                rusqlite::params![source.id, kind.slug(), name],
+            )
+            .map(|deleted| deleted > 0)
+            .map_err(|error| self.failed("forgetting an artifact", error))
+    }
+
     fn shelf_moved(&self, from: &str, to: &str) -> Result<usize, LedgerError> {
         // Compared as a prefix of bytes, never with LIKE, whose `%` and `_`
         // a folder's name may hold.
