@@ -82,6 +82,17 @@ const stoppable = computed(() => {
   return now !== undefined && now.cancellable && !now.cancelling && now.step?.cancellable !== false
 })
 
+/**
+ * How far the step under way has got, when it counts what it does and has
+ * said of how much: what the bar draws, as the step's own numbers. Otherwise
+ * none, and the bar says only that something is under way, as a step that
+ * counts nothing, connecting, or does not know its total yet, would.
+ */
+const counted = computed(() => {
+  const step = underway.value?.step
+  return step && step.done !== null && step.total !== null ? { done: step.done, total: step.total } : undefined
+})
+
 /** What a stop can do now, in words, so the state is never said by the button alone. */
 const stopping = computed(() => {
   const now = underway.value
@@ -176,6 +187,19 @@ function focus(event: Event) {
           />
           {{ underway?.step?.said ?? 'starting' }}
         </p>
+        <!--
+          The browser's own bar, its value and maximum the step's numbers,
+          which it says to a screen reader as they are, drawn with no style
+          attribute for the CSP to refuse. Given neither, it is the bar of a
+          step that has said no count yet.
+        -->
+        <progress
+          :value="counted?.done"
+          :max="counted?.total"
+          aria-label="How far it has got"
+          class="block h-1.5 w-full appearance-none overflow-hidden rounded-full bg-accented [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-accented [&::-webkit-progress-value]:bg-primary"
+          data-testid="progress"
+        />
         <p
           class="text-xs text-muted"
           data-testid="stop-state"
