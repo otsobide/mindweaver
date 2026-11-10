@@ -130,6 +130,18 @@ describe('the HTTP transport', () => {
     expect(run).toEqual({ lines: ['mindweaver install demo -p app'], outcome })
   })
 
+  it('asks the run under way to stop by its number, at the server\'s own route', async () => {
+    const sent = serve(() => json(200, { run: 3, lines: ['mindweaver backup ../library.git'] }))
+
+    const taken = await httpTransport().cancel(3)
+
+    expect(taken).toEqual({ run: 3, lines: ['mindweaver backup ../library.git'] })
+    const [{ url, init }] = sent as [Sent]
+    expect(url).toBe('/api/v1/tasks/cancel')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ run: 3 })
+  })
+
   it('says what the server refused, from its error body, with the code beside it', async () => {
     serve(() => json(404, { error: 'no such endpoint: GET /api/v1/nothing', code: 'unknown_route' }))
 

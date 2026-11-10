@@ -1,6 +1,6 @@
 import { computed, inject, provide, watch, type ComputedRef, type InjectionKey } from 'vue'
 import { useMutation, useMutationState } from '@tanstack/vue-query'
-import { useLive, useSettle } from './live'
+import { useLive, useSettle, type Underway } from './live'
 import { useTransport, type Preview, type Ran, type Task } from './transport'
 
 /** A task shown before it runs: what was asked for, and the lines it is. */
@@ -39,6 +39,20 @@ export interface Runner {
   run(): Promise<void>
   /** No: let it go, nothing run. */
   cancel(): void
+  /**
+   * The run of what is shown, while it is under way, as the stream tells
+   * it: its latest step, whether it takes a cancel and whether one was
+   * asked for. None for a run the stream has not told started yet, and
+   * none for another tab's.
+   */
+  underway: ComputedRef<Underway | undefined>
+  /**
+   * Ask the run of what is shown to stop, while it is under way and takes
+   * a cancel. Whether it stopped is its outcome's to say: a gather stops
+   * before it places anything, a backup before it pushes, and one past
+   * that finishes.
+   */
+  stop(): Promise<void>
   /**
    * What the last run that answered was answered with, for the warnings
    * drawer: not the run mutation's own answer, which Vue Query clears as the
@@ -128,6 +142,19 @@ export function provideRunner(say: Say): Runner {
 
   const busy = computed(() => previewing.isPending.value || asking.value !== undefined || running.isPending.value)
 
+  // The run the stream tells of that is the one shown, by its lines, which
+  // the server previewed and runs alike: its number is the stream's to
+  // tell, the run's answer coming only once it is over.
+  const underway = computed<Underway | undefined>(() => {
+    const now = live.underway
+    const shown = asking.value
+    if (!running.isPending.value || !now || !shown) {
+      return undefined
+    }
+    const same = now.lines.length === shown.preview.lines.length && now.lines.every((line, index) => line === shown.preview.lines[index])
+    return same ? now : undefined
+  })
+
   const runner: Runner = {
     async ask(task) {
       if (busy.value) {
@@ -166,6 +193,17 @@ export function provideRunner(say: Say): Runner {
       if (!running.isPending.value) {
         end(undefined)
       }
+    },
+    underway,
+    async stop() {
+      const now = underway.value
+      if (!now?.cancellable || now.cancelling || now.step?.cancellable === false) {
+        return
+      }
+      // A cancel the server will not take, its run over already or past
+      // stopping, changes nothing, and the run's own outcome says how it
+      // ended: nothing to tell beside that.
+      await transport.cancel(now.run).catch(() => undefined)
     },
     said: computed(() => answered.value.at(-1))
   }

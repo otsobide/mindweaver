@@ -8,6 +8,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, type Router, type RouteRecordRaw } from 'vue-router'
 import App from '@/App.vue'
 import type { Snapshot } from '@/api/generated/Snapshot'
+import type { Step } from '@/api/generated/Step'
 import { TransportError, type LiveEvent, type Preview, type Query, type Ran, type Switch, type Switchable, type Task, type Transport } from '@/api/transport'
 import { createPanel } from '@/panel'
 import applied from './fixtures/applied.json'
@@ -17,6 +18,7 @@ import candidates from './fixtures/candidates.json'
 import commands from './fixtures/commands.json'
 import draftsJson from './fixtures/drafts.json'
 import foldersJson from './fixtures/folders.json'
+import keptJson from './fixtures/kept.json'
 import library from './fixtures/library.json'
 import loadsJson from './fixtures/loads.json'
 import planned from './fixtures/plans.json'
@@ -24,6 +26,7 @@ import scan from './fixtures/scan.json'
 import servedJson from './fixtures/served.json'
 import serversJson from './fixtures/servers.json'
 import serving from './fixtures/serving.json'
+import stepsJson from './fixtures/steps.json'
 import unmade from './fixtures/unmade.json'
 import updated from './fixtures/updated.json'
 import surveyed from './fixtures/updates.json'
@@ -277,6 +280,30 @@ export function served(): Commanded[] {
   return structuredClone(servedJson) as unknown as Commanded[]
 }
 
+/**
+ * What the workspace fixture's server answers when each change the
+ * library's forms for a copy of it send is previewed and run, each on the
+ * workspace as it was built (tests/fixtures/kept.json): an export of every
+ * kind into `/home/you/backup`; one of skills alone told to replace,
+ * confirmed for what it takes away; a backup to GitHub naming the variable
+ * a token is read from, previewed alone, its run reading the environment of
+ * whoever wrote the fixture; and a backup naming none, run and stopped at
+ * its first step, before it reached any repository (`backup_cancelled`).
+ * The third's `ran` is null. Copied, so a test may change its copy.
+ */
+export function kept(): Commanded[] {
+  return structuredClone(keptJson) as unknown as Commanded[]
+}
+
+/**
+ * Each step a backup reports, as the backend tells the panel it
+ * (tests/fixtures/steps.json): checking the repository out, exporting,
+ * committing, each cancellable, and pushing, past a cancel.
+ */
+export function steps(): Step[] {
+  return structuredClone(stepsJson) as unknown as Step[]
+}
+
 /** A task as `send` was handed it, and how. */
 export interface Sent {
   task: Task
@@ -298,6 +325,8 @@ export function commanding(snapshot: Snapshot = fixture('workspace'), known: Com
   const listeners: ((event: LiveEvent) => void)[] = []
   const tell = (event: LiveEvent) => [...listeners].forEach(listener => listener(event))
   const control = { finishing: undefined as Promise<void> | undefined }
+  /** Each run a cancel was asked for, by its number. */
+  const cancels: number[] = []
   const commanding = {
     ...transport,
     async send(task: Task, mode: 'preview' | 'run') {
@@ -320,6 +349,13 @@ export function commanding(snapshot: Snapshot = fixture('workspace'), known: Com
       tell({ type: 'command_finished', run, lines: found.ran.lines })
       return structuredClone(found.ran)
     },
+    // Taken, and told to every tab as the server tells it; what the run
+    // does of it is the test's to say, by how it lets the run finish.
+    cancel(run: number) {
+      cancels.push(run)
+      tell({ type: 'cancelling', run })
+      return Promise.resolve({ run, lines: [] })
+    },
     transcript: () => Promise.resolve(structuredClone(ran)),
     subscribe(listener: (event: LiveEvent) => void) {
       listeners.push(listener)
@@ -328,7 +364,7 @@ export function commanding(snapshot: Snapshot = fixture('workspace'), known: Com
       }
     }
   } as unknown as Transport
-  return { queries, sent, ran, control, tell, transport: commanding }
+  return { queries, sent, ran, control, cancels, tell, transport: commanding }
 }
 
 /**
