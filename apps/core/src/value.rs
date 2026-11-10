@@ -16,13 +16,14 @@
 //!   the generator or the parser, the redaction), never from any text at
 //!   all. A function that is handed one need not check it again.
 //! - **Named apart**: [`ArtifactName`], [`Origin`], [`Revision`],
-//!   [`InputName`] and [`VariableName`], which hold any text, since what
-//!   core reads it reads leniently (a name on the disk can break the rules a
-//!   write is held to, and is listed all the same: "strict when writing,
-//!   lenient when reading"), but each a type of its own so that one is never
-//!   handed where another is meant. Two of them say a rule they are not
-//!   made by, for `validate` to ask ([`InputName::is_writable`],
-//!   [`VariableName::is_portable`]).
+//!   [`InputName`], [`VariableName`] and [`UpstreamName`], which hold any
+//!   text, since what core reads it reads leniently (a name on the disk can
+//!   break the rules a write is held to, and is listed all the same:
+//!   "strict when writing, lenient when reading"), but each a type of its
+//!   own so that one is never handed where another is meant. Three of them
+//!   say a rule they are not made by, for `validate` or a request to ask
+//!   ([`InputName::is_writable`], [`VariableName::is_portable`],
+//!   [`UpstreamName::is_well_formed`]).
 //!
 //! Each goes out as the text it holds, and its contract is that text: serde
 //! writes a string, ts-rs says `string` (so no file of its own is exported
@@ -587,6 +588,53 @@ impl VariableName {
             .next()
             .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
             && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    }
+}
+
+text_value! {
+    /// What an MCP registry names a server, `io.github.owner/server`: a
+    /// namespace in reverse-DNS form, a slash, and the server's own name
+    /// ([`crate::mcp_registry`]).
+    ///
+    /// Named apart rather than held to its rule, as an artifact's name is:
+    /// a registry's answer is read whatever it names a server, and a name
+    /// is asked of it only before it goes into a URL
+    /// ([`is_well_formed`](Self::is_well_formed)). Not an
+    /// [`ArtifactName`], the name a definition is keyed by, which is rarely
+    /// this one: an agent takes no dot or slash in a server's key.
+    pub struct UpstreamName;
+}
+from_text!(UpstreamName);
+as_text!(UpstreamName);
+
+impl UpstreamName {
+    /// The most characters a registry gives a server's name.
+    pub const MAX_LEN: usize = 200;
+
+    /// Whether it is a name the official registry gives a server: a
+    /// namespace of letters, digits, dots and hyphens, one slash, then a
+    /// name of letters, digits, dots, underscores and hyphens, three to
+    /// [`MAX_LEN`](Self::MAX_LEN) characters in all, as its `server.json`
+    /// schema says.
+    ///
+    /// What a name is asked before a request is made for it: one that
+    /// breaks it names no server a registry holds, so asking would only
+    /// say so a round trip later. The request is safe either way, since
+    /// the name goes into its path encoded, a slash and all, as one part.
+    pub fn is_well_formed(&self) -> bool {
+        let Some((namespace, name)) = self.0.split_once('/') else {
+            return false;
+        };
+        let length = self.0.len();
+        (3..=Self::MAX_LEN).contains(&length)
+            && !namespace.is_empty()
+            && !name.is_empty()
+            && namespace
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+            && name.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'_' || byte == b'-'
+            })
     }
 }
 

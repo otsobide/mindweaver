@@ -75,6 +75,7 @@ use crate::ledger::LedgerError;
 use crate::lifecycle::LifecycleError;
 use crate::lock::LockError;
 use crate::mcp::{Inexpressible, McpError};
+use crate::mcp_registry::{ImportError, Manual, Note, RegistryError};
 use crate::migrate::{MigrateError, NamesFailure, ProjectFailure, Refusal};
 use crate::opencode_mcp::{self, OpenCodeMcpError};
 use crate::policy::PolicyError;
@@ -83,6 +84,7 @@ use crate::reapply::{ReapplyError, ReapplyFailure};
 use crate::relink::{Duplicate, RelinkError};
 use crate::resolve::ResolveError;
 use crate::scan::ScanFailure;
+use crate::sources::SourceError;
 use crate::status::StatusFailure;
 use crate::template::TemplateError;
 use crate::update::{Left, UpdateError};
@@ -257,6 +259,10 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("lock::LockError", LockError::CODES),
     ("mcp::McpError", McpError::CODES),
     ("mcp::expressible::Inexpressible", Inexpressible::CODES),
+    ("mcp_registry::RegistryError", RegistryError::CODES),
+    ("mcp_registry::import::ImportError", ImportError::CODES),
+    ("mcp_registry::import::Manual", Manual::CODES),
+    ("mcp_registry::import::Note", Note::CODES),
     ("migrate::MigrateError", MigrateError::CODES),
     ("migrate::Refusal", Refusal::CODES),
     ("migrate::project::ProjectFailure", ProjectFailure::CODES),
@@ -270,6 +276,7 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("relink::RelinkError", RelinkError::CODES),
     ("resolve::ResolveError", ResolveError::CODES),
     ("scan::ScanFailure", ScanFailure::CODES),
+    ("sources::SourceError", SourceError::CODES),
     ("status::StatusFailure", StatusFailure::CODES),
     ("template::TemplateError", TemplateError::CODES),
     ("update::Left", Left::CODES),

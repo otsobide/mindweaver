@@ -937,7 +937,9 @@ holds it whole as `body`. A definition is written by `add` from how a
 command line says the server is started or reached, or from a template
 ([adding one](#adding-an-mcp-server)), and installing one writes an entry
 into each agent's config file ([installing an MCP
-server](#installing-an-mcp-server)); gathering one and adopting one wait.
+server](#installing-an-mcp-server)); importing one from the official
+registry is core's ([the official MCP Registry](#the-official-mcp-registry))
+and waits for a command (#107), and gathering one and adopting one wait.
 `add`, `edit --contents` and `rename` hold a definition to every problem
 `validate` reports (`artifact::mcp_strict_issues`, a name an agent only
 uses for its own being a warning and no problem), its name to its file as
@@ -2563,6 +2565,13 @@ type derives `Serialize` from the start:
   where a licence was read is a word of core's, and no word a command line
   takes. Names added, which move neither `ENVELOPE_VERSION` nor
   `view::FORMAT`.
+- **Counted by #100**: how much of each source the shelf holds and when it
+  was last gathered, as `shelved` (a `KindCount` a kind it holds any of)
+  and `gathered_at` (`null` while it holds nothing) on each of the
+  snapshot's `sources` (`view::ShelfSource`), which `mindweaver gather
+  sources --json` prints whole; and what a gather took off the shelf, as
+  `removed` on its `Report`. Names added, which move neither
+  `ENVELOPE_VERSION` nor `view::FORMAT`.
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3401,8 +3410,10 @@ installed from it keeps its origin and an update finds its offer. The pin is
 written with the revision once the shelf has changed (`saw_source`), so a
 source is pinned exactly while its shelf holds what a pin took: a gather that
 fails or is cancelled leaves it pinned as it was, and one with no `--pin`
-unpins it, since `gather git` says in full what to take and there is no
-other command that gathers a source again. The report says `, pinned` after
+unpins it, since `gather git` says in full what to take. `gather update`
+(#100), which gathers a source again as the ledger records it, takes its
+pin again, so following the branch is still asked for by `gather git`
+alone. The report says `, pinned` after
 the revision, and `gather list` gives a pinned source's commit a column of
 its own, beside the name `--from` takes rather than in it.
 
@@ -3489,6 +3500,109 @@ is a warning beside the forty that came through, not a reason to be told
 nothing. One that reads but breaks a rule is taken, with a warning for each
 problem ([Strict when writing, lenient when
 reading](#strict-when-writing-lenient-when-reading)).
+
+### What a source offers no more
+
+Until #100 a skill its repository deleted stayed on the shelf for good: its
+folder there and its row, offered by `gather list` and the install screen,
+and what was installed from it never found orphaned. A gather now takes off
+the shelf, once what it offers is placed, what the ledger records of the
+source and the gather did not take (`gather::gone`), and says it as
+`removed` in its report (`Report::removed`), after the rest of the count and
+only when something was, so a gather that removed nothing reads, and logs,
+as it did. A dry run says the same as `would remove`, taking nothing.
+
+Gone is a skill whose folder the source no longer has, or a rule whose
+file it no longer has: where the shelf files it below the source's folder,
+read off the path the ledger recorded, is none of the places of every one
+the gather found, taken or not (`Examined::filed`), a skill's folder name
+or a rule's route (`Found::filed`). A rule's file goes with each folder it
+leaves empty, up to the source's own. By the place rather than by the
+name, since a skill the gather found and
+could not take, a manifest that will not read this time or a name two
+skills share, is still the source's: it is left as it was, its warning
+saying why, rather than taken away for a fault upstream that the next
+commit may mend. A skill at the root that will not read, which is filed
+under the name it would declare, leaves no folder to tell, and then
+nothing is taken for gone. A name the gather took nothing of whose folder
+it placed another skill in, one renamed where it is, has its row forgotten
+and its folder kept, since that is the new name's now; and a skill taken
+from another folder than the one it was gathered from, moved upstream,
+leaves its old folder on the shelf, which goes alone, its row following it
+to the new one. Each is told from what the ledger recorded before the
+gather recorded anything.
+
+Only what is below the source's own folder on the shelf, by names that
+climb nowhere, and for a skill one folder down, is taken away: a row naming
+anything else is left as it is, being nothing a gather of the source put
+there. A folder that will not go keeps its row, so the
+shelf and the ledger say one thing of it, and is said
+(`gathered_unremoved`); the next gather tries again. Forgotten through the
+store (`LedgerStore::forget_gathered`), one source's name at a time, so what
+another source offers under the name stays. What was installed from it is
+the project's still, recorded, and `orphaned` now that nothing offers it,
+for `uninstall --orphaned` to take out when somebody asks.
+
+### Managing the sources
+
+What comes after a gather registers a source is `sources` (#100), each by
+the name a source is called (D-13), which `mindweaver gather sources` lists
+and every command here takes.
+
+- **Listed** as the snapshot lists them (`view::ShelfSource::read`): the
+  ledger's row, its origin, how much of it the shelf holds of each kind
+  (`shelved`) and when its last gather put that there (`gathered_at`, the
+  latest of its artifacts' times, a gather recording every artifact it
+  takes, changed or not), counted from the shelf's rows in core, as every
+  count a view shows is. From the rows rather than from the source's
+  `last_seen`, which a source gets at registering too, before any gather of
+  it placed anything; a source whose every gather failed holds nothing and
+  says no time. The text says it in UTC, worked out in the CLI from the
+  days since the epoch (`render::utc`): a crate of dates for one line was
+  the other way, and the machine's own zone would make one listing read
+  two ways.
+- **Renamed** (`sources::rename`) by the rules and the codes `gather git
+  --name` has (`source_name_invalid`, `source_name_taken`), said in words of
+  their own and echoing the gather's codes, so a script reads one condition
+  by one code whichever command it typed. A name is no part of an origin,
+  so what was installed from it is found where it was.
+- **Gathered again** (`sources::update`, `gather::Request::again`): from
+  the URL the ledger stored, at its branch, from its folder, and at its pin
+  while it has one, so a pinned source takes its commit again; following the
+  branch again is `gather git` without `--pin`, which says in full what to
+  take. Each kind the shelf holds of it is gathered again, its rules as
+  rules (#111), read off the shelf since a source is a folder of a
+  repository whichever kind was gathered from it; one the shelf holds
+  nothing of is gathered as a gather naming no kind would be, as skills
+  ([open questions](#open-questions)). The sources an update names are
+  chosen first (`sources::chosen`),
+  refused whole for a name no source has before anything is fetched, every
+  one when none is named. Each is a gather of its own, holding the workspace
+  for itself, so another command can write between two of them; one that
+  fails is said beside the rest, and a cancel stops the update there, those
+  after it not tried. A token is handed to each, as `gather git` takes one,
+  read before any fetch: the variable once, `gh` once a host.
+- **Forgotten** (`sources::removal`, the dry run, then `sources::remove`):
+  its clone in the cache and its folder on each kind's shelf, by the folder
+  name the ledger records, then its rows (`forget_source`, which cascades to
+  what it gathered and lets go of each installation from it), and a line in
+  the log (`forget`). Only one folder name, one level down from the cache
+  and from each shelf, which is all a gather puts there, and none that is a
+  link, which a removal would reach through: refused whole otherwise
+  (`source_folder_unrecorded`, `source_folder_linked`), nothing removed.
+  The workspace is held from before the source is read until its rows are
+  gone. The folders go before the rows, so one that will not go leaves the
+  source, said (`source_unremoved`), for the next removal to take what is
+  left; rows gone first would leave a folder no source names. What was
+  installed from it is listed (`LedgerStore::installed_from`) and left
+  where it is, its record kept with its origin, `orphaned`.
+
+The TUI's sources screen (`S`) is the snapshot's list, one picked: `u`
+gathers it again and `U` every one, each the task a gather's line is, run
+apart and stopped as a gather is (`Task::UpdateSources`), and `d` forgets it
+once somebody says yes (`Task::RemoveSource`), which every front end with no
+terminal asks about first (`Caution::Forgets`). The panel's page of them is
+#113's.
 
 ### Following a gather, and stopping it
 
@@ -3826,7 +3940,7 @@ repositories, so they are read over HTTP rather than cloned
 read through, and the skill directories a search asks are its first
 caller ([searching the skill
 directories](#searching-the-skill-directories)), the MCP Registry its
-next.
+next ([the official MCP Registry](#the-official-mcp-registry)).
 
 **The port** is one `GET` (`port::Http::get`), answered whatever its status.
 An `HttpRequest` is made only through `HttpRequest::get` and `at`, which
@@ -4060,6 +4174,198 @@ would make the cache a channel between a command and a screen; asking the
 finders from the TUI's own thread rather than through a line, a path of the
 TUI's own into core; and a branch dropped from a result that names one,
 which would gather a folder from a branch that may not hold it.
+### The official MCP Registry
+
+#106 is the second caller of [catalogs over HTTP](#catalogs-over-http),
+after the skill directories ([searching the skill
+directories](#searching-the-skill-directories)): `mcp_registry` reads the
+official MCP Registry,
+`registry.modelcontextprotocol.io` (`OFFICIAL`), at its `/v0.1` read API
+(`API`), which the registry froze as stable while it is in preview, and
+makes one of its servers into a definition of the library's ([what an MCP
+server's definition declares](#what-an-mcp-servers-definition-declares)).
+Nothing calls it from a command yet, and nothing in it writes a file:
+`mindweaver gather mcp` (#107) is the first front end to.
+
+**Reading it.** A `Registry` is an address and an `http::Client`:
+`Registry::official`, or `Registry::at` for a mirror serving the same API,
+or a test's own, an address refused when no request could ask it
+(`HttpRequest::get`) or when it holds a query or a fragment, which the
+API's paths would follow (`mcp_registry_base_invalid`). It reads three ways:
+
+- `search(query)` asks for the latest version of every server whose name
+  holds the query (`search`, `version=latest`), a page of `PAGE_LIMIT`
+  (100, the most the registry gives) at a time, each next page by the
+  `nextCursor` the last named, put into the first page's URL, through
+  `Client::pages`, at most `MOST_PAGES` (20) of them: a query as wide as
+  `mcp` stops and says so (`http_pages_exceeded`) rather than read tens of
+  thousands of servers a page at a time. A query shorter than three
+  characters, which the registry refuses, asks nothing
+  (`mcp_registry_query_short`). What it finds is a `Listing`: one `Entry` a
+  server, sorted by the name the registry gives it, `as_of` the newest
+  time the registry gave anything read into it, and `whole` when every
+  page was read.
+- `refresh(listing)` asks only for what changed since the listing's
+  `as_of` (`updated_since`), and expects deleted servers in the answer:
+  the registry includes them whenever `updated_since` is given, so that
+  whoever holds a copy can take them out. One deleted since is taken out
+  of the listing and said (`Listed::dropped`); every other replaces what
+  the listing held of its server, or joins it. A listing that stopped
+  short, or holds no time, is searched again whole instead, since a change
+  to a server on a page it never read would never be asked for, and a
+  refresh that stops short leaves a listing that is not whole, so the next
+  is a whole search.
+- `server(name, version)` asks for one version, or `latest`, by the
+  registry's name for the server, a `value::UpstreamName`
+  (`io.github.owner/server`), named apart and held to the registry's rule
+  before anything is asked (`mcp_registry_name_invalid`); the name and the
+  version each go into the path encoded as one part, a slash and all. The
+  registry answers a version it never held, and one deleted, with a 404,
+  which is `mcp_registry_server_unknown`.
+
+The times are the registry's, never the machine's: what a refresh asks
+from is a time the registry wrote, so a clock set wrong costs nothing.
+They are RFC 3339 as Go writes them, the fraction of a second as short as
+it can be, so two are ordered once read (`mcp_registry/time.rs`, with no
+date library, as the ledger keeps its times) rather than as text, where
+`.7Z` sorts after `.72Z`. An answer is cached as every catalog's is, when
+the client was given a cache; a listing is the front end's to hold and
+refresh, for as long as it runs (the TUI's search, #107). Lenient, as every
+read is: a server's fields core reads are typed and every other one read
+past (`wire.rs`), a list Go writes as `null` reads as empty, a server in a
+page that does not read is a warning beside the rest
+(`mcp_registry_entry_unreadable`), and its packages and remotes are read
+one at a time when they are asked for (`Entry::ways`), so one that does not
+read hides neither the server nor its other ways. A status is `active`,
+`deprecated` or `deleted`, and a word this build does not know is kept as
+written (`Status::Other`); an answer without the registry's own part reads
+as active, since only the official registry says a status and a mirror may
+not.
+
+**Making one a definition** (`Registry::import`, `mcp_registry/import.rs`)
+takes one way, a package or a remote, by its place among `Entry::ways`, or
+else the first that can be written, in the order that runs least on the
+machine: a remote over streamable HTTP, which nothing has to be installed
+for and every agent reaches, then a package, then a remote over
+server-sent events. A package is started by its registry type's command,
+pinned to its version where the registry gives one:
+
+| Registry type | Command |
+|---|---|
+| `npm` | `npx -y <id>@<version>` |
+| `pypi` | `uvx <id>==<version>` |
+| `nuget` | `dnx <id>@<version>` |
+| `oci` | `docker run -i --rm -e <name>... <image>`, the tag in the image's identifier |
+| `mcpb`, `cargo`, any other | a manual step |
+
+A package with no version, which the 2025-12-11 schema allows, is started
+by its identifier alone and said (`mcp_registry_unversioned`), since an
+agent then runs whatever is latest each time it starts it. An image named
+without its tag, as a schema before 2025-09-29 wrote one, is given its
+version as its tag. Each of an image's environment variables is passed
+into the container with `-e <name>`, which the issue's command leaves out:
+a definition's `env` is the `docker` process's, and no container sees it
+otherwise. A package's `packageArguments` follow it. Its
+`runtimeArguments` are left out and said
+(`mcp_registry_runtime_arguments_left_out`), but for those the command
+holds already: the command is the registry type's, as #106 fixes it, and
+what publishers hand a runtime ranges from `-y` again to the whole `docker`
+command line, a mount of somebody's folder or a published port, which
+somebody gives by hand once they have read it, rather than an import
+writing it for an agent to run unread. What no command of the type's
+starts is a manual step, said with what to do instead and never guessed: a
+bundle, with its address and its SHA-256 (`mcp_registry_bundle`), a crate,
+whose program the registry does not name (`mcp_registry_crate`), a
+registry type this build does not know (`mcp_registry_type_unknown`), and
+a package that serves over HTTP once started, which no agent starts and
+reaches in one entry (`mcp_registry_package_serves`). So is an identifier
+no command line takes as one word, holding a space, a brace or a control
+character, or starting with a dash, which a runtime would read as an
+option of its own (`mcp_registry_identifier_unfit`). A remote is an `http`
+transport, or an `sse` one, said (`mcp_registry_sse`), since the MCP
+specification has replaced server-sent events and Codex and OpenCode take
+none; one whose address carries a credential is a manual step
+(`mcp_registry_url_credentialed`), and so is a transport this build does
+not know (`mcp_registry_transport_unknown`).
+
+What somebody supplies is an input read from an environment variable and
+never given a value (D-11): a value the registry leaves to whoever runs
+the server, every `{name}` in one, and the whole value of anything the
+registry calls a secret, whatever it wrote there (a publisher's `Bearer
+<YOUR_API_KEY>` among it), so no definition an import makes holds a
+secret's value. A value with nothing to supply is written as it is. One
+asking for something is written only when the registry says it, or a
+variable in it, is required, and every input written is `required`: an
+agent given a reference to a variable nobody set starts the server with
+nothing there, and Claude Code, by its docs, fails to parse a whole
+`.mcp.json` one of whose references names such a variable with no default
+(docs-only, not among #18's checks), so an optional one is left out and
+said (`mcp_registry_optional_left_out`), as are a header or a variable
+with no name, or named twice (`mcp_registry_value_left_out`). Where a value
+somebody would supply has a default and is no secret, the default is
+written. Each `{name}` is described by the `variables` beside it when they
+name it, a header's own or, as servers write them, the remote's beside its
+URL, and by the value it stands in otherwise: the registry's schema says a
+name no `variables` hold stays as it is written, but its servers write
+`Bearer {api_key}` with no `variables` at all, and an agent sent the
+braces would only be refused. `${name}`, as a shell writes one, is read
+the same way, and a brace around anything else (`{"debug":true}`) is text,
+as in any definition. The variable an input is read from is the
+environment variable's own name when the input is its whole value, the
+shape `add --secret-env` writes, which every agent passes on, Codex's
+`env_vars` among them; a name already spelled as a variable
+(`{INFOBIP_API_KEY}`) as it is; and otherwise the definition's name and
+the input's in capitals (`DEVMARGIN_TOKEN` for `{token}`), so that two
+servers asking for an `api_key` ask for two. Two inputs of one name and
+different kinds are told apart by a number (`region-2`).
+
+The definition is named after the server and its owner, the last word of
+its namespace (`ai.clawfetch/mcp` is `clawfetch-mcp`), unless the server's
+own name starts with the owner already
+(`io.github.buildkite/buildkite-mcp-server` is `buildkite-mcp-server`): a
+server's own name is so often a word every publisher uses, `mcp` or
+`server`, that two imports would be one definition otherwise. A front end
+can name it otherwise. Its provenance is the registry's address, the
+server's name, the version imported and when it was fetched, by the
+registry's clock (`Registry::with_clock`), written as a TOML date and
+time. A deprecated server is imported, and said with why
+(`mcp_registry_deprecated`); a deleted one never is
+(`mcp_registry_server_deleted`), nor one of a status this build does not
+know (`mcp_registry_status_unknown`). The status is the import's to say,
+and is not written into the definition, where it would go stale.
+
+Every import is held to the strict function `add` holds a definition to
+(`artifact::mcp_strict_issues`) before it is handed back, so it never
+makes one `validate` would call invalid: a value the registry fixes that
+looks like a token, which a published server holds now and then, refuses
+the way (`mcp_registry_import_unfit`), and so does a name an agent keeps
+for itself, for a front end to give another. A way refused so is passed
+over for the next; with none left, the first refusal is said, or else each
+way's manual step (`mcp_registry_import_manual`).
+
+**Tested** with no network: `tests/mcp_registry_test.rs` serves, through
+a fake `Http`, answers the real registry sent on 2026-11-10, recorded once
+with curl into `tests/fixtures/mcp-registry`: servers written in the
+2025-09-29 and 2025-12-11 schemas (and one in 2025-10-17), a search three
+pages long, the changes a refresh asks for with a server deleted among
+them, and a version no longer held, each saved as it came but for an em
+dash written as its JSON escape, which reads back as the same text. Every
+recorded server that is not deleted is held to make a definition
+`validate` passes once written in a library, or a manual step, and none to
+hold a value the registry calls a secret. Each registry type is mapped from
+a recorded server, and what none recorded holds (a package with no
+version, a registry type nobody publishes to) from a recorded one the test
+changes and says so. The import's rules are unit-tested on answers
+`RegistryMother` draws.
+
+Rejected: following a package's `runtimeHint`, which publishers write as
+freely as `node >=22.6.0` or a paragraph, where the issue fixes the command
+by registry type; writing its `runtimeArguments`, for the reason above;
+keeping the registry's `server.json` as it is (D-10); writing optional
+inputs, every one of which somebody would then have to set, or Claude, by
+its docs, reads no server of the file; and a copy of the whole registry
+kept and refreshed, tens of thousands of servers, which a search narrow
+enough to choose from never needs.
 
 ### Why the ledger is SQLite
 
@@ -4538,8 +4844,9 @@ guess between two.
   an edited copy left alone is a warning either way, as an install refused
   over it is, since what was asked for is not all done.
 - **Nothing is gathered.** An update copies what the shelf holds now; a
-  gather is what moves the shelf, and refreshing a source is its own
-  command (#100).
+  gather is what moves the shelf, and gathering a source again is its own
+  command, `mindweaver gather update` (#100, [managing the
+  sources](#managing-the-sources)).
 
 The CLI lays it out (`commands/update.rs`): a line for each installation
 written, `updated`, `put back ... at`, or `updated ..., writing over the
@@ -6255,7 +6562,9 @@ it, given to nothing else, as no code is ever given to another condition.
 Beside it, and read the same way, is what a line takes away
 (`task::Caution`, `task::cautions`): `remove --yes` deletes, `uninstall`
 and `mindweaver remove --everywhere --yes` take copies out, `unlink` and
-`unload` make the workspace forget a project or a load, and `--force` on an
+`unload` make the workspace forget a project or a load, `gather remove
+--yes` forgets a source, its shelf and its clone deleted and what was
+installed from it left orphaned (`Caution::Forgets`), and `--force` on an
 install, an uninstall or an update told `--yes` writes over or takes out an
 edited copy. A front end with no terminal asks somebody before it runs such
 a line, the panel with each preview ([its changes](#its-changes)); a match
@@ -6265,8 +6574,9 @@ questions still, worded for its rows ([open questions](#open-questions)).
 
 And beside both, read the same way again, is what a line does that a front
 end follows while it runs and can stop (`task::Followed`, `task::followed`):
-`gather git` and `backup`, each of which reports each step through core's
-watch and stops on its cancel. The TUI runs a task with such a line apart,
+`gather git`, `gather update`, a gather of each source in turn, and
+`backup`, each of which reports each step through core's watch and stops
+on its cancel. The TUI runs a task with such a line apart,
 drawing its steps with a key that cancels it (`Task::runs_apart`), and the
 panel's backend says with each preview that a run of it takes a cancel, and
 hands it the server's ([a run under
@@ -11898,7 +12208,12 @@ other, and none of them makes a reader wait for the workspace.
   (`relink::new_id`), as a change to the agents does. An adoption holds it
   from the plan it makes again until its record is written
   (`adopt::apply`), so what the ledger says was adopted is what the library
-  holds. Two workspaces
+  holds. A source's rename holds it while it looks for the name and writes
+  it (`sources::rename`), as a gather naming its source holds it, and a
+  source's removal from before it reads the source until its rows are gone
+  (`sources::remove`), since a gather of it beside would be cloning into the
+  folder being taken away; an update of several sources holds it once a
+  gather, each taking it for itself (`sources::update`). Two workspaces
   linking one project are kept apart by neither's lock
   ([open questions](#open-questions)).
 - **Opening the ledger takes no lock**, though it is when a ledger is made or
@@ -12507,7 +12822,10 @@ takes out only the entries it recorded that nobody changed since
 commands' words: a server named bare as every kind is, what each agent
 will run said from its renderer's own entry, and one from elsewhere than
 the library written only with `--yes`, on the command line and from the
-install screen alike.
+install screen alike. #106 makes a server the official registry lists into
+one ([the official MCP Registry](#the-official-mcp-registry)), the
+registry's subset of `server.json` this format was shaped as, with the
+registry as its provenance, and writes nothing yet.
 
 Checking it, #18 added MCP checks to `scripts/agent-probe`, run by hand.
 Claude Code's and OpenCode's ran on 2026-11-05; Codex's were not run, since
@@ -12665,6 +12983,12 @@ source](#everything-is-namespaced-by-its-source)), the name and the identity
 among it, and the columns the marketplace's children will use; `--from`
 still takes the origin an install records beside the name, since every
 record and every `origin` the envelope and the snapshot hold spell it.
+#100 carried out refreshing and removing one ([managing the
+sources](#managing-the-sources)), each by its name: `gather sources` lists
+what a command takes, `gather rename` changes it, `gather update` gathers
+again and `gather remove` forgets. A marketplace's children, which #103
+brings, are what a removal of their parent will cascade to through
+`parent_id`; a git source has none.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -12692,6 +13016,9 @@ it first: a rate limit is a failure of its own, `FetchError::RateLimited`,
 saying when it lets a request through again, and is not retried, since a
 search waiting out GitHub's limit would hold a command for as long as it
 lasts.
+#106 reads the MCP Registry through it ([the official MCP
+Registry](#the-official-mcp-registry)), retrying nothing either: a rate
+limit ends a listing as any failure does, said beside what was read.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -13209,8 +13536,8 @@ repository, stays on `gix`.
   test asking a server on loopback would ask a developer's proxy instead
   ([catalogs over HTTP](#catalogs-over-http)). gix's transport does read
   one, through reqwest's defaults, so somebody behind a proxy can gather
-  and not search the skill directories (#108), nor, once #106 lands, read
-  the MCP Registry. A proxy the front end reads and hands to the adapter,
+  and neither search the skill directories (#108) nor read the MCP
+  Registry (#106). A proxy the front end reads and hands to the adapter,
   as it does a credential
   ([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
   closes it; the first catalog read left it for somebody behind one to
@@ -13328,11 +13655,38 @@ repository, stays on `gix`.
 - **An imported value holding its own placeholder as text.** Format 1 has
   no escape, and needs none while a definition's author chooses its inputs'
   names ([what an MCP server's definition
-  declares](#what-an-mcp-servers-definition-declares)). A registry entry
-  (#106) whose value holds `{name}` as text while it declares a variable of
-  that name is the one case an author does not choose: the import renames
-  the input, or the format gains an escape, which an older build would read
-  as text.
+  declares](#what-an-mcp-servers-definition-declares)). A registry's server
+  is the one case an author does not choose, and #106 reads every `{name}`
+  in a value as something to supply ([the official MCP
+  Registry](#the-official-mcp-registry)), since servers write a variable so
+  whether or not they declare it: a value meaning braces around a name as
+  text is imported as asking for one. Telling the two apart needs the
+  format to gain an escape, which an older build would read as text.
+- **Whether `dnx` asks before it downloads.** A NuGet package is started
+  by `dnx <id>@<version>`, the issue's command ([the official MCP
+  Registry](#the-official-mcp-registry)). Microsoft's guide to MCP servers
+  on NuGet writes `--yes` after it, which answers the question `dotnet tool
+  exec` asks before it downloads a tool it has not cached, and which an
+  agent starting the server would leave unanswered. No run has checked
+  what `dnx` does with no terminal to ask on; adding `--yes` waits for one.
+- **A listing kept across runs.** A refresh asks only what changed since
+  for a front end that holds the listing it refreshes, the TUI's or the
+  panel's; the same search typed again an hour later reads it whole,
+  cached as every answer is ([the official MCP
+  Registry](#the-official-mcp-registry)). Keeping listings in the
+  workspace's cache beside the answers, in a folder reserved from the
+  sources' clones as `http` is, waits for a search wide enough to matter.
+- **What a registry says of an import later.** An import says a server is
+  deprecated when it is imported, and nothing says so after: what the
+  registry deprecated or deleted since, and a newer version, are asked of
+  it by the changes since the newest time any import holds, as a refresh
+  asks, once a command updates an imported definition.
+- **The runtime arguments an import leaves out.** What a package's
+  publisher hands its runtime, a mount, a published port, a Python version
+  for `uvx`, is said and never written, for somebody to add by hand
+  ([the official MCP Registry](#the-official-mcp-registry)). A server whose
+  image needs a folder mounted starts without it until then. Writing the
+  ones a rule could judge safe waits for a rule.
 
 - **A known workspace that has gone is offered nothing.** The page of
   loads and the header's switcher list it, with why it does not open, and
@@ -13875,6 +14229,52 @@ repository, stays on `gix`.
   projects and the library would make it one change, at the price of a body
   of each uninstall, rules' render included, that runs under a lock it does
   not take, as an update has.
+- **Forgetting a source is not staged either.** `gather remove --yes`
+  deletes the clone and each shelf folder where they are, then the rows, so
+  one stopped halfway leaves the source recorded with some of its folders
+  gone, its listing naming skills whose copies are not there, until a
+  removal is run again and takes the rest. No agent reads the shelf or the
+  cache, so nothing reads the half; renaming the folders into the
+  workspace's scratch folder first would make it all or nothing.
+- **A source gathered by a relative path, gathered again.** A URL is stored
+  as typed, so `gather update` fetches `../src/skills` from wherever the
+  command runs, as `gather git` did, and from somewhere else finds another
+  folder or none. Resolving it against the workspace's root, or storing it
+  absolute, would change the identity a relative path is today ([everything
+  is namespaced by its source](#everything-is-namespaced-by-its-source)),
+  and every origin installed from it.
+- **One token for every source an update gathers.** `--token-env` and
+  `--gh` hand a token to each source named, or to every one with `--all`,
+  and a source no token is sent to, over ssh or by a path, refuses it, said
+  beside the rest. Handing it only to the sources it can go to would make
+  `--all --gh` quiet on a mixed shelf, at the price of a token named and not
+  used without a word, which a gather refuses on purpose.
+- **A skill gone upstream goes at once.** A gather takes off the shelf what
+  its source no longer has, with no question asked, as it writes what
+  changed, the dry run saying it first when asked. A source somebody wants
+  to keep as it was is pinned; a gather that kept what is gone until told
+  was the other way, which would leave the shelf offering what no source
+  has.
+- **What a removal of a parent leaves.** A marketplace's children (#103)
+  are rows whose `parent_id` cascades from their parent's, which
+  `forget_source` would take with it, but `gather remove` takes away only
+  the folders of the source named: a parent's removal has to take each
+  child's clone and shelf folders too, and say each, once children exist.
+- **Which kind a source holding nothing is gathered again as.** A source
+  keeps no kind of its own: `gather update` reads off the shelf which
+  kinds it holds, and gathers one it holds nothing of, whose every gather
+  failed, as skills, which a source of rules is not. Keeping on the source
+  the kind each gather of it took would answer it, at the price of a
+  schema step.
+- **The TUI renames no source.** Its sources screen gathers again and
+  forgets; `gather rename` is the command line's, and the panel's page of
+  sources (#113) the place a form for it would go first.
+- **An update or a rename with nothing gathered makes the default
+  workspace.** `gather update --all` and `gather rename` open the ledger to
+  write, as `gather git` does, so on a machine with none they make
+  `~/.mindweaver` to say there is nothing there. Reading first and writing
+  only once a source is found would spare it, at the price of a second
+  opening of the ledger.
 - **A batch takes turns line by line.** The install screen's lines run one
   after another, and each install in them takes the workspace's lock for
   itself, project by project, as `mindweaver install` given several projects

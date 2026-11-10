@@ -530,6 +530,19 @@ mindweaver gather git <URL> [--kind KIND] [--path DIR] [--ref REF] [--pin COMMIT
                            # over https with a token for this run
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
+mindweaver gather sources [--json]
+                           # every source the shelf is filled from, by name,
+                           # with how much of it the shelf holds and when
+                           # it was last gathered
+mindweaver gather update <NAME>...|--all [--token-env VAR|--gh]
+                           # gather sources again, each as it was, and say
+                           # what each added, updated and removed
+mindweaver gather rename <NAME> <NEW>
+                           # call a source something else
+mindweaver gather remove <NAME> [--yes]
+                           # forget a source, its skills on the shelf and
+                           # its clone; what was installed from it stays,
+                           # orphaned; without --yes, say what would go
 mindweaver gather search <QUERY> [--finder F]... [--token-env VAR|--gh] [--finder-url F=URL]... [--take N|--json]
                            # the skills the directories weaver.toml enables
                            # find; --take gathers one
@@ -831,6 +844,13 @@ acme-skills: https://github.com/acme/skills at 9f8e7d6
 
 2 skills: 0 added, 1 updated, 1 unchanged
 ```
+
+A skill the repository no longer has comes off the shelf, said as `removed`,
+and counted after the rest (`1 skill: 0 added, 0 updated, 1 unchanged, 1
+removed`). One still there that could not be read this time is left as it
+was, with a warning saying why. What was installed from one that went stays
+in the projects, `orphaned` ([managing the sources](#managing-the-sources)
+says the same of a source forgotten whole).
 
 Two repositories may both offer `commit-style`, and both are kept: each source
 gets its own folder under `.mindweaver/skills/`, and the workspace's database
@@ -1168,6 +1188,19 @@ acme-tools: https://github.com/acme/tools at 9d0e1f2
 nothing gathered: run it without --dry-run to gather
 ```
 
+A skill the repository no longer has is one it would take off the shelf:
+
+```
+$ mindweaver gather git https://github.com/acme/tools --dry-run
+acme-tools: https://github.com/acme/tools at 3a4b5c6
+  would remove  pdf           plugins/docs/skills/pdf  Read PDFs
+  unchanged     commit-style  skills/commit-style      How this repo writes commit messages
+  unchanged     lint          .claude/skills/lint      Tidy the code
+
+2 skills: 0 to add, 0 to update, 2 unchanged, 1 to remove
+nothing gathered: run it without --dry-run to gather
+```
+
 It says what the gather would warn of, and exits as the gather would, so a
 script can ask first. What it could not read it names by where it is in the
 repository, since the folder it read it from is gone. Like a gather, it makes
@@ -1334,6 +1367,107 @@ A gather of rules from the TUI is not offered yet: its gather form takes
 skills. The control panel's server runs one sent as a task with `"kind":
 "rule"` ([the API's guide](api.md)).
 
+### Managing the sources
+
+`mindweaver gather sources` lists every source the shelf is filled from, by
+the name `--from` takes, with its URL, then its branch (`ref`), its folder
+(`path`) and its pin, each in a column that is there only while a source
+listed has one, how many of each kind the shelf holds of it, and when it
+was last gathered, in UTC:
+
+```
+$ mindweaver gather sources
+acme-rules   https://github.com/acme/rules   path rules                   2 rules   gathered 2026-11-10 14:07 UTC
+acme-skills  https://github.com/acme/skills               pinned 4f9c2a7  2 skills  gathered 2026-11-10 14:03 UTC
+other-rules  https://github.com/other/rules  path agents                  1 skill   gathered 2026-11-10 14:05 UTC
+```
+
+`--json` prints them in the envelope every reading command shares
+([machine-readable output](#machine-readable-output)), each as the control
+panel's snapshot lists it: the source's fields as `gather list --json` gives
+them, its `origin`, `shelved`, how many of each kind the shelf holds of it,
+and `gathered_at`, in Unix seconds, `null` while the shelf holds nothing of
+it.
+
+`gather rename` calls a source something else, held to the rules `--name`
+is held to, and refused for a name another source has, with the same
+codes:
+
+```
+$ mindweaver gather rename acme-skills team-skills
+renamed source acme-skills to team-skills, gathered from https://github.com/acme/skills
+```
+
+What was installed from it records its URL, which its name is no part of,
+so an update still finds it there, and `--from team-skills` takes it at once.
+
+`gather update` gathers sources again, each as it was gathered: from its
+URL, at its branch, from its folder, and at its pin while it has one, so a
+pinned source takes its commit again; `gather git` without `--pin` is what
+follows the branch again. A source is gathered again for each kind the
+shelf holds of it, its rules as rules, and one the shelf holds nothing of
+as skills. Name the sources, or give `--all`. It says what each added,
+updated and removed, as `gather git` does, one after the other:
+
+```
+$ mindweaver gather update --all
+acme-skills: https://github.com/acme/skills at 9f8e7d6
+  added    lint          Tidy the code
+  updated  commit-style  How this repo writes commit messages, briefly
+  removed  ddd-reviewer  Review a change against the DDD layering rules
+
+2 skills: 1 added, 1 updated, 0 unchanged, 1 removed
+
+other-rules: https://github.com/other/rules at 4d5e6f7
+  unchanged  commit-style  Conventional commits, strictly
+
+1 skill: 0 added, 0 updated, 1 unchanged
+```
+
+What was installed from a source that moved on is `outdated` in `mindweaver
+status` from then on, and [`mindweaver update`](#keeping-projects-up-to-date)
+brings it up to date:
+
+```
+$ mindweaver status
+commit-style  outdated  claude,codex,opencode  https://github.com/acme/skills
+```
+
+A name no source has is refused before anything is fetched. A source that
+cannot be gathered is a warning beside the rest, which are gathered all the
+same, and a cancel stops the update where it is, saying which sources it did
+not reach. `--token-env` and `--gh` hand a token to every source gathered,
+`--gh` the one `gh` has for each source's host, and a source a token is not
+sent to, one reached over ssh or a path, refuses it, as `gather git` does,
+beside the rest. A source gathered by a relative path is fetched from where
+the command runs, as `gather git` fetched it.
+
+`gather remove` forgets a source. Without `--yes` it says what it would take
+away, and what it would leave orphaned:
+
+```
+$ mindweaver gather remove acme-skills
+would forget the source acme-skills, gathered from https://github.com/acme/skills
+would remove its 2 skills from the shelf, at /home/you/Projects/.mindweaver/skills/github.com-acme-skills
+would remove its clone, at /home/you/Projects/.mindweaver/cache/github.com-acme-skills
+would leave commit-style installed in collapse, orphaned
+nothing removed: add --yes to go ahead
+$ mindweaver gather remove acme-skills --yes
+forgot the source acme-skills, gathered from https://github.com/acme/skills
+removed its 2 skills from the shelf, at /home/you/Projects/.mindweaver/skills/github.com-acme-skills
+removed its clone, at /home/you/Projects/.mindweaver/cache/github.com-acme-skills
+left commit-style installed in collapse, orphaned
+note: nothing offers what was installed from it any more; `mindweaver uninstall --orphaned --all-projects` takes out what nothing offers
+$ mindweaver status
+commit-style  orphaned  claude,codex,opencode  https://github.com/acme/skills
+```
+
+Only the folders the workspace recorded as the source's are taken away, its
+clone in `cache/` and its folder on each shelf, and one that is a link is
+refused, with nothing removed. What was installed from it stays where it
+is, still Mindweaver's to update or take out, `orphaned` since nothing
+offers it, until `uninstall --orphaned` takes it out.
+
 ### Searching the skill directories
 
 `gather search` asks the skill directories, each a **finder**, what they
@@ -1494,11 +1628,11 @@ SELECT datetime(at, 'unixepoch'), action, outcome, detail FROM actions;
 ```
 
 The TUI and any number of terminals can be open on one workspace, and the
-commands that change it take turns. Linking, loading, gathering, installing,
-uninstalling and migrating each hold `lock` while they write, with the
-process's id in `lock.pid` beside it. One that finds the workspace held waits
-up to ten seconds for the other to finish, then gives up and says who it
-waited for:
+commands that change it take turns. Linking, loading, gathering, renaming or
+removing a source, installing, uninstalling and migrating each hold `lock`
+while they write, with the process's id in `lock.pid` beside it. One that
+finds the workspace held waits up to ten seconds for the other to finish,
+then gives up and says who it waited for:
 
 ```
 $ mindweaver link tanukeys
@@ -2182,13 +2316,13 @@ with its `code` and `message`.
 
 The commands that report what is there take `--json`, at either level:
 `list`, `show`, `validate`, `templates`, `status` and `doctor`, and `mindweaver
-workspaces`, `mindweaver scan`, `mindweaver gather list` and `mindweaver gather
-search`. Each prints what it
-read in one envelope, the same for every command, so a script or an agent
-reads them all one way, and reads what a workspace holds, its own
-artifacts and each project's, their templates and what it can install from
-elsewhere, as every front end reads them. What it loads, the sources its
-shelf is filled from and its history have no `--json` yet. Say `collapse`
+workspaces`, `mindweaver scan`, `mindweaver gather list`, `mindweaver
+gather sources` and `mindweaver gather search`. Each prints what it read in
+one envelope, the same for every command, so a script or an agent reads
+them all one way, and reads what a workspace holds, its own artifacts and
+each project's, their templates, what it can install from elsewhere and
+the sources its shelf is filled from, as every front end reads them. What
+it loads and its history have no `--json` yet. Say `collapse`
 holds the rule `git/no-force-push`, and a skill folder whose `SKILL.md` has
 lost its front matter:
 
@@ -2657,6 +2791,7 @@ Every key runs a command you could have typed, through the same parser:
 | `b` | back the library up to a git repository, on a branch, with a message and the variable a token is read from when you type them, showing each step; `esc` stops it, until it starts pushing | `mindweaver backup [--branch <branch>] [--kind <kind>]... [--message <message>] [--token-env <variable>] <url>` |
 | `L` | load another workspace's own skills and rules; enter on a loaded one unloads it | `mindweaver load <path>`, `mindweaver unload <path>` |
 | `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>` |
+| `S` | the sources the shelf is filled from: `u` gathers the one picked again and `U` every one, each showing how far it has got, `esc` stopping it until it starts placing; `d` forgets the one picked, once you say yes | `mindweaver gather update <name>`, `mindweaver gather update --all`, `mindweaver gather remove --yes <name>` |
 | `w` | the weavers this machine knows, the one in use marked | `mindweaver workspaces` |
 | `i` | install skills, rules and MCP servers from the workspace's own, a loaded workspace, or the shelf; `tab` switches between them, and `v` turns the screen round to every project for one of them | `mindweaver install` opens it; `a` runs `mindweaver install -p <project>... --from <origin> <kind:name>`, with `--yes` for an MCP server from elsewhere than the library once `a` has shown what each agent would run, and `mindweaver uninstall -p <project>... <kind:name>` |
 | `R` | read the disk again | nothing: it changes nothing |

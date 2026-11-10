@@ -14,7 +14,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 39] = [
+const TAGS: [&str; 41] = [
     "init_workspace",
     "init_project",
     "link",
@@ -40,6 +40,8 @@ const TAGS: [&str; 39] = [
     "workspaces",
     "search_skills",
     "gather",
+    "update_sources",
+    "remove_source",
     "export",
     "backup",
     "targets",
@@ -150,6 +152,18 @@ fn every(value: &str) -> Vec<Task> {
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: Some(owned()),
             kind: Kind::Rule,
+        },
+        Task::UpdateSources {
+            names: vec![owned(), String::from("plain")],
+        },
+        Task::UpdateSources { names: Vec::new() },
+        Task::RemoveSource {
+            name: owned(),
+            yes: false,
+        },
+        Task::RemoveSource {
+            name: owned(),
+            yes: true,
         },
         Task::Export {
             folder: owned(),
@@ -773,6 +787,64 @@ fn an_update_is_the_line_the_cli_takes_and_forced_only_when_asked() {
         assert_eq!(task.commands(), [line(said)], "{task:?}");
         assert!(task.writes(), "{task:?}");
         assert_eq!(task.cautions(), cautions, "{task:?}");
+    }
+}
+
+/// What the TUI's sources screen asks for, each the line somebody would
+/// type: one source gathered again, several, every one, and one forgotten,
+/// which alone is asked about first, its dry run not.
+#[test]
+fn a_source_s_task_is_the_line_the_cli_takes() {
+    let names = |names: &[&str]| Task::UpdateSources {
+        names: owned(names),
+    };
+    let remove = |name: &str, yes| Task::RemoveSource {
+        name: name.to_owned(),
+        yes,
+    };
+
+    for (task, said, writes, cautions) in [
+        (
+            names(&["acme-skills"]),
+            "mindweaver gather update acme-skills",
+            true,
+            Vec::new(),
+        ),
+        (
+            names(&["acme-skills", "-odd"]),
+            "mindweaver gather update -- acme-skills -odd",
+            true,
+            Vec::new(),
+        ),
+        (
+            names(&[]),
+            "mindweaver gather update --all",
+            true,
+            Vec::new(),
+        ),
+        (
+            remove("acme-skills", false),
+            "mindweaver gather remove acme-skills",
+            false,
+            Vec::new(),
+        ),
+        (
+            remove("acme-skills", true),
+            "mindweaver gather remove --yes acme-skills",
+            true,
+            vec![(0, Caution::Forgets)],
+        ),
+        (
+            remove("-odd", true),
+            "mindweaver gather remove --yes -- -odd",
+            true,
+            vec![(0, Caution::Forgets)],
+        ),
+    ] {
+        assert_eq!(task.commands(), [line(said)], "{task:?}");
+        assert_eq!(task.writes(), writes, "{task:?}");
+        assert_eq!(task.cautions(), cautions, "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
     }
 }
 
@@ -1699,6 +1771,8 @@ fn a_front_end_follows_a_gather_a_backup_and_a_search_and_nothing_else() {
         "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
         "mind weaver gather git git@example.com:acme/skills.git",
         "mind -C alpha weaver gather git file:///srv/git/skills",
+        "mindweaver gather update acme-skills other-rules",
+        "mind weaver gather update --all --gh",
         "mindweaver gather search --take 1 pdf",
         "mind weaver gather search --gh --take 3 -- -odd",
     ] {
@@ -1720,6 +1794,9 @@ fn a_front_end_follows_a_gather_a_backup_and_a_search_and_nothing_else() {
     }
     for said in [
         "mindweaver gather list",
+        "mindweaver gather sources",
+        "mindweaver gather rename acme-skills team",
+        "mindweaver gather remove --yes acme-skills",
         "mindweaver export ../backup",
         "mindweaver link alpha",
         "mind install deploy",
@@ -1740,7 +1817,10 @@ fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
     for task in values.flat_map(every) {
         let expected = matches!(
             task,
-            Task::Gather { .. } | Task::Backup { .. } | Task::SearchSkills { .. }
+            Task::Gather { .. }
+                | Task::UpdateSources { .. }
+                | Task::Backup { .. }
+                | Task::SearchSkills { .. }
         );
 
         assert_eq!(task.runs_apart(), expected, "{task:?}");
@@ -1929,6 +2009,8 @@ fn a_task_is_asked_about_for_each_of_its_lines_that_takes_something_away() {
             Task::Export { yes: true, .. } => vec![(0, Caution::Removes)],
             Task::Unlink { .. } => vec![(0, Caution::Unlinks)],
             Task::Unload { .. } | Task::UnloadHere { .. } => vec![(0, Caution::Unloads)],
+            // Its dry run takes nothing.
+            Task::RemoveSource { yes: true, .. } => vec![(0, Caution::Forgets)],
             // `mind -C <path> init`, `mindweaver link` and `mindweaver unlink`.
             Task::Minds { .. } | Task::Marks { .. } => vec![(2, Caution::Unlinks)],
             // Its installs first, then its uninstalls, as `every` builds it.
@@ -1950,6 +2032,7 @@ fn a_caution_says_what_it_takes_in_a_word_and_in_words() {
         Caution::Unlinks,
         Caution::Unloads,
         Caution::Forces,
+        Caution::Forgets,
     ]
     .iter()
     .map(|caution| serde_json::to_value(caution).unwrap())
@@ -1957,7 +2040,14 @@ fn a_caution_says_what_it_takes_in_a_word_and_in_words() {
 
     assert_eq!(
         words,
-        ["removes", "uninstalls", "unlinks", "unloads", "forces"]
+        [
+            "removes",
+            "uninstalls",
+            "unlinks",
+            "unloads",
+            "forces",
+            "forgets"
+        ]
     );
     assert_eq!(
         Caution::Unlinks.to_string(),

@@ -626,14 +626,14 @@ fn placeholder(variable: &VariableName) -> String {
 }
 
 /// `text` as a TOML string, quoted and escaped as TOML writes one.
-fn quoted(text: &str) -> String {
+pub(crate) fn quoted(text: &str) -> String {
     toml::Value::String(text.to_owned()).to_string()
 }
 
 /// `entries` as an inline table, in the order given: each key bare where a
 /// TOML key may be, and quoted where a dot or a space would read as
 /// another.
-fn inline(entries: &[(String, String)]) -> String {
+pub(crate) fn inline(entries: &[(String, String)]) -> String {
     let entries: Vec<String> = entries
         .iter()
         .map(|(key, value)| format!("{} = {}", bare_or_quoted(key), quoted(value)))

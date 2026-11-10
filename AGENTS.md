@@ -186,7 +186,13 @@ under `apps/` with its own `Makefile`:
   (`gather::dry_run`), a source pinned to a commit (`value::Pin`, fetched
   through `Remote::fetch`) and the licence each artifact gathered says it
   is under (`licence`), kept with where in its source it was and the hash of
-  its shelf copy (`ledger::Taken`), reading a catalog over HTTP (through
+  its shelf copy (`ledger::Taken`), what a source offers no more taken off
+  the shelf when it is gathered again (`gather::gone`, `Report::removed`),
+  each source listed with how much of it the shelf holds and when it was
+  last gathered (`view::ShelfSource::read`), and renamed, gathered again
+  and forgotten by its name, what was installed from it left orphaned
+  (`sources`: `chosen`, `rename`, `update`, `removal`, `remove`, and
+  `gather::Request::again`), reading a catalog over HTTP (through
   `port::Http`), the redirects core follows, a status that is no success,
   JSON read into what is asked and pages that follow one another
   (`http::Client`, `http::with_query`, `http::next_link`), a rate limit said
@@ -196,7 +202,14 @@ under `apps/` with its own `Makefile`:
   token, and skills.sh's and api.claude-plugins.dev's, unstable, each read
   in a module of its own, the finders a workspace's `finders` enables,
   `finder::enabled`, a search, `Search`, followed by a `finder::Watch`, and
-  what it found, each skill once, `Found` and `Hit`), the ledger (through
+  what it found, each skill once, `Found` and `Hit`), the official MCP Registry read through it, a search
+  a page at a time, a refresh asking only what changed since, a server
+  deleted since among it, and one version of one server by the name the
+  registry gives it (`mcp_registry`), and one of its servers made into a
+  definition's text, every input read from a variable, never a secret's
+  value, and a manual step said where no command of its registry type
+  starts it (`mcp_registry::import`), none of it called from a command yet
+  (#107 is its first caller), the ledger (through
   `port::LedgerStore`), installing, keeping installs out of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
@@ -261,7 +274,8 @@ under `apps/` with its own `Makefile`:
   front end judging what is typed (`draft`). Every record, report and view
   it builds is an aggregate of the value objects in `value` (a copy's
   `ContentHash`, a `Redacted` URL or message, an `Origin`, an
-  `ArtifactName`, a `Revision`, a `ProjectId`, a source's `Pin`), each of
+  `ArtifactName`, a `Revision`, a `ProjectId`, a source's `Pin`, a
+  registry's `UpstreamName`), each of
   which, and each
   record, a test builds through its object mother in `mother`, compiled only
   for tests (`cfg(test)`, or the `mother` feature a dev-dependency turns
@@ -533,10 +547,11 @@ These are easy to break from a single file without noticing.
   `String`: one held to a rule (`ContentHash`, `ProjectId`, `Redacted`,
   `SourceName`, `Pin`) is
   made only the way its rule allows, so no `From<String>`, and one named
-  apart (`ArtifactName`, `Origin`, `Revision`, and an MCP server's
-  `InputName` and `VariableName`) holds any text, since core reads
-  leniently, the last two judged by a rule they say of themselves and are
-  not made by (`is_writable`, `is_portable`). A new value joins `value` through its `text_value!`
+  apart (`ArtifactName`, `Origin`, `Revision`, an MCP server's
+  `InputName` and `VariableName`, and what a registry names one,
+  `UpstreamName`) holds any text, since core reads leniently, the last
+  three judged by a rule they say of themselves and are not made by
+  (`is_writable`, `is_portable`, `is_well_formed`). A new value joins `value` through its `text_value!`
   macro, so it reads as its text and goes out as one, said in TypeScript
   and JSON Schema as a `String` is, and no contract moves
   (`make web/types/check`, `make api/schemas/check`); its store's adapter
@@ -698,7 +713,18 @@ These are easy to break from a single file without noticing.
   source of skills does, in the rules shelf, each rule filed by its route
   and recorded with `hash::bytes` of its file, a rule's install's recipe,
   and the licence of the folder it came from; the ledger lists what was
-  gathered by kind in report order.
+  gathered by kind in report order. A gather takes off the shelf what its
+  source no longer has, by where the shelf files it, never one the gather
+  found and could not take (`gather::gone`), forgetting its row one source
+  at a time (`LedgerStore::forget_gathered`). After a gather, a source is
+  listed, renamed, gathered again and forgotten by its name (`sources`,
+  #100), `gather rename` refusing what `--name` refuses, by the same codes;
+  `gather update` gathers each kind the shelf holds of each as the ledger
+  records it, its pin included (`Request::again`); and `gather remove`
+  takes away only the folders the ledger records as the source's, one
+  folder name under the cache and under each shelf and never a link,
+  before its rows, leaving every installation from it recorded, orphaned
+  (`LedgerStore::installed_from`).
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -715,7 +741,7 @@ These are easy to break from a single file without noticing.
 - **Reading commands print JSON in one envelope, and its names are a
   contract.** A reading command's `--json` (`list`, `show`, `validate`,
   `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`,
-  `gather list` and `gather search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
+  `gather list`, `gather sources` and `gather search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
   [...], "coded_warnings": [...]}`, never a shape of its own, with what its
   text says on stderr as `warning:` lines in `warnings`, the same lines
   with their codes in `coded_warnings`, and the exit status its text has;
@@ -828,8 +854,8 @@ These are easy to break from a single file without noticing.
   - Creation uses `create_new` or `create_dir`.
   - `rename` rewrites only the `name:` line (`frontmatter::with_key`).
   - `remove` (`mindweaver remove --everywhere` too), `migrate` at either level,
-    `agents`, `share`, `targets`, `update` and `mindweaver adopt` are dry runs
-    without `--yes`, and so is `mindweaver export` when it would change or
+    `agents`, `share`, `targets`, `update`, `mindweaver adopt` and
+    `mindweaver gather remove` are dry runs without `--yes`, and so is `mindweaver export` when it would change or
     remove what an earlier export wrote (`export::export`, told `yes`); a
     folder it did not make, a workspace in use or one keeping a kind outside
     its library, is refused, never written into.
@@ -1309,7 +1335,9 @@ These are easy to break from a single file without noticing.
   project's settings until their change and every copy it carries along are
   written, `relink::relink`, from its ledger checks until the entry and the
   records it moves are written, `relink::new_id`, `adopt::apply`, from the
-  plan it makes again until its record is written, and `update::apply`, from the plan it makes again until its last
+  plan it makes again until its record is written, `sources::rename`, and
+  `sources::remove`, from before it reads the source until its rows are
+  gone (`sources::update` takes none, leaving it to each gather), and `update::apply`, from the plan it makes again until its last
   installation is written, through `install::install_held` (the body
   `install_with` hands to once it holds the lock) and
   `install::rules::update_held`, which take none of their own. A new
@@ -1810,7 +1838,11 @@ These are easy to break from a single file without noticing.
   `given_address`, `given`, and the shapes it refuses, `given_unfit`,
   `given_with_literal`, `given_repeating` and `given_refused_unread`; and
   `InputNameMother` and `VariableNameMother` for its values, with what each
-  rule refuses), a project's settings
+  rule refuses), what an MCP registry answers, as JSON (`RegistryMother`:
+  one version of a server, its packages and remotes, what each asks
+  somebody to supply, a page of a listing, and `UpstreamNameMother` for
+  the name it gives a server, with what its rule refuses), a project's
+  settings
   (`SettingsMother`), the URLs a credential can be typed into (`UrlMother`,
   each form beside what redacting leaves of it) and what lives on the disk
   (`WorkspaceMother`, `ProjectMother`, among it a project a version 1 or 2

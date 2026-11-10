@@ -16,6 +16,7 @@ use crate::progress::{Progress, Watch};
 use mindweaver_core::create;
 use mindweaver_core::finder::Hit;
 use mindweaver_core::scan;
+use mindweaver_core::view::ShelfSource;
 use mindweaver_core::{
     paths, Agent, Kind, Layout, MarkerFile, Reason, Share, State, DEFAULT_SUBDIRECTORY,
 };
@@ -23,6 +24,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::minds::{self, Minds};
 use crate::install::state::{Screen as InstallScreen, Step as InstallStep};
+use crate::render::counted_kind;
 use crate::task::qualified;
 // Re-exported where the screens, and their tests, have always found them: a
 // key still asks for a task, though a task is every front end's now.
@@ -81,6 +83,9 @@ pub struct Workspace {
     pub scan_warnings: Vec<String>,
     /// How many artifacts are on the shelf.
     pub shelf: usize,
+    /// The sources the shelf is filled from, as the snapshot lists them
+    /// (`mindweaver gather sources`): what the sources screen picks from.
+    pub sources: Vec<ShelfSource>,
     /// The workspaces it loads, in marker order.
     pub loaded: Vec<LoadedSource>,
     pub scope: Scope,
@@ -547,6 +552,9 @@ pub enum Mode {
     Confirming(Confirm),
     /// A page of output: validate, show, the shelf, a report.
     Reading(Reader),
+    /// The sources the shelf is filled from, one picked to gather again or
+    /// forget: `S`.
+    Sources(SourcesScreen),
     /// The skill directories about to be searched: `f` on the shelf's page.
     Searching(SearchForm),
     /// What a search of the skill directories found, one picked to take.
@@ -794,6 +802,7 @@ impl App {
             Mode::Backing(form) => backing(form, key),
             Mode::Confirming(confirm) => confirming(confirm, key),
             Mode::Reading(reader) => reading(reader, key),
+            Mode::Sources(screen) => self.in_sources(screen, key),
             Mode::Searching(form) => searching(form, key),
             Mode::Results(screen) => results(screen, key),
             Mode::Installing(screen) => self.installing(screen, key),
@@ -843,7 +852,7 @@ impl App {
         }
         // What only a workspace has: its registry, its shelf, its installs.
         if let KeyCode::Char(
-            key @ ('l' | 'u' | 'U' | 'M' | 'A' | 'g' | 's' | 'i' | 'm' | 'L' | 'x' | 'b'),
+            key @ ('l' | 'u' | 'U' | 'M' | 'A' | 'g' | 's' | 'S' | 'i' | 'm' | 'L' | 'x' | 'b'),
         ) = key.code
         {
             return match self.scope() {
@@ -871,6 +880,7 @@ impl App {
             'x' => (Mode::Exporting(ExportForm::default()), Step::Stay),
             'b' => (Mode::Backing(BackupForm::default()), Step::Stay),
             's' => (Mode::Browse, Step::Run(Task::Shelf)),
+            'S' => self.start_sources(),
             'm' => match self.workspace() {
                 Some(workspace) => (Mode::Minds(Minds::of(workspace)), Step::Stay),
                 None => (Mode::Browse, Step::Stay),
@@ -1242,6 +1252,85 @@ impl App {
             back: Box::new(Mode::Browse),
         };
         (Mode::Confirming(confirm), Step::Stay)
+    }
+
+    /// `S`: the sources the shelf is filled from, to gather one again, or
+    /// every one, or to forget one, once somebody says yes.
+    fn start_sources(&mut self) -> (Mode, Step) {
+        let none = self
+            .workspace()
+            .is_none_or(|workspace| workspace.sources.is_empty());
+        if none {
+            self.message = Some(Message::info(
+                "nothing gathered yet; g gathers from a git repository",
+            ));
+            return (Mode::Browse, Step::Stay);
+        }
+        (Mode::Sources(SourcesScreen::default()), Step::Stay)
+    }
+
+    /// The sources screen's keys: `u` gathers the one picked again, `U`
+    /// every one, each as `mindweaver gather update` does and followed as a
+    /// gather is, and `d` forgets the one picked once somebody says yes, as
+    /// `mindweaver gather remove --yes` does.
+    fn in_sources(&mut self, mut screen: SourcesScreen, key: KeyEvent) -> (Mode, Step) {
+        let sources: &[ShelfSource] = self
+            .workspace()
+            .map_or(&[], |workspace| workspace.sources.as_slice());
+        let count = sources.len();
+        // Kept on a source while the list shrinks under it, as a removal
+        // read back makes it.
+        screen.pick = screen.pick.min(count.saturating_sub(1));
+        let picked = sources.get(screen.pick).cloned();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => return (Mode::Browse, Step::Stay),
+            KeyCode::Up | KeyCode::Char('k') => screen.pick = screen.pick.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') if screen.pick + 1 < count => screen.pick += 1,
+            KeyCode::Char('u') | KeyCode::Enter => {
+                if let Some(picked) = picked {
+                    let task = Task::UpdateSources {
+                        names: vec![picked.source.name.to_string()],
+                    };
+                    return (Mode::Sources(screen), Step::Run(task));
+                }
+            }
+            KeyCode::Char('U') => {
+                let task = Task::UpdateSources { names: Vec::new() };
+                return (Mode::Sources(screen), Step::Run(task));
+            }
+            KeyCode::Char('d') => {
+                if let Some(picked) = picked {
+                    let held: Vec<String> = picked
+                        .shelved
+                        .iter()
+                        .map(|counted| counted_kind(counted.count, counted.kind))
+                        .collect();
+                    let held = if held.is_empty() {
+                        String::from("its folder")
+                    } else {
+                        format!("its {}", held.join(", "))
+                    };
+                    let name = picked.source.name.to_string();
+                    let confirm = Confirm {
+                        question: vec![
+                            format!("Forget the source {name}?"),
+                            String::new(),
+                            format!(
+                                "This takes {held} off the shelf, and its clone out of the \
+                                 cache. What was installed from it stays where it is, \
+                                 orphaned: nothing offers it any more."
+                            ),
+                        ],
+                        task: Task::RemoveSource { name, yes: true },
+                        also: None,
+                        back: Box::new(Mode::Sources(screen)),
+                    };
+                    return (Mode::Confirming(confirm), Step::Stay);
+                }
+            }
+            _ => {}
+        }
+        (Mode::Sources(screen), Step::Stay)
     }
 
     /// `t`: the agents and share toggles of the project under the cursor,
@@ -1717,6 +1806,8 @@ impl App {
                 Task::Show { .. }
                 | Task::Validate { .. }
                 | Task::Shelf
+                | Task::UpdateSources { .. }
+                | Task::RemoveSource { .. }
                 | Task::Workspaces
                 | Task::ApplyInstall { .. }
                 | Task::Install { .. }
@@ -2303,6 +2394,14 @@ pub struct LoadForm {
     pub error: Option<String>,
 }
 
+/// The sources the shelf is filled from, one picked: what `S` opens.
+#[derive(Debug, Clone, Default)]
+pub struct SourcesScreen {
+    /// Which of the workspace's sources is picked, in the order the
+    /// snapshot lists them.
+    pub pick: usize,
+}
+
 /// The lines of the gather form, in order.
 pub const GATHER_FIELDS: [&str; 3] = ["url", "folder", "ref"];
 
@@ -2875,7 +2974,7 @@ impl Reader {
 
     /// Every key, and the command it runs.
     pub fn help() -> Self {
-        let rows: [(&str, &str, &[&str]); 24] = [
+        let rows: [(&str, &str, &[&str]); 25] = [
             (
                 "a",
                 "add a skill or a rule",
@@ -2974,7 +3073,7 @@ impl Reader {
             ),
             (
                 "esc",
-                "while a gather or a backup runs: stop it, until it places or pushes",
+                "while a gather, an update of sources or a backup runs: stop it, until it places or pushes",
                 &[],
             ),
             (
@@ -2984,6 +3083,15 @@ impl Reader {
                     "mindweaver gather list",
                     "mindweaver gather search --json <query>",
                     "mindweaver gather git [--path <folder>] [--ref <branch>] <url>",
+                ],
+            ),
+            (
+                "S",
+                "the sources it is filled from: u gathers one again, U every one, d forgets one once you say yes",
+                &[
+                    "mindweaver gather update <name>",
+                    "mindweaver gather update --all",
+                    "mindweaver gather remove --yes <name>",
                 ],
             ),
             (

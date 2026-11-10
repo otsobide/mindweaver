@@ -1351,6 +1351,166 @@ fn a_gather_refused_for_a_token_in_its_url_shows_the_token_neither_while_it_runs
     assert!(!transcript.contains("ghp_t0ken"), "{transcript}");
 }
 
+// ---------------------------------------------------------------------------
+// The sources screen (#100)
+// ---------------------------------------------------------------------------
+
+/// A workspace that gathered a repository offering `deploy`, opened in the
+/// TUI, and what the source is called.
+fn gathered_in_the_tui() -> (TempDir, TempDir, App, String) {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let source = repository(&[("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it"))]);
+    let url = source.path().to_string_lossy().into_owned();
+    weaver(dir.path(), &["gather", "git", &url]).unwrap();
+    let app = tui_in(dir.path());
+    let name = app.workspace().unwrap().sources[0].source.name.to_string();
+    (dir, source, app, name)
+}
+
+/// The command `line` parses as, with `mindweaver`'s parser.
+fn gather_command(line: &[String]) -> mindweaver_cli::GatherCommand {
+    match WeaverCli::try_parse_from(line).unwrap().command {
+        Some(mindweaver_cli::WeaverCommand::Gather(command)) => command,
+        other => panic!("{line:?} parses as {other:?}"),
+    }
+}
+
+#[test]
+fn capital_s_lists_the_sources_and_u_gathers_the_one_picked_again() {
+    let (_dir, _source, mut app, name) = gathered_in_the_tui();
+
+    press_key(&mut app, KeyCode::Char('S'));
+    let drawn = tui_drawn(&app);
+    let task = press_and_run(&mut app, KeyCode::Char('u')).unwrap();
+
+    assert!(drawn.contains(&name), "{drawn}");
+    assert!(drawn.contains("1 skill"), "{drawn}");
+    assert_eq!(
+        task,
+        Task::UpdateSources {
+            names: vec![name.clone()]
+        }
+    );
+    assert!(task.runs_apart(), "followed as a gather is");
+    let lines = task.commands();
+    assert_eq!(lines.len(), 1);
+    let mindweaver_cli::GatherCommand::Update {
+        names,
+        all,
+        credential,
+    } = gather_command(&lines[0])
+    else {
+        panic!("{lines:?}");
+    };
+    assert_eq!(names, std::slice::from_ref(&name));
+    assert!(!all);
+    assert!(!credential.is_given(), "a task hands over no token");
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(
+        reader
+            .lines
+            .iter()
+            .any(|(_, line)| line.contains("unchanged")),
+        "{:?}",
+        reader.lines
+    );
+    assert!(app
+        .transcript()
+        .contains(&format!("$ mindweaver gather update {name}\n")));
+}
+
+#[test]
+fn capital_u_on_the_sources_screen_gathers_every_source_again() {
+    let (_dir, _source, mut app, _name) = gathered_in_the_tui();
+
+    press_key(&mut app, KeyCode::Char('S'));
+    let TuiStep::Run(task) = press_key(&mut app, KeyCode::Char('U')) else {
+        panic!("{:?}", app.mode);
+    };
+
+    assert_eq!(task, Task::UpdateSources { names: Vec::new() });
+    let lines = task.commands();
+    let mindweaver_cli::GatherCommand::Update { names, all, .. } = gather_command(&lines[0]) else {
+        panic!("{lines:?}");
+    };
+    assert!(names.is_empty() && all, "{lines:?}");
+}
+
+#[test]
+fn d_on_the_sources_screen_forgets_the_one_picked_once_asked() {
+    let (dir, source, mut app, name) = gathered_in_the_tui();
+    let folder = app.workspace().unwrap().sources[0].source.directory.clone();
+    let shelf = dir.path().join(".mindweaver/skills").join(&folder);
+    assert!(shelf.is_dir(), "{shelf:?}");
+
+    press_key(&mut app, KeyCode::Char('S'));
+    press_key(&mut app, KeyCode::Char('d'));
+    let asked = tui_drawn(&app);
+    let task = press_and_run(&mut app, KeyCode::Char('y')).unwrap();
+
+    assert!(
+        asked.contains(&format!("Forget the source {name}?")),
+        "{asked}"
+    );
+    assert_eq!(
+        task,
+        Task::RemoveSource {
+            name: name.clone(),
+            yes: true
+        }
+    );
+    let lines = task.commands();
+    let mindweaver_cli::GatherCommand::Remove { name: removed, yes } = gather_command(&lines[0])
+    else {
+        panic!("{lines:?}");
+    };
+    assert_eq!(removed, name);
+    assert!(yes);
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        reader.lines[0].1,
+        format!(
+            "forgot the source {name}, gathered from {}",
+            source.path().display()
+        )
+    );
+    assert!(app.workspace().unwrap().sources.is_empty());
+    assert_eq!(app.workspace().unwrap().shelf, 0);
+    assert!(!shelf.exists(), "{shelf:?}");
+    assert!(!dir.path().join(".mindweaver/cache").join(&folder).exists());
+}
+
+#[test]
+fn n_on_the_sources_screen_forgets_nothing() {
+    let (_dir, _source, mut app, _name) = gathered_in_the_tui();
+
+    press_key(&mut app, KeyCode::Char('S'));
+    press_key(&mut app, KeyCode::Char('d'));
+    let step = press_key(&mut app, KeyCode::Char('n'));
+
+    assert_eq!(step, TuiStep::Stay);
+    assert!(matches!(app.mode, Mode::Sources(_)), "{:?}", app.mode);
+    assert_eq!(app.workspace().unwrap().sources.len(), 1);
+}
+
+#[test]
+fn capital_s_with_nothing_gathered_says_how_to_gather() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+
+    let step = press_key(&mut app, KeyCode::Char('S'));
+
+    assert_eq!(step, TuiStep::Stay);
+    assert!(matches!(app.mode, Mode::Browse), "{:?}", app.mode);
+    assert!(tui_drawn(&app).contains("nothing gathered yet; g gathers from a git repository"));
+}
+
 /// Where the shelf `shelved` gathered offers its skills from, as the
 /// install screen says it.
 fn shelf_origin(workspace: &WeaverWorkspace, ledger: &Ledger) -> String {

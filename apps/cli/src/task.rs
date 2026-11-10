@@ -289,6 +289,18 @@ pub enum Task {
         #[serde(default = "gathered_kind")]
         kind: Kind,
     },
+    /// `mindweaver gather update <name>...`: each source named gathered
+    /// again, as it was gathered, or every one, `--all`, when `names` is
+    /// empty. Followed as it goes and stopped when asked, as a gather is
+    /// ([`Followed::Gather`]), and carrying no token, as a gather's task
+    /// carries none.
+    UpdateSources { names: Vec<String> },
+    /// `mindweaver gather remove [--yes] <name>`: the source called `name`
+    /// forgotten, what it put on the shelf and its clone taken away, and
+    /// what was installed from it left orphaned, which is asked about first
+    /// ([`Caution::Forgets`]). Without `yes`, the dry run, which says what
+    /// would go and writes nothing.
+    RemoveSource { name: String, yes: bool },
     /// `mindweaver export [--kind <kind>]... [--yes] <folder>`: the
     /// workspace's own written into `folder`, laid out as a workspace of
     /// their own, `kinds` alone when it names some and every kind when it
@@ -789,6 +801,21 @@ impl Task {
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[url])]
             }
+            Task::UpdateSources { names } if names.is_empty() => {
+                vec![words(&["mindweaver", "gather", "update", "--all"], &[])]
+            }
+            Task::UpdateSources { names } => {
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                vec![words(&["mindweaver", "gather", "update"], &names)]
+            }
+            // `--yes` before the name, as `remove` has it.
+            Task::RemoveSource { name, yes } => {
+                let mut head = vec!["mindweaver", "gather", "remove"];
+                if *yes {
+                    head.push("--yes");
+                }
+                vec![words(&head, &[name])]
+            }
             // `--yes` before the folder, as `remove` has it before the name.
             Task::Export { folder, kinds, yes } => {
                 let mut head = owned(&["mindweaver", "export"]);
@@ -973,6 +1000,8 @@ impl Task {
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
                 | Task::Gather { .. }
+                | Task::UpdateSources { .. }
+                | Task::RemoveSource { yes: true, .. }
                 | Task::Export { .. }
                 | Task::Backup { .. }
                 | Task::Minds { .. }
@@ -1084,9 +1113,10 @@ impl Task {
 /// it from then on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Followed {
-    /// `mindweaver gather git`: the network, for as long as it takes,
-    /// reported step by step through core's `gather::Watch`, and stopped
-    /// by its cancel until it starts placing what it read on the shelf.
+    /// `mindweaver gather git`, and `mindweaver gather update`, a gather of
+    /// each source in turn: the network, for as long as it takes, reported
+    /// step by step through core's `gather::Watch`, and stopped by its
+    /// cancel until it starts placing what it read on the shelf.
     Gather,
     /// `mindweaver backup`: the network too, through the system's `git`,
     /// reported step by step through core's `backup::Watch`, checking out,
@@ -1143,7 +1173,9 @@ impl Followed {
     pub fn of_weaver(command: Option<&WeaverCommand>) -> Option<Followed> {
         match command {
             Some(WeaverCommand::Gather(
-                GatherCommand::Git { .. } | GatherCommand::Search { take: Some(_), .. },
+                GatherCommand::Git { .. }
+                | GatherCommand::Update { .. }
+                | GatherCommand::Search { take: Some(_), .. },
             )) => Some(Followed::Gather),
             Some(WeaverCommand::Gather(GatherCommand::Search { take: None, .. })) => {
                 Some(Followed::Search)
@@ -1175,7 +1207,12 @@ impl Followed {
                 | WeaverCommand::Load { .. }
                 | WeaverCommand::Unload { .. }
                 | WeaverCommand::Scan { .. }
-                | WeaverCommand::Gather(GatherCommand::List { .. })
+                | WeaverCommand::Gather(
+                    GatherCommand::List { .. }
+                    | GatherCommand::Sources { .. }
+                    | GatherCommand::Rename { .. }
+                    | GatherCommand::Remove { .. },
+                )
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1346,7 +1383,21 @@ impl Refusal {
                 // ([`Followed::Gather`]), by the panel as by the TUI, and
                 // never a prompt (#26): what kept it from a front end with
                 // no terminal until #112.
-                | WeaverCommand::Gather(_)
+                // A search asks the skill directories over the network too,
+                // followed and stopped between finders ([`Followed::Search`]),
+                // and with `--take` is a gather.
+                | WeaverCommand::Gather(
+                    GatherCommand::Git { .. }
+                    | GatherCommand::Update { .. }
+                    | GatherCommand::Search { .. },
+                )
+                // The ledger and the workspace's own folders alone.
+                | WeaverCommand::Gather(
+                    GatherCommand::List { .. }
+                    | GatherCommand::Sources { .. }
+                    | GatherCommand::Rename { .. }
+                    | GatherCommand::Remove { .. },
+                )
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1446,6 +1497,15 @@ pub enum Caution {
     /// told `--yes`.
     #[error("writes over, or takes out, a copy changed since it was installed")]
     Forces,
+    /// `mindweaver gather remove --yes`: a gathered source forgotten, what
+    /// it put on the shelf and its clone deleted, and what was installed
+    /// from it left in the projects, orphaned, as `unload` leaves a loaded
+    /// workspace's.
+    #[error(
+        "forgets a gathered source: what it put on the shelf and its clone are deleted, and what \
+         was installed from it is left orphaned"
+    )]
+    Forgets,
 }
 
 impl Caution {
@@ -1510,6 +1570,19 @@ impl Caution {
             Some(WeaverCommand::Export { yes, .. }) => when(*yes, &[Caution::Removes]),
             // What it takes out of the branch is kept in its history.
             Some(WeaverCommand::Backup { .. }) => Vec::new(),
+            Some(WeaverCommand::Gather(GatherCommand::Remove { yes, .. })) => {
+                when(*yes, &[Caution::Forgets])
+            }
+            // An update takes off the shelf only what its source no longer
+            // offers, which no yes could keep there.
+            Some(WeaverCommand::Gather(
+                GatherCommand::Git { .. }
+                | GatherCommand::List { .. }
+                | GatherCommand::Sources { .. }
+                | GatherCommand::Update { .. }
+                | GatherCommand::Rename { .. }
+                | GatherCommand::Search { .. },
+            )) => Vec::new(),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Vec::new(),
             None
@@ -1533,7 +1606,6 @@ impl Caution {
                 | WeaverCommand::Load { .. }
                 | WeaverCommand::Minds { .. }
                 | WeaverCommand::Scan { .. }
-                | WeaverCommand::Gather(_)
                 | WeaverCommand::Adopt { .. }
                 | WeaverCommand::Agents { .. }
                 | WeaverCommand::Share { .. }

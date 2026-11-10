@@ -25,8 +25,8 @@
 //! ([`CacheError`]), never a reason to withhold it.
 //!
 //! The skill directories `gather search` asks are the first catalogs read
-//! through it ([`crate::finder`], #108), and the MCP Registry (#106) the
-//! next.
+//! through it ([`crate::finder`], #108), and the official MCP Registry
+//! ([`crate::mcp_registry`], #106) the next.
 
 mod cache;
 
@@ -478,9 +478,10 @@ pub fn with_query(url: &str, name: &str, value: &str) -> String {
     )
 }
 
-/// `text` as a query's part: unreserved bytes as they are, every other one
-/// as `%XX`.
-fn encoded(text: &str) -> String {
+/// `text` as a query's part, or a path's: unreserved bytes as they are,
+/// every other one as `%XX`, a `/` among them, so a name holding one is
+/// still one part of a path.
+pub(crate) fn encoded(text: &str) -> String {
     let mut encoded = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
