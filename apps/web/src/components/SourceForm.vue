@@ -260,12 +260,12 @@ async function take() {
       >
         <template #description>
           <template v-if="unsaid === null">
-            Needed: a gather of this kind looks in no folder unless one is named.
+            Needed: a gather of this kind looks in no folder unless one is named,
           </template>
           <template v-else>
-            Empty looks in <code class="font-mono">{{ unsaid }}</code>.
+            Empty looks in <code class="rounded-sm bg-elevated px-1 font-mono">{{ unsaid }}</code>,
           </template>
-          <code class="font-mono">.</code> is the whole repository.
+          <code class="rounded-sm bg-elevated px-1 font-mono">.</code> being the whole repository.
         </template>
         <UInput
           v-model="folder"
