@@ -112,7 +112,7 @@ fn every_word_type_says_in_typescript_the_words_serde_writes() {
         MarkerFile::SettingsJson,
         MarkerFile::SettingsToml,
     ]);
-    says_what_serde_writes(&[SourceKind::Git]);
+    says_what_serde_writes(&[SourceKind::Git, SourceKind::Marketplace]);
     says_what_serde_writes(&[
         scan::Reason::Id,
         scan::Reason::Mind,

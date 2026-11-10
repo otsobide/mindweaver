@@ -90,6 +90,13 @@ const SOURCES_AS_WRITTEN: &str = "SELECT id, kind, url, reference, subdirectory,
                                          directory, first_seen, last_seen
                                     FROM sources ORDER BY id";
 
+/// Every column of `sources` a version from 7 to 8 had, which schema 9
+/// adds to: what a step after it keeps of each row it is not about.
+const SOURCES_AS_SEVEN_WROTE: &str = "SELECT id, kind, url, reference, subdirectory, revision,
+                                             directory, first_seen, last_seen, name,
+                                             canonical_url, reference_key, pin, parent_id
+                                        FROM sources ORDER BY id";
+
 /// Every column of `artifacts` a version before 8 had, which schema 8 adds
 /// to: what a step after it keeps of each row it is not about.
 const ARTIFACTS_AS_WRITTEN: &str = "SELECT id, kind, name, source_id, path, summary, revision,
@@ -892,7 +899,7 @@ fn a_version_7_ledger_keeps_every_row_it_had_and_its_artifacts_gain_nothing_it_d
     let after = Connection::open(&path).unwrap();
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
-        "SELECT * FROM sources ORDER BY id",
+        SOURCES_AS_SEVEN_WROTE,
         ARTIFACTS_AS_WRITTEN,
         "SELECT * FROM actions ORDER BY id",
         "SELECT * FROM installations ORDER BY id",
@@ -1001,6 +1008,144 @@ fn a_version_7_ledger_records_a_pin_and_what_a_gather_takes_once_it_is_migrated(
         .find(|gathered| gathered.source.id == source.id && gathered.name == "review")
         .unwrap();
     assert_eq!(review.licence, None);
+}
+
+/// What schema 8 wrote, made from [`VERSION_7`] by its step and a gather's
+/// writes.
+const VERSION_8: &str = include_str!("fixtures/ledger-v8.sql");
+
+#[test]
+fn a_version_8_ledger_keeps_every_row_it_had_and_no_source_is_listed_by_a_marketplace() {
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), VERSION_8);
+    let before = as_written(VERSION_8);
+
+    let ledger = Ledger::open(&path).unwrap();
+
+    let after = Connection::open(&path).unwrap();
+    assert_eq!(version_of(&after), SCHEMA_VERSION);
+    for query in [
+        SOURCES_AS_SEVEN_WROTE,
+        "SELECT * FROM artifacts ORDER BY id",
+        "SELECT * FROM actions ORDER BY id",
+        "SELECT * FROM installations ORDER BY id",
+        "SELECT * FROM installation_targets ORDER BY installation_id, path",
+        "SELECT * FROM projects ORDER BY id",
+        "SELECT * FROM merged_sources ORDER BY id",
+    ] {
+        assert_eq!(rows(&after, query), rows(&before, query), "{query}");
+    }
+    assert_eq!(
+        rows(&after, "SELECT DISTINCT entry, parent_id FROM sources"),
+        [[Value::Null, Value::Null]]
+    );
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 4, "{sources:?}");
+    for source in &sources {
+        assert_eq!(source.parent, None, "{}", source.name);
+        assert_eq!(source.entry, None, "{}", source.name);
+    }
+    // What schema 8 kept of a gather, read back as it was.
+    let pinned = ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .find(|gathered| gathered.name == "deploy" && gathered.source.name == "acme-skills")
+        .unwrap();
+    assert_eq!(pinned.upstream_path.as_deref(), Some("skills/deploy"));
+    assert!(pinned.source.pin.is_some());
+}
+
+#[test]
+fn a_version_8_ledger_is_copied_aside_and_the_copy_opens_at_version_8() {
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), VERSION_8);
+    let before = as_written(VERSION_8);
+
+    Ledger::open(&path).unwrap();
+
+    let backup = dir.path().join("mindweaver.db.v8.bak");
+    assert_eq!(backup_path(&path, 8), backup);
+    let copy = Connection::open(&backup).unwrap();
+    assert_eq!(version_of(&copy), 8);
+    for query in [
+        "SELECT * FROM sources ORDER BY id",
+        "SELECT * FROM artifacts ORDER BY id",
+        "SELECT * FROM actions ORDER BY id",
+        "SELECT * FROM installations ORDER BY id",
+        "SELECT type, name, sql FROM sqlite_master ORDER BY name",
+    ] {
+        assert_eq!(rows(&copy, query), rows(&before, query), "{query}");
+    }
+}
+
+/// The acceptance's ledger case (#103): once migrated, a marketplace lists
+/// its plugins, each known by its entry, two at one place among them, and
+/// one at the place a git source of its own is, which stays found as it
+/// was.
+#[test]
+fn a_version_8_ledger_takes_a_marketplace_and_its_plugins_once_migrated() {
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), VERSION_8);
+    let ledger = Ledger::open(&path).unwrap();
+    let url = "https://github.com/acme/skills";
+
+    let mut marketplace = ledger
+        .source_for(SourceKind::Marketplace, url, None, ".")
+        .unwrap();
+    // What a gather calls one, its catalog's own name.
+    let called = mindweaver_core::value::SourceName::parse("acme-tools").unwrap();
+    ledger.rename_source(marketplace.id, &called).unwrap();
+    marketplace.name = called;
+    let deploy = ledger
+        .child_for(&marketplace, "deploy", url, "skills")
+        .unwrap();
+    let both = ledger
+        .child_for(&marketplace, "both", url, "skills")
+        .unwrap();
+    let again = ledger
+        .child_for(&marketplace, "deploy", url, "skills")
+        .unwrap();
+
+    assert_eq!(again, deploy, "one plugin an entry");
+    assert_ne!(both.id, deploy.id, "two entries at one place are two");
+    assert_eq!(deploy.name.as_str(), "acme-tools.deploy");
+    assert_eq!(deploy.parent.as_ref(), Some(&marketplace.name));
+    assert_eq!(deploy.entry.as_deref(), Some("deploy"));
+    assert_eq!(deploy.reference, None);
+    // The git source at that place is the one a gather of it finds still.
+    let found = ledger
+        .source(SourceKind::Git, url, None, "skills")
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.name.as_str(), "acme-skills");
+    assert_eq!(
+        ledger
+            .children(&marketplace)
+            .unwrap()
+            .iter()
+            .map(|child| child.entry.clone())
+            .collect::<Vec<_>>(),
+        [Some(String::from("both")), Some(String::from("deploy"))]
+    );
+    let listed: Vec<String> = ledger
+        .sources()
+        .unwrap()
+        .into_iter()
+        .map(|source| source.name.into_string())
+        .collect();
+    let at = listed
+        .iter()
+        .position(|name| *name == "acme-tools")
+        .unwrap();
+    assert_eq!(
+        listed[at..=at + 2],
+        ["acme-tools", "acme-tools.both", "acme-tools.deploy"],
+        "{listed:?}"
+    );
+
+    assert!(ledger.forget_source(marketplace.id).unwrap());
+    assert_eq!(ledger.sources().unwrap().len(), 4, "its plugins go with it");
 }
 
 #[test]

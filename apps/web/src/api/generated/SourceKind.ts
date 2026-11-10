@@ -3,4 +3,4 @@
 /**
  * What kind of place a source is.
  */
-export type SourceKind = "git";
+export type SourceKind = "git" | "marketplace";

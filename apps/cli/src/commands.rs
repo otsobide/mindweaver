@@ -13,6 +13,7 @@ pub(crate) mod export;
 pub(crate) mod gather;
 pub(crate) mod install;
 pub(crate) mod known;
+pub(crate) mod marketplace;
 pub(crate) mod migrate;
 pub(crate) mod project;
 pub(crate) mod read;

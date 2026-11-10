@@ -210,9 +210,16 @@ under `apps/` with its own `Makefile`:
   value, and a manual step said where no command of its registry type
   starts it (`mcp_registry::import`), a registry asked over https, or
   plain http on this machine alone, and what a search lists of each
-  server (`mcp_registry::Summary`, each way by its word, `Way::word`), the
-  ledger (through
-  `port::LedgerStore`), installing, keeping installs out of git
+  server (`mcp_registry::Summary`, each way by its word, `Way::word`),
+  gathering from a Claude Code plugin marketplace (`marketplace`: its
+  catalog, `.claude-plugin/marketplace.json`, read leniently and never
+  obeyed,
+  `Catalog`, each plugin an `Entry` and where it is a `Place`, recorded
+  as a source of its own kind and listed, `Listing`, and each plugin
+  chosen gathered as a source of its own, its child, through
+  `gather::plugin`, `Gathered`, what no gather takes `NotGathered`), the
+  ledger (through `port::LedgerStore`), installing, keeping installs out
+  of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
   Claude reads that block and the `@AGENTS.md` import in a project's
@@ -316,7 +323,11 @@ under `apps/` with its own `Makefile`:
   the token GitHub's code search is asked with, and takes a result through
   `gather`'s own function), `registry` (mindweaver gather mcp search and
   add, an MCP registry's server written into the library through `add`'s
-  own path, a dry run without `--yes`), `adopt` (mindweaver adopt), `export` and
+  own path, a dry run without `--yes`), `marketplace` (mindweaver gather
+  marketplace, which asks first for `--all` past the bound through a read
+  that writes nothing, and says what came of each plugin, what `gather
+  update` says of a marketplace too), `adopt` (mindweaver adopt), `export`
+  and
   `backup` (mindweaver export, mindweaver backup, which reads the token
   `--token-env` names) and `ui` (the panel, at
   both levels).
@@ -748,7 +759,17 @@ These are easy to break from a single file without noticing.
   takes away only the folders the ledger records as the source's, one
   folder name under the cache and under each shelf and never a link,
   before its rows, leaving every installation from it recorded, orphaned
-  (`LedgerStore::installed_from`).
+  (`LedgerStore::installed_from`). A Claude Code marketplace is a source
+  of its own kind, and each plugin gathered from it a git source whose
+  `parent_id` names it, known by its `entry` in the catalog rather than by
+  where it is (`LedgerStore::child_for`, `sources_by_entry`), which the
+  catalog says each time, so `sources_by_identity` holds of the sources
+  no marketplace lists alone; a plugin is called after both
+  (`acme-tools.deploy`), at the `sha` its entry pins as its `pin`, with no
+  `reference` of its own. `gather update` and `gather remove` of a
+  marketplace reach each plugin of it, a plugin named alone gathered again
+  through its marketplace (`sources::update`, `sources::reached`, a
+  `Removal`'s `plugins`).
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -765,7 +786,9 @@ These are easy to break from a single file without noticing.
 - **Reading commands print JSON in one envelope, and its names are a
   contract.** A reading command's `--json` (`list`, `show`, `validate`,
   `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`,
-  `gather list`, `gather sources`, `gather search` and `gather mcp search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
+  `gather list`, `gather sources`, `gather search`, `gather mcp search`
+  and `gather marketplace --list`) prints `render::json`'s `{"version": 2,
+  "data": ..., "warnings":
   [...], "coded_warnings": [...]}`, never a shape of its own, with what its
   text says on stderr as `warning:` lines in `warnings`, the same lines
   with their codes in `coded_warnings`, and the exit status its text has;
@@ -1309,6 +1332,21 @@ These are easy to break from a single file without noticing.
     `create::Start::Definition`), and said beforehand by the same checks
     (`lifecycle::would_add`), never by a writer of its own, and nothing it
     names is ever started.
+  - A marketplace's catalog is somebody else's JSON too (`marketplace`),
+    read only inside its clone, to 8 MiB, a link leading out refused
+    (`marketplace_catalog_outside`): an entry that cannot be read, a name
+    no source could be called after or two entries called one name among
+    it, is said by its code (`marketplace::UnreadEntry`) and costs none
+    beside it, and a key it does not know is passed over. Nothing it
+    names is ever run: a `command` source is refused with a message
+    (`marketplace_command_refused`), a `headersHelper` said and never run,
+    and npm and archive plugins are passed over, said. A catalog fetched
+    from elsewhere reaches no repository on this machine, a path or a
+    `file://` URL (`marketplace_plugin_local`). A plugin's skills are only
+    the folders its entry lists or Claude Code finds in it, each held
+    inside the plugin's folder (`gathered_listed_missing`), its commands,
+    agents, hooks and MCP and LSP servers said and left, and a token goes
+    on to a plugin only on the catalog's own host.
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1885,7 +1923,11 @@ These are easy to break from a single file without noticing.
   skills in each layout a gather reads, `layouts` and `with_skills_in`,
   one that is one skill, `one_skill`, and one keeping rules by their routes
   in a folder beside its README and its licence, `with_rules_in`,
-  `ShelfMother`, among it a shelf of rules, `rules_into`),
+  `ShelfMother`, among it a shelf of rules, `rules_into`, and
+  `MarketplaceMother`, a marketplace's repository keeping its catalog,
+  among it one modelled on anthropics/skills, `anthropic_skills`, one
+  listing as many plugins of repositories of their own as asked,
+  `listing`, and a plugin's files, `plugin`),
   and what a Mindflayer build left under its names (`MindflayerMother`:
   a workspace in a `.mindflayer`, and a project's blocks, exclude lines and
   rule files for Claude as that build wrote them, records included).
@@ -1975,8 +2017,9 @@ These are easy to break from a single file without noticing.
 - The CLI end to end is `apps/cli/tests/e2e_test.rs`, one target whose
   modules under `tests/e2e/` group the use cases by what a person is
   doing (projects, authoring, installing, gathering, searching,
-  importing, updating, reading, workspaces, settings, adopting, removing,
-  loading, exporting, upgrading, json, mistakes). Each test is one use case: it builds its own
+  marketplaces, importing, updating, reading, workspaces, settings,
+  adopting, removing, loading, exporting, upgrading, json, mistakes).
+  Each test is one use case: it builds its own
   scenario (`e2e/scenario.rs`, `Scenario`), runs one command line as a
   person types it, and holds its exit status, stdout and stderr word for
   word, and what it left on the disk. A scenario is a temporary folder read

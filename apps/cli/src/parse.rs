@@ -1624,6 +1624,61 @@ pub enum GatherCommand {
         credential: Credential,
     },
 
+    /// Take skills from the plugins a Claude Code marketplace lists: its
+    /// catalog, `.claude-plugin/marketplace.json`, is recorded as a source,
+    /// and each plugin chosen is gathered as a source of its own.
+    ///
+    /// Only a plugin's skills are taken, and only from a plugin kept in git;
+    /// nothing a catalog names is ever run.
+    //
+    // One of the three and never two, as a group the usage says: a bare
+    // line that gathered everything would fetch every plugin's repository,
+    // thousands of them in the largest catalogs.
+    #[command(group(ArgGroup::new("taking").args(["list", "plugins", "all"]).required(true)))]
+    Marketplace {
+        /// The marketplace's repository: `owner/repo` on GitHub,
+        /// `owner/repo@REF` at a branch or tag, a git URL, or a folder on
+        /// this machine.
+        source: String,
+
+        /// List the plugins its catalog lists, gathering none.
+        #[arg(long)]
+        list: bool,
+
+        /// Gather the plugin its catalog lists as NAME; once for each.
+        #[arg(long = "plugin", value_name = "NAME")]
+        plugins: Vec<String>,
+
+        /// Gather every plugin its catalog lists: past 25 to gather, say
+        /// what would be gathered and gather nothing, unless --yes.
+        #[arg(long)]
+        all: bool,
+
+        /// With --all, gather every plugin however many there are.
+        #[arg(short, long, requires = "all")]
+        yes: bool,
+
+        /// A branch or tag to take, instead of the repository's default.
+        #[arg(long = "ref", value_name = "REF")]
+        reference: Option<String>,
+
+        /// What to call the marketplace, instead of the name its catalog
+        /// gives itself: what each plugin of it is called after.
+        ///
+        /// Letters, digits, `.`, `_` and `-`. Given for a marketplace
+        /// gathered before, it is called this from now on.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+
+        /// With --list, print it as JSON, in the envelope every reading
+        /// command's --json shares.
+        #[arg(long, requires = "list")]
+        json: bool,
+
+        #[command(flatten)]
+        credential: Credential,
+    },
+
     /// List what can be installed from the shelf and from loaded workspaces,
     /// and where each artifact comes from.
     #[command(alias = "ls")]

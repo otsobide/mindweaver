@@ -16,7 +16,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 44] = [
+const TAGS: [&str; 46] = [
     "init_workspace",
     "init_project",
     "link",
@@ -45,6 +45,8 @@ const TAGS: [&str; 44] = [
     "search_servers",
     "import_server",
     "gather",
+    "list_marketplace",
+    "gather_plugins",
     "update_sources",
     "remove_source",
     "export",
@@ -174,6 +176,24 @@ fn every(value: &str) -> Vec<Task> {
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: Some(owned()),
             kind: Kind::Rule,
+        },
+        Task::ListMarketplace {
+            source: owned(),
+            reference: Some(owned()),
+        },
+        Task::ListMarketplace {
+            source: owned(),
+            reference: None,
+        },
+        Task::GatherPlugins {
+            source: owned(),
+            reference: Some(owned()),
+            plugins: vec![owned(), String::from("plain")],
+        },
+        Task::GatherPlugins {
+            source: owned(),
+            reference: None,
+            plugins: vec![owned()],
         },
         Task::UpdateSources {
             names: vec![owned(), String::from("plain")],
@@ -824,6 +844,53 @@ fn an_update_is_the_line_the_cli_takes_and_forced_only_when_asked() {
         assert_eq!(task.commands(), [line(said)], "{task:?}");
         assert!(task.writes(), "{task:?}");
         assert_eq!(task.cautions(), cautions, "{task:?}");
+    }
+}
+
+/// What the TUI's marketplace screens ask for, each the line somebody would
+/// type (#103): a catalog listed, as JSON for the screen to read back, and
+/// the plugins ticked gathered by name, each followed as a gather is, none
+/// asked about first, and a value led by a dash kept from being read as an
+/// option.
+#[test]
+fn a_marketplace_s_task_is_the_line_the_cli_takes() {
+    let listed = |source: &str, reference: Option<&str>| Task::ListMarketplace {
+        source: source.to_owned(),
+        reference: reference.map(str::to_owned),
+    };
+    let gathered = |source: &str, plugins: &[&str]| Task::GatherPlugins {
+        source: source.to_owned(),
+        reference: None,
+        plugins: owned(plugins),
+    };
+
+    for (task, said) in [
+        (
+            listed("acme/tools", None),
+            "mindweaver gather marketplace --list --json acme/tools",
+        ),
+        (
+            listed("acme/tools", Some("v2")),
+            "mindweaver gather marketplace --list --json --ref v2 acme/tools",
+        ),
+        (
+            listed("-odd", Some("-v2")),
+            "mindweaver gather marketplace --list --json --ref=-v2 -- -odd",
+        ),
+        (
+            gathered("acme/tools", &["formatter", "deploy"]),
+            "mindweaver gather marketplace --plugin formatter --plugin deploy acme/tools",
+        ),
+        (
+            gathered("acme/tools", &["-odd"]),
+            "mindweaver gather marketplace --plugin=-odd acme/tools",
+        ),
+    ] {
+        assert_eq!(task.commands(), [line(said)], "{task:?}");
+        assert!(task.writes(), "{task:?}");
+        assert!(task.runs_apart(), "{task:?}");
+        assert_eq!(task.cautions(), Vec::new(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
     }
 }
 
@@ -1856,6 +1923,8 @@ fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
             task,
             Task::Gather { .. }
                 | Task::TakeSkill { .. }
+                | Task::ListMarketplace { .. }
+                | Task::GatherPlugins { .. }
                 | Task::UpdateSources { .. }
                 | Task::Backup { .. }
                 | Task::SearchSkills { .. }

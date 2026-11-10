@@ -335,6 +335,29 @@ pub enum Task {
         #[serde(default = "gathered_kind")]
         kind: Kind,
     },
+    /// `mindweaver gather marketplace --list --json [--ref <ref>] <source>`:
+    /// a Claude Code marketplace's catalog recorded as a source and its
+    /// plugins listed, none gathered, read back from the JSON the line
+    /// prints, for a front end to list the plugins and gather the ones
+    /// ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).
+    ///
+    /// Followed as it goes and stopped when asked, as a gather is
+    /// ([`Followed::Gather`]): it fetches the catalog's repository. No
+    /// token, as a gather's task carries none.
+    ListMarketplace {
+        source: String,
+        reference: Option<String>,
+    },
+    /// `mindweaver gather marketplace [--ref <ref>] --plugin <name>...
+    /// <source>`: the plugins of a Claude Code marketplace called `plugins`
+    /// in its catalog gathered, each as a source of its own, in the order
+    /// given (#103). Never `--all`, which a front end asks for by naming
+    /// every plugin it lists, so the line says what was gathered.
+    GatherPlugins {
+        source: String,
+        reference: Option<String>,
+        plugins: Vec<String>,
+    },
     /// `mindweaver gather update <name>...`: each source named gathered
     /// again, as it was gathered, or every one, `--all`, when `names` is
     /// empty. Followed as it goes and stopped when asked, as a gather is
@@ -906,6 +929,29 @@ impl Task {
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[url])]
             }
+            Task::ListMarketplace { source, reference } => {
+                let mut head = owned(&["mindweaver", "gather", "marketplace", "--list", "--json"]);
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[source])]
+            }
+            Task::GatherPlugins {
+                source,
+                reference,
+                plugins,
+            } => {
+                let mut head = owned(&["mindweaver", "gather", "marketplace"]);
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                for plugin in plugins {
+                    head.extend(option("--plugin", plugin));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[source])]
+            }
             Task::UpdateSources { names } if names.is_empty() => {
                 vec![words(&["mindweaver", "gather", "update", "--all"], &[])]
             }
@@ -1109,6 +1155,8 @@ impl Task {
                 | Task::Remove { yes: true, .. }
                 | Task::Gather { .. }
                 | Task::TakeSkill { .. }
+                | Task::ListMarketplace { .. }
+                | Task::GatherPlugins { .. }
                 | Task::ImportServer { yes: true, .. }
                 | Task::UpdateSources { .. }
                 | Task::RemoveSource { yes: true, .. }
@@ -1223,10 +1271,12 @@ impl Task {
 /// it from then on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Followed {
-    /// `mindweaver gather git`, and `mindweaver gather update`, a gather of
-    /// each source in turn: the network, for as long as it takes, reported
-    /// step by step through core's `gather::Watch`, and stopped by its
-    /// cancel until it starts placing what it read on the shelf.
+    /// `mindweaver gather git`, `mindweaver gather marketplace`, a gather
+    /// of its catalog and of each plugin chosen in turn, and `mindweaver
+    /// gather update`, a gather of each source in turn: the network, for as
+    /// long as it takes, reported step by step through core's
+    /// `gather::Watch`, and stopped by its cancel until it starts placing
+    /// what it read on the shelf.
     Gather,
     /// `mindweaver backup`: the network too, through the system's `git`,
     /// reported step by step through core's `backup::Watch`, checking out,
@@ -1284,6 +1334,7 @@ impl Followed {
         match command {
             Some(WeaverCommand::Gather(
                 GatherCommand::Git { .. }
+                | GatherCommand::Marketplace { .. }
                 | GatherCommand::Update { .. }
                 | GatherCommand::Search { take: Some(_), .. },
             )) => Some(Followed::Gather),
@@ -1504,8 +1555,12 @@ impl Refusal {
                 // A search asks the skill directories over the network too,
                 // followed and stopped between finders ([`Followed::Search`]),
                 // and with `--take` is a gather.
+                // A marketplace's catalog and plugins are fetched and
+                // followed as a gather is, and nothing a catalog names is
+                // ever run.
                 | WeaverCommand::Gather(
                     GatherCommand::Git { .. }
+                    | GatherCommand::Marketplace { .. }
                     | GatherCommand::Update { .. }
                     | GatherCommand::Search { .. },
                 )
@@ -1701,6 +1756,7 @@ impl Caution {
             // offers, which no yes could keep there.
             Some(WeaverCommand::Gather(
                 GatherCommand::Git { .. }
+                | GatherCommand::Marketplace { .. }
                 | GatherCommand::List { .. }
                 | GatherCommand::Sources { .. }
                 | GatherCommand::Update { .. }

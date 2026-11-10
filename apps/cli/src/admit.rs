@@ -96,6 +96,13 @@ impl Admission<'_> {
             Task::TakeSkill { hit } => {
                 policy::source(&hit.repository.to_string())?;
             }
+            // A marketplace's repository is a source as a gather's is; the
+            // reference and the plugins' names are values the gather holds
+            // to its own rules, a name its catalog does not list refused
+            // before any plugin is fetched.
+            Task::ListMarketplace { source, .. } | Task::GatherPlugins { source, .. } => {
+                policy::source(source)?;
+            }
             // A source by its name, which names nothing on the disk: a value
             // core holds to its own rules, refusing one no source has, or
             // one that carries a credential, before anything is fetched or

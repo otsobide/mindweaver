@@ -692,6 +692,7 @@
           "gathered_unhashed",
           "gathered_route_unusable",
           "gathered_unremoved",
+          "gathered_listed_missing",
           "gather_cancelled",
           "credentials_in_url",
           "gather_token_over_ssh",
@@ -706,6 +707,7 @@
           "source_name_taken",
           "source_pin_invalid",
           "kind_not_gatherable",
+          "gather_plugin_empty",
           "gather_read_failed",
           "source_leftover",
           "clone_unscrubbed",
@@ -820,6 +822,22 @@
           "edit_server_unreadable",
           "workspace_busy",
           "lock_open_failed",
+          "marketplace_catalog_missing",
+          "marketplace_catalog_unreadable",
+          "marketplace_catalog_outside",
+          "marketplace_folder_named",
+          "marketplace_plugin_unknown",
+          "marketplace_clone_unplaced",
+          "marketplace_npm_not_gathered",
+          "marketplace_archive_not_gathered",
+          "marketplace_command_refused",
+          "marketplace_source_unknown",
+          "marketplace_plugin_local",
+          "marketplace_plugin_unlisted",
+          "marketplace_entry_unnamed",
+          "marketplace_entry_name_invalid",
+          "marketplace_entry_twice",
+          "marketplace_entry_unreadable",
           "mcp_unparsed",
           "mcp_format_missing",
           "mcp_format_too_new",
@@ -2665,7 +2683,7 @@
         "type": "object"
       },
       "Licence": {
-        "description": "Where a gathered artifact says what it is licensed under, and what it\nsays.\n\nTagged by `from`, beside what that place said, so a reader tells a\nlicence its author declared from a line read off a file:\n`{\"from\": \"manifest\", \"text\": \"MIT\"}`, `{\"from\": \"file\", \"file\":\n\"LICENSE.txt\", \"text\": \"Apache License\"}` or `{\"from\": \"unknown\"}`.",
+        "description": "Where a gathered artifact says what it is licensed under, and what it\nsays.\n\nTagged by `from`, beside what that place said, so a reader tells a\nlicence its author declared from a line read off a file:\n`{\"from\": \"manifest\", \"text\": \"MIT\"}`, `{\"from\": \"file\", \"file\":\n\"LICENSE.txt\", \"text\": \"Apache License\"}`, `{\"from\": \"plugin\", \"text\":\n\"Apache-2.0\"}` or `{\"from\": \"unknown\"}`.",
         "oneOf": [
           {
             "description": "The `license` its manifest declares, as written: a licence's name,\nor words pointing at a file it bundles, as the Agent Skills format\nhas it.",
@@ -2709,7 +2727,24 @@
             "type": "object"
           },
           {
-            "description": "Neither: nothing it holds says.",
+            "description": "Neither, for a skill gathered from a plugin a marketplace lists\n(#103): the licence the plugin declares, in its catalog entry or its\nown `plugin.json`, as written, every skill of it under it unless the\nskill says otherwise. Added after the rest.",
+            "properties": {
+              "from": {
+                "const": "plugin",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "None of those: nothing it holds says.",
             "properties": {
               "from": {
                 "const": "unknown",
@@ -3576,6 +3611,13 @@
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
             "type": "string"
           },
+          "entry": {
+            "description": "What the plugin is called in its marketplace's catalog, for one\ngathered from a marketplace: what it is, as `--plugin` takes it,\nwhere its URL and its folder are only where the catalog says it is\ntoday. `None` for every other source.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "gathered_at": {
             "description": "When its last gather put on the shelf what it holds there, in\nseconds since the Unix epoch: the latest of their `gathered_at`, a\ngather recording every artifact it takes, changed or not. `None`\nwhile the shelf holds nothing of it.",
             "format": "int64",
@@ -3594,6 +3636,13 @@
           "origin": {
             "description": "[`Source::origin`], which every artifact it supplied is installed\nfrom.",
             "type": "string"
+          },
+          "parent": {
+            "description": "What the marketplace listing it is called, for a plugin gathered\nfrom one (D-13): the source a refresh or a removal of it goes\nthrough, as `gather sources` shows it. `None` for every other.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "pin": {
             "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
@@ -3641,6 +3690,8 @@
           "directory",
           "name",
           "pin",
+          "parent",
+          "entry",
           "origin",
           "shelved",
           "gathered_at"
@@ -3878,11 +3929,18 @@
         "type": "object"
       },
       "Source": {
-        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), and its `pin` after that (#99),\nneither of which moved a version.",
+        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row ids, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), its `pin` after that (#99), and\nits `parent` and `entry` after that (#103), none of which moved a\nversion.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
             "type": "string"
+          },
+          "entry": {
+            "description": "What the plugin is called in its marketplace's catalog, for one\ngathered from a marketplace: what it is, as `--plugin` takes it,\nwhere its URL and its folder are only where the catalog says it is\ntoday. `None` for every other source.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
@@ -3890,6 +3948,13 @@
           "name": {
             "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
             "type": "string"
+          },
+          "parent": {
+            "description": "What the marketplace listing it is called, for a plugin gathered\nfrom one (D-13): the source a refresh or a removal of it goes\nthrough, as `gather sources` shows it. `None` for every other.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "pin": {
             "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
@@ -3929,14 +3994,17 @@
           "revision",
           "directory",
           "name",
-          "pin"
+          "pin",
+          "parent",
+          "entry"
         ],
         "type": "object"
       },
       "SourceKind": {
         "description": "What kind of place a source is.",
         "enum": [
-          "git"
+          "git",
+          "marketplace"
         ],
         "type": "string"
       },
@@ -4887,6 +4955,61 @@
               "folder",
               "reference",
               "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na Claude Code marketplace's catalog recorded as a source and its\nplugins listed, none gathered, read back from the JSON the line\nprints, for a front end to list the plugins and gather the ones\nticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+            "properties": {
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "list_marketplace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source",
+              "reference"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a Claude Code marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+            "properties": {
+              "plugins": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "gather_plugins",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source",
+              "reference",
+              "plugins"
             ],
             "type": "object"
           },
@@ -5942,6 +6065,61 @@
               "type",
               "url",
               "folder"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na Claude Code marketplace's catalog recorded as a source and its\nplugins listed, none gathered, read back from the JSON the line\nprints, for a front end to list the plugins and gather the ones\nticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+            "properties": {
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "list_marketplace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a Claude Code marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+            "properties": {
+              "plugins": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "gather_plugins",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source",
+              "plugins"
             ],
             "type": "object"
           },
