@@ -641,7 +641,11 @@ is previewed as `cancellable`, and while it runs `/events` tells each step
 it takes ([following what happens](#following-what-happens)). Its source
 is an address, which the gather refuses when it carries a credential, or a
 folder on this machine named by its absolute path, or a `file://` URL of
-one, as a folder to link is.
+one, as a folder to link is. It carries no token either: a private
+repository logs in as git config's credential helpers and ssh do on the
+server's machine, since a token is handed over from a shell alone
+(`--token-env`, `--gh`), and a line that hands one over is refused
+(`reads_credential`).
 
 `POST /tasks/cancel` asks the run under way to stop, by the number
 `command_started` gave it. A gather stops before it puts anything on the
