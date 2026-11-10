@@ -7,6 +7,10 @@
 //! stops answering, and a server has no terminal at all. A credential nobody
 //! has is an error instead, which a person can act on afterwards.
 //!
+//! A token a front end handed over for the run (D-16) is the one answer that
+//! comes before the helpers', for the host it was given for alone
+//! ([`offering`]).
+//!
 //! Nothing here is public: the callback's types are `gix`'s, and a front end
 //! only ever sees the error a missing credential becomes.
 
@@ -21,6 +25,14 @@ use gix::bstr::ByteSlice;
 use gix::credentials::helper::{Action, Cascade};
 use gix::credentials::protocol;
 use gix::prompt;
+
+use crate::port::Token;
+use crate::url::token_host;
+
+/// The user a token is offered as: the one GitHub takes any token with, an
+/// app's installation token among them, and that GitLab and the other
+/// forges taking a token as a password ignore.
+const TOKEN_USER: &str = "x-access-token";
 
 /// Why a fetch got no credential it could use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +110,85 @@ pub(super) fn never_prompting(
             shortfalls.0.set(Some(Shortfall::Missing));
         }
         answer
+    }
+}
+
+/// A token handed over for one run, and the host it was handed over for
+/// ([`token_host`]), which is the only one it is offered to.
+#[derive(Debug, Clone)]
+pub(super) struct Offered {
+    token: Token,
+    host: String,
+}
+
+impl Offered {
+    /// `token`, for the host a fetch of `url` sends one to: `None` when it
+    /// sends one to none, over ssh, plain http or from a path, where the
+    /// token is never offered.
+    pub(super) fn for_url(token: Option<&Token>, url: &str) -> Option<Self> {
+        Some(Self {
+            token: token?.clone(),
+            host: token_host(url)?,
+        })
+    }
+
+    /// Whether `context` asks for a credential of this token's host, over
+    /// a transport a token goes over.
+    ///
+    /// The URL of the `Get` rather than the one typed, as [`is_ssh`] reads
+    /// it: a redirect, or `url.<base>.insteadOf` in git config, may have
+    /// taken the fetch to another host, or to plain http, where this token
+    /// is not to go.
+    fn asked_by(&self, context: &protocol::Context) -> bool {
+        context
+            .url
+            .clone()
+            .or_else(|| context.to_url())
+            .and_then(|url| token_host(&url.to_str_lossy()))
+            .is_some_and(|host| host == self.host)
+    }
+}
+
+/// `helpers`, with `offered`'s token answering in their place the `Get` of
+/// its host, and the `Store` or `Erase` that tells whether the server took
+/// it kept from them.
+///
+/// In their place rather than after them: the token is what the front end
+/// was told to log in with, and a helper's credential for the same host
+/// would be another login nobody asked for, as a backup's token clears
+/// every helper too. And kept from them, since a `Store` is how a helper
+/// such as `store` or `cache` learns a credential to keep, and the token
+/// lasts one run (D-16). Any other `Get`, of another host or over a
+/// transport it does not go over, the helpers answer as they would without
+/// it, so a gather a rewrite takes to ssh still has ssh's user name.
+pub(super) fn offering(
+    offered: Option<Offered>,
+    mut helpers: impl FnMut(Action, prompt::Options) -> protocol::Result,
+) -> impl FnMut(Action, prompt::Options) -> protocol::Result {
+    let mut answered = false;
+    move |action, prompt| {
+        match &action {
+            Action::Get(context) => {
+                answered = false;
+                if let Some(offered) = offered.as_ref().filter(|offered| offered.asked_by(context))
+                {
+                    answered = true;
+                    return Ok(Some(protocol::Outcome {
+                        identity: gix::sec::identity::Account {
+                            username: TOKEN_USER.into(),
+                            password: offered.token.reveal().into(),
+                            oauth_refresh_token: None,
+                        },
+                        // The context asked, not the token: what comes back
+                        // as the `Store` or `Erase` is never handed on.
+                        next: context.clone().into(),
+                    }));
+                }
+            }
+            Action::Store(_) | Action::Erase(_) if answered => return Ok(None),
+            Action::Store(_) | Action::Erase(_) => {}
+        }
+        helpers(action, prompt)
     }
 }
 

@@ -152,3 +152,169 @@ fn a_report_on_an_answer_nobody_gave_is_ignored() {
 
     assert!(matches!(answer, Ok(None)), "{answer:?}");
 }
+
+/// A token drawn for one test, as a front end hands one over.
+fn a_token() -> Token {
+    Token::new(crate::mother::random::hex(40))
+}
+
+/// Helpers that panic whatever they are asked: a token that answers is the
+/// one answer, and nothing about it reaches them.
+fn helpers_never_asked() -> impl FnMut(Action, prompt::Options) -> protocol::Result {
+    |action, _| panic!("the helpers were asked {action:?}")
+}
+
+/// Helpers that note every action they are asked, and answer as
+/// [`a_helper_that_answers`] does.
+fn noting(
+    asked: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+) -> impl FnMut(Action, prompt::Options) -> protocol::Result {
+    let mut answers = a_helper_that_answers();
+    move |action, options| {
+        asked.borrow_mut().push(format!("{action:?}"));
+        answers(action, options)
+    }
+}
+
+#[test]
+fn a_token_answers_its_host_as_x_access_token_before_any_helper() {
+    let token = a_token();
+    let shortfalls = Shortfalls::default();
+    let mut credentials = never_prompting(
+        offering(
+            Offered::for_url(Some(&token), PRIVATE),
+            helpers_never_asked(),
+        ),
+        shortfalls.clone(),
+    );
+
+    let Ok(Some(answer)) = credentials(Action::get_for_url(PRIVATE)) else {
+        panic!("the token was not offered");
+    };
+    assert_eq!(answer.identity.username, "x-access-token");
+    assert_eq!(answer.identity.password, token.reveal());
+    // What the server made of it reaches no helper either way, so none is
+    // told to keep it.
+    credentials(answer.next.clone().store()).unwrap();
+    assert_eq!(shortfalls.last(), None);
+    credentials(answer.next.erase()).unwrap();
+    assert_eq!(shortfalls.last(), Some(Shortfall::Refused));
+}
+
+#[test]
+fn what_comes_back_of_a_token_holds_none_of_it() {
+    let token = a_token();
+    let mut credentials = offering(
+        Offered::for_url(Some(&token), PRIVATE),
+        helpers_never_asked(),
+    );
+
+    let Ok(Some(answer)) = credentials(
+        Action::get_for_url(PRIVATE),
+        prompt::Options {
+            askpass: None,
+            mode: prompt::Mode::Disable,
+        },
+    ) else {
+        panic!("the token was not offered");
+    };
+
+    let Action::Store(stored) = answer.next.clone().store() else {
+        panic!("a store is a store");
+    };
+    assert!(!stored.to_str_lossy().contains(token.reveal()), "{stored}");
+    let offered = format!("{:?}", Offered::for_url(Some(&token), PRIVATE));
+    assert!(!offered.contains(token.reveal()), "{offered}");
+}
+
+#[test]
+fn a_token_is_not_offered_to_another_host_nor_over_what_it_never_goes_over() {
+    let token = a_token();
+    for asked in [
+        // `url.<base>.insteadOf`, or a redirect, took the fetch elsewhere.
+        "https://elsewhere.example.com/acme/private.git",
+        // Or over plain http, across the network.
+        "http://example.com/acme/private.git",
+        // Or over ssh, where the helpers are asked for a user name.
+        "ssh://git@example.com/acme/private.git",
+        "git@example.com:acme/private.git",
+    ] {
+        let asked_of = std::rc::Rc::default();
+        let mut credentials = never_prompting(
+            offering(
+                Offered::for_url(Some(&token), PRIVATE),
+                noting(std::rc::Rc::clone(&asked_of)),
+            ),
+            Shortfalls::default(),
+        );
+
+        let Ok(Some(answer)) = credentials(Action::get_for_url(asked)) else {
+            panic!("{asked}: the helpers' answer was not passed on");
+        };
+
+        assert_eq!(answer.identity.username, "me", "{asked}");
+        assert_ne!(answer.identity.password, token.reveal(), "{asked}");
+        assert_eq!(asked_of.borrow().len(), 1, "{asked}");
+    }
+}
+
+#[test]
+fn a_token_for_a_url_it_never_goes_over_is_offered_nowhere() {
+    let token = a_token();
+    for url in [
+        "ssh://git@example.com/acme/private.git",
+        "git@example.com:acme/private.git",
+        "http://example.com/acme/private.git",
+        "/srv/git/private",
+        "file:///srv/git/private",
+    ] {
+        assert!(Offered::for_url(Some(&token), url).is_none(), "{url}");
+    }
+    assert!(Offered::for_url(None, PRIVATE).is_none());
+}
+
+#[test]
+fn without_a_token_the_helpers_answer_and_none_having_one_is_an_error_never_a_prompt() {
+    let shortfalls = Shortfalls::default();
+    let mut credentials = never_prompting(
+        offering(None, no_helper_and_a_prompt_that_panics()),
+        shortfalls.clone(),
+    );
+
+    let answer = credentials(Action::get_for_url(PRIVATE));
+
+    assert!(
+        matches!(answer, Err(protocol::Error::IdentityMissing { .. })),
+        "{answer:?}"
+    );
+    assert_eq!(shortfalls.last(), Some(Shortfall::Missing));
+}
+
+#[test]
+fn after_a_token_another_connection_s_get_of_another_host_reaches_the_helpers() {
+    let token = a_token();
+    let asked_of = std::rc::Rc::default();
+    let mut credentials = never_prompting(
+        offering(
+            Offered::for_url(Some(&token), PRIVATE),
+            noting(std::rc::Rc::clone(&asked_of)),
+        ),
+        Shortfalls::default(),
+    );
+
+    let Ok(Some(answer)) = credentials(Action::get_for_url(PRIVATE)) else {
+        panic!("the token was not offered");
+    };
+    credentials(answer.next.store()).unwrap();
+    let Ok(Some(answer)) = credentials(Action::get_for_url("https://elsewhere.example.com/x.git"))
+    else {
+        panic!("the helpers' answer was not passed on");
+    };
+    credentials(answer.next.store()).unwrap();
+
+    // The `Get` and the `Store` of the second host, and nothing of the
+    // token's.
+    let asked = asked_of.borrow();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert!(asked.iter().all(|action| !action.contains(token.reveal())));
+}
