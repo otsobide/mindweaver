@@ -945,6 +945,7 @@ fn a_workspace_above_that_cannot_be_read_is_a_warning_beside_templates_as_json()
 /// workspace or the shelf, never the workspace's own, which `list` holds.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "place", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
 enum Offer {
     Loaded {
         kind: String,

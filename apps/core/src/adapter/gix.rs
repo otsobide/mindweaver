@@ -359,8 +359,8 @@ fn checked_out_at(
         gix::worktree::state::checkout(
             &mut index, &workdir, objects, &files, &bytes, interrupt, options,
         )
-    })
-    .map_err(|error| failed(&error))?;
+        .map_err(|error| failed(&error))
+    })?;
     index
         .write(Default::default())
         .map_err(|error| failed(&error))
