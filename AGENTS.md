@@ -218,7 +218,10 @@ under `apps/` with its own `Makefile`:
   (`adopt`), writing the library into a folder laid out as a workspace of
   its own, a plan until told yes when that would change or remove what is
   there (`export`), and sending it to a git repository, an export into a
-  fresh check-out committed and pushed (`backup`), what keeps a project's
+  fresh check-out committed and pushed, its steps reported and stopped
+  until it pushes (`backup`), the watch a gather and a backup are followed
+  and stopped through, generic over the step it is told (`follow::Watch`,
+  `gather::Watch`, `backup::Watch`), what keeps a project's
   agents from what it gives them, which
   no agent says, found from file reads alone and told the agent homes and
   the names of the variables set (`doctor`, `doctor::Machine`), the stable
@@ -251,8 +254,10 @@ under `apps/` with its own `Makefile`:
   `Http` a catalog is read through, one `GET` answered whatever its
   status, with its `HttpRequest`, `HttpResponse` and `HttpError`, a
   `LedgerStore` the ledger keeps its records in, a `Clock` it stamps them
-  by, an `Upstream` a backup is checked out from and pushed to, with the
-  `Token` a front end read for the run), each implemented by an adapter in
+  by, an `Upstream` a backup is checked out from, committed in and pushed
+  to, a method a step so core says where a cancel stops being honoured,
+  with the `Token` a front end read for the run), each implemented by an
+  adapter in
   `adapter` (`adapter::gix::Gix`, its credentials callback in
   `adapter/gix/credentials.rs`; `adapter::reqwest::Reqwest`, reqwest's
   blocking client over rustls, following no redirect and reading no proxy;
@@ -526,7 +531,9 @@ These are easy to break from a single file without noticing.
   and `Task::commands` turns it into argument lines that a `Runner` hands to
   `execute`, which runs each through `commands::run_line`: it parses them
   with `Cli`/`WeaverCli` and runs them through `run_with`/`run_weaver_with`
-  with the screen's `Lookup` and a `gather::Watch`, what the binaries'
+  with the screen's `Lookup` and a `progress::Watch`, the CLI's one watch of
+  a gather's or a backup's step, each run handed one relaying to it
+  (`Watch::relaying`), what the binaries'
   `run_watched`/`run_weaver_cli_watched` call once they have read the
   environment. A test's stand-in `Runner` is handed the same words. The
   panel is the second front end built this way: the browser sends a task as
@@ -545,7 +552,8 @@ These are easy to break from a single file without noticing.
   does the work itself rather than run a line. The panel's command palette
   is another way to a page's change, never a change of its own: it sends
   the task the page offering it sends (`UPDATE_ALL`, the link form's, one
-  box's plan applied with `batchOf`), through the same runner. A gather's lines run on a
+  box's plan applied with `batchOf`), through the same runner. A gather's
+  and a backup's lines run on a
   thread of their own (`Task::runs_apart`), still through the same parsers:
   the thread changes where they run, not what they are. Which lines a front
   end follows as they run and can stop is one list, `task::Followed`, read
@@ -612,7 +620,13 @@ These are easy to break from a single file without noticing.
   either before that last check is undone on a cancel, as registering the
   source is, and naming it. Whether a step is still `cancellable` is core's
   (`Progress::cancellable`), which the TUI's box and the panel's `Step`
-  both say, never a front end's guess.
+  both say, never a front end's guess. So is a backup: its `Request`
+  carries a `backup::Watch`, told checking out, exporting, committing and
+  pushing, and a cancel is honoured until the push starts, leaving the
+  remote as it was and taking the check-out away; the upstream's steps
+  before the push are handed the watch, and `SystemGit` kills the `git` it
+  runs as soon as it is cancelled (`SystemGit::watched`), never a process
+  type in core's API.
 - **A gathered source is one repository, called by one name.** A source is
   found by `url::canonical` of its URL, credential-free, at its branch
   (empty for the remote's HEAD) and from its folder, unique behind
@@ -1106,7 +1120,10 @@ These are easy to break from a single file without noticing.
     (`browse`). A gather's source is an address, held to the gather's own
     rules, which refuse a credential in it, or a folder on this machine,
     as a path or a `file://` URL, held as a folder to link is
-    (`policy::source`). The
+    (`policy::source`), and so is a backup's repository; the folder an
+    export writes into is held as a folder to link is, and a backup's
+    token is named only by the variable holding it, one named for a token
+    (`policy::token_variable`), never sent. The
     browser supplies no `-C`, `--home`, `-W` or agent home: the backend runs
     every line with the launch's, against the workspace it acts on, the one
     it was launched on or one switched to since, named with `-W` in the
@@ -1830,7 +1847,7 @@ These are easy to break from a single file without noticing.
   named into is held by its shape alone. Unix alone.
 - The TUI end to end is `apps/cli/tests/tui_e2e_test.rs`, its modules under
   `tests/tui_e2e/` grouped by what a person does on the screen (browsing,
-  changing, screens, sources, starting), on the CLI suite's `Scenario`. Each test
+  changing, exporting, screens, sources, starting), on the CLI suite's `Scenario`. Each test
   starts `mindweaver` or `mind` in a pseudo-terminal of its own
   (`tui_e2e/terminal.rs`, `Terminal`, 120 by 24), its process the leader of
   a session with that terminal as its controlling one (rustix's `pty`,
