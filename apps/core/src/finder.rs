@@ -29,7 +29,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::de::{self, Deserializer};
-use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
@@ -142,6 +141,13 @@ impl<'de> Deserialize<'de> for Finder {
         let name = String::deserialize(deserializer)?;
         Finder::named(&name).ok_or_else(|| de::Error::custom(format!("no finder `{name}`")))
     }
+}
+
+#[cfg(any(feature = "ts", feature = "schema"))]
+crate::described::words! {
+    /// A skill directory a search can ask, by the word the marker and a
+    /// command line name it by.
+    Finder by name { Github, SkillsSh, ClaudePlugins }
 }
 
 /// `FINDER=URL`, a finder by its name and the address it is asked at in
@@ -683,30 +689,60 @@ impl Found {
     }
 }
 
-/// By hand: what went wrong goes out as errors do, each its code and its
-/// message ([`Said`]), and what the cache could not do is the envelope's,
-/// said beside it as a warning, rather than data.
+/// Through [`SkillsFound`]: what went wrong goes out as errors do, each
+/// its code and its message ([`Said`]), and what the cache could not do is
+/// the envelope's, said beside it as a warning, rather than data.
 impl Serialize for Found {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut found = serializer.serialize_struct("Found", 4)?;
-        found.serialize_field("hits", &self.hits)?;
-        found.serialize_field("asked", &self.asked)?;
-        found.serialize_field("skipped", &self.skipped)?;
-        found.serialize_field(
-            "failures",
-            &self
+        SkillsFound {
+            hits: &self.hits,
+            asked: &self.asked,
+            skipped: &self.skipped,
+            failures: self
                 .failures
                 .iter()
                 .map(|failure| Said::of(failure.code(), failure))
-                .collect::<Vec<_>>(),
-        )?;
-        found.end()
+                .collect(),
+        }
+        .serialize(serializer)
     }
+}
+
+/// What a search found, as `gather search --json` prints it in the
+/// envelope's `data`: what a front end reads back to list the results and
+/// take one, the TUI's results screen and the panel's search alike.
+///
+/// Derived, and [`Found`] written through it, so what its TypeScript and
+/// its schema say is what serde writes, read off the same attributes,
+/// rather than said again beside a serializer written by hand. Under a
+/// name of its own, since the panel's types are written into one folder, a
+/// file to a name, and a scan's [`crate::scan::Found`] has that one.
+#[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SkillsFound<'a> {
+    /// Each skill, once, in [`Finder::ALL`]'s order and each finder's own:
+    /// as `--take` numbers them, from 1.
+    pub hits: &'a [Hit],
+    /// Each finder asked, in the order it was.
+    pub asked: &'a [Finder],
+    /// Each finder to ask that needs a token, and was given none: sent
+    /// nothing.
+    pub skipped: &'a [Finder],
+    /// Each finder that failed, and each result dropped, beside the rest,
+    /// by its code and in its words.
+    pub failures: Vec<Said>,
 }
 
 /// One skill a search found: where it is, as `gather git` takes it, and
 /// what the finders say of it.
+///
+/// Read back as it goes out by a front end that takes one: the TUI from the
+/// line's JSON, and the panel's backend from the task the panel sends it
+/// back in, its repository redacted again either way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Hit {
     /// What it is called, printable: the name a finder gave it, or its
     /// folder's, or its repository's for one at the root.

@@ -43,7 +43,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::ser::SerializeStruct as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
@@ -201,19 +200,44 @@ pub struct Listing {
     pub whole: bool,
 }
 
-/// By hand, each entry as its [`Summary`]: an entry keeps its packages and
-/// remotes as the registry wrote them, for an import to read, which is
-/// more than a reader is given.
+/// Through [`ServerListing`], each entry as its [`Summary`]: an entry keeps
+/// its packages and remotes as the registry wrote them, for an import to
+/// read, which is more than a reader is given.
 impl Serialize for Listing {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let servers: Vec<Summary> = self.entries.iter().map(Entry::summary).collect();
-        let mut listing = serializer.serialize_struct("Listing", 4)?;
-        listing.serialize_field("query", &self.query)?;
-        listing.serialize_field("servers", &servers)?;
-        listing.serialize_field("as_of", &self.as_of)?;
-        listing.serialize_field("whole", &self.whole)?;
-        listing.end()
+        ServerListing {
+            query: &self.query,
+            servers: self.entries.iter().map(Entry::summary).collect(),
+            as_of: self.as_of.as_deref(),
+            whole: self.whole,
+        }
+        .serialize(serializer)
     }
+}
+
+/// What a search found, as `gather mcp search --json` prints it in the
+/// envelope's `data`: what a front end reads back to list the servers and
+/// add one, the TUI's results screen and the panel's search alike.
+///
+/// Derived, and [`Listing`] written through it, so what its TypeScript and
+/// its schema say is what serde writes, read off the same attributes.
+/// Under a name of its own, since the panel's types are written into one
+/// folder, a file to a name, and a listing of the workspace
+/// ([`crate::view::Listing`]) has that one.
+#[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ServerListing<'a> {
+    /// The words searched for, as they were asked.
+    pub query: &'a str,
+    /// One server a name, sorted by the name the registry gives it.
+    pub servers: Vec<Summary>,
+    /// The newest time the registry gave anything read into it, as it
+    /// wrote the time; none when it read nothing.
+    pub as_of: Option<&'a str>,
+    /// Whether every page was read: one that stopped short says why
+    /// beside it, as a warning.
+    pub whole: bool,
 }
 
 /// One server as a search lists it: what `mindweaver gather mcp search`
@@ -221,7 +245,15 @@ impl Serialize for Listing {
 /// back to add one by its name and version.
 ///
 /// Each field by its name, a contract once printed, as a report's are.
+/// Under a name of its own in TypeScript and JSON Schema, since what a
+/// workspace holds, counted ([`crate::view::Summary`]), has this one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "ServerSummary"))]
+#[cfg_attr(
+    feature = "schema",
+    derive(schemars::JsonSchema),
+    schemars(rename = "ServerSummary")
+)]
 pub struct Summary {
     /// What the registry names it, as `gather mcp add` takes it.
     pub name: UpstreamName,
@@ -231,7 +263,10 @@ pub struct Summary {
     pub title: Option<String>,
     /// What it is for, as its publisher put it.
     pub description: String,
-    /// Whether it stands or is deprecated, by the registry's word.
+    /// Whether it stands or is deprecated, by the registry's word: any
+    /// word, since one this build does not know is kept as written.
+    #[cfg_attr(feature = "ts", ts(as = "String"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub status: Status,
     /// Why its status changed, when the registry was told.
     pub status_message: Option<String>,
