@@ -1076,6 +1076,11 @@ pub enum Followed {
     /// exporting, committing and pushing, and stopped by its cancel, what
     /// `git` was running killed, until it starts pushing.
     Backup,
+    /// `mindweaver gather search`: the network, each skill directory asked
+    /// in turn, reported through core's `finder::Watch`, and stopped by its
+    /// cancel before the next is asked. Its `--take` is a gather, followed
+    /// as one ([`Followed::Gather`]).
+    Search,
 }
 
 impl Followed {
@@ -1120,7 +1125,12 @@ impl Followed {
     /// it.
     pub fn of_weaver(command: Option<&WeaverCommand>) -> Option<Followed> {
         match command {
-            Some(WeaverCommand::Gather(GatherCommand::Git { .. })) => Some(Followed::Gather),
+            Some(WeaverCommand::Gather(
+                GatherCommand::Git { .. } | GatherCommand::Search { take: Some(_), .. },
+            )) => Some(Followed::Gather),
+            Some(WeaverCommand::Gather(GatherCommand::Search { take: None, .. })) => {
+                Some(Followed::Search)
+            }
             Some(WeaverCommand::Backup { .. }) => Some(Followed::Backup),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => None,

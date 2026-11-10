@@ -1553,6 +1553,12 @@ fn stops_short_of(task: &Task) -> (&'static str, &'static str) {
             "too late to cancel: pushing",
             "cancelling, before anything is pushed",
         ),
+        // Every step of a search takes a cancel, so the first of these is
+        // never said.
+        Some(Followed::Search) => (
+            "too late to cancel",
+            "cancelling, once the finder being asked answers",
+        ),
         Some(Followed::Gather) | None => (
             "too late to cancel: placing",
             "cancelling, before anything is placed",

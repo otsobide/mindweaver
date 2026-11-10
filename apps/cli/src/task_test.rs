@@ -1633,6 +1633,11 @@ fn without_the_ui_feature_there_is_no_ui_command() {
 fn a_front_end_with_no_terminal_runs_everything_else() {
     for said in [
         "mindweaver gather list",
+        // The network, each finder asked in turn, and stopped between two
+        // of them; with `--take`, a gather besides (#108).
+        "mindweaver gather search pdf",
+        "mindweaver gather search --json --finder skills.sh pdf",
+        "mindweaver gather search --take 2 pdf",
         // The network, followed as it goes and stopped when asked, and
         // never a prompt (#112).
         "mindweaver gather git https://example.com/skills.git",
@@ -1681,16 +1686,19 @@ fn a_task_is_refused_for_the_first_of_its_lines_that_is() {
     }
 }
 
-/// A gather and a backup are followed as they go and stopped when asked,
-/// whichever binary spells them and whatever they are told; nothing else
-/// is, a gather's list and an export among it.
+/// A gather, a backup and a search are followed as they go and stopped
+/// when asked, whichever binary spells them and whatever they are told; a
+/// search that takes a result is a gather; nothing else is, a gather's list
+/// and an export among it.
 #[test]
-fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
+fn a_front_end_follows_a_gather_a_backup_and_a_search_and_nothing_else() {
     for said in [
         "mindweaver gather git https://example.com/skills.git",
         "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
         "mind weaver gather git git@example.com:acme/skills.git",
         "mind -C alpha weaver gather git file:///srv/git/skills",
+        "mindweaver gather search --take 1 pdf",
+        "mind weaver gather search --gh --take 3 -- -odd",
     ] {
         assert_eq!(followed(&line(said)), Some(Followed::Gather), "{said}");
     }
@@ -1700,6 +1708,13 @@ fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
         "mind weaver backup --token-env GITHUB_TOKEN -m saved git@example.com:you/library.git",
     ] {
         assert_eq!(followed(&line(said)), Some(Followed::Backup), "{said}");
+    }
+    for said in [
+        "mindweaver gather search pdf",
+        "mindweaver gather search --json --finder skills.sh --finder github pdf",
+        "mind weaver gather search --token-env GITHUB_TOKEN pdf",
+    ] {
+        assert_eq!(followed(&line(said)), Some(Followed::Search), "{said}");
     }
     for said in [
         "mindweaver gather list",

@@ -80,6 +80,25 @@ pub(crate) fn run_gather(
                 reading_workspace(directory, lookup, |workspace| shelf(workspace, &mut found))?;
             Ok(json_or_text(found.filter(|_| *json), text))
         }
+        GatherCommand::Search {
+            query,
+            finders,
+            at,
+            take,
+            json,
+            credential,
+        } => {
+            let asked = super::search::Asked {
+                query,
+                finders,
+                at,
+                credential,
+            };
+            match take {
+                Some(number) => super::search::run_take(&asked, *number, directory, lookup, watch),
+                None => super::search::run_search(&asked, *json, directory, lookup, watch),
+            }
+        }
     }
 }
 
