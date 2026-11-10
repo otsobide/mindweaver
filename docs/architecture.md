@@ -468,7 +468,7 @@ Core is written hexagonally, at the owner's request
 value objects, depend on nothing outside them; what they need from outside
 is a port; and an adapter on the edge implements each port with a library:
 `gix` for a source, reqwest for a catalog over HTTP, SQLite for the ledger,
-the system's clock for the time.
+the system's clock for the time, and the system's `git` for a backup.
 The front ends are the other side's adapters, so a new store or a new
 interaction module is written against what is there, and no rule changes
 for it.
@@ -3263,6 +3263,12 @@ the callback to arrive through anyway. That other half is
 `gix`'s error types are large and would become part of this crate's public API
 if they were carried, tying its version to gix's, so `GitError` keeps what they
 said and not what they were.
+
+A backup is the one exception, and the one thing Mindweaver sends: `gix`
+fetches and cannot push, so `mindweaver backup` runs the system's `git`,
+behind a port of its own
+([D-27](#d-27-a-backup-is-an-export-pushed-with-the-systems-git)). Nothing
+else depends on one being installed.
 
 ### Private repositories, as they were checked
 
@@ -11270,14 +11276,100 @@ to a handle, and the write-ahead log needs every process using the ledger to
 share memory on one machine. A workspace on a network share is safe used from
 one machine at a time.
 
+
+## Exporting and backing up the library
+
+What a workspace keeps of its own is the one thing in it no gather brings
+back, so it can be copied out (`core::export`, `mindweaver export`) and sent
+to a git repository (`core::backup`, `mindweaver backup`), the second the
+first made into a check-out and pushed
+([D-27](#d-27-a-backup-is-an-export-pushed-with-the-systems-git)).
+
+**An export is a workspace.** The folder is laid out as `mindweaver init`
+lays one out, named after the workspace exported (`WeaverWorkspace::init_named`)
+and linking nothing, its library holding the kinds asked for, so the way back
+is one that exists: `mindweaver load` offers its own to every project, and
+`gather git --path .mindweaver/library/skills` takes its skills. A format of
+its own would have needed a reader of its own and a second way in for a
+skill. Each kind is the library's folder of it copied whole (`copy::replace`,
+links followed only inside that folder, as an adoption copies), whatever it
+holds besides artifacts, so the export mirrors the library, and what is
+compared to say what moved is each artifact discovery lists on both sides,
+by name.
+
+**Taking away waits for a yes.** A second export changes or removes what the
+first wrote, and the folder may have been edited since, so `export::export`
+writes only a plan (`Plan`, each artifact `added`, `updated`, `unchanged` or
+`removed`) unless that takes nothing away or it is told yes: the rule is
+core's, the CLI's `--yes` only says it. A backup always says yes, since the
+branch keeps every earlier one in its history.
+
+**A folder it did not make is refused.** One holding a workspace in use (a
+ledger, a project linked, a workspace loaded, others known) is somebody's;
+one whose marker keeps a kind anywhere but its library is no export's; a
+`.mindweaver` or `.mindflayer` with no marker would be written over unseen; a
+folder inside any workspace's own is where nothing but that workspace
+writes; the workspace itself, or one of its kind folders, is where the copy
+would be made into what it is made from; and a link on the way from the
+folder into a kind's folder in its library, which a clone of a repository
+can hold, would lead the replacement anywhere. A backup's check-out is the
+one folder inside a `.mindweaver` an export writes (`export::Place::Scratch`),
+being the workspace's own scratch folder.
+
+**No secret leaves.** A definition holding what looks like a token
+(`ValidationIssue::SecretLiteral`) refuses the export of MCP servers, and so
+does one that does not read, where whether it holds one cannot be told: an
+export goes wherever the folder goes, a public repository included, and a
+definition holds no secret ([D-11](#d-11-mcp-secrets-are-environment-references)).
+What a skill's own files hold is not read: a skill is copied as it is, as an
+install copies it.
+
+**A backup is a fresh check-out each time.** `backup::backup` checks the
+repository out into the workspace's scratch folder through the `Upstream`
+port, exports into it, commits the workspace's folder there and pushes, and
+takes the check-out away whatever came of it (`backup::CheckOut`'s `Drop`):
+nothing of the repository is kept between runs, so two machines backing up
+to one branch each start from what the other pushed, and a cache that could
+drift from the remote is never read. A branch the remote has not got is
+started from the one it names as its own, and pushed even when nothing
+changed, since it was asked for. A URL carrying a credential is refused
+before anything runs (`url::carries_credentials`), as a gather refuses one,
+and so is a token for an ssh URL (`url::over_ssh`), which logs in with keys
+of its own. Neither command takes the workspace's lock: each reads the
+workspace and writes only the folder or the scratch check-out.
+
+**The system's `git`, never asking.** `adapter::git::SystemGit` runs `git`
+as the person's configuration has it, credential helpers, ssh keys and
+`insteadOf` rewrites included, with `GIT_TERMINAL_PROMPT=0`, no askpass from
+the environment or the configuration, and no standard input, so a login
+nothing can answer is `UpstreamError::Credentials`, read off what `git`
+says, never a prompt. A token the front end read from the variable
+`--token-env` names (`port::Token`, which has no `Display` and a `Debug` of
+`Token(..)`) reaches `git` only through a credential helper given on its
+command line, every configured helper cleared before it, reading the token
+from a variable of the child's own environment
+(`MINDWEAVER_BACKUP_TOKEN`), so it is never an argument another process can
+list, answers a `get` alone, and lasts the one process. The commit is the
+configured identity's, or `Mindweaver <mindweaver@localhost>` when none is
+configured, and runs no hook. What `git` says on failure is its last line
+that is not a hint, every URL in it redacted.
+
+**Shell only, for now.** `backup` is on the list of what a front end with no
+terminal does not run (`task::Refusal::Sends`, `backup_unwatched`), as a
+gather was before progress reached the server: it sends for as long as that
+takes, with nothing to show of it nor a way to stop it, and ssh may ask on
+the terminal. `export` is run anywhere, though nothing but the command line
+builds its line yet.
+
 ## Decisions
 
 The roadmap in [#15](https://github.com/otsobide/mindweaver/issues/15) rests on
-twenty-six decisions: twenty-two validated by the owner on 2026-10-26,
+twenty-seven decisions: twenty-two validated by the owner on 2026-10-26,
 [D-24](#d-24-the-local-server-is-a-versioned-http-api) on 2026-11-03 with the
 milestone it opens, [D-25](#d-25-core-is-values-and-ports), asked for by the
 owner on the same day, [D-26](#d-26-the-product-is-mindweaver), asked for on
-2026-11-04, and [D-20](#d-20-opencode-subagents-pending), still
+2026-11-04, [D-27](#d-27-a-backup-is-an-export-pushed-with-the-systems-git),
+asked for on 2026-11-09, and [D-20](#d-20-opencode-subagents-pending), still
 pending. They are written down
 here so that the PRs carrying them out do not reopen them: a change that
 disagrees with one starts by changing the decision, here, with the owner. Each
@@ -12246,8 +12338,49 @@ write, since whoever typed it is whoever can move it; the TUI's and the
 panel's lines read no environment and say nothing, their own launch saying
 it once as it closes.
 
+
+### D-27: A backup is an export, pushed with the system's `git`
+
+Asked for by the owner on 2026-11-09: back the skills, rules and MCP servers
+up to a GitHub repository, with a token or the `git` already logged in on
+the machine, a kind at a time when asked, and export them alone too. Chosen
+with the owner: the library alone, every kind unless `--kind` names some; a
+backup laid out as a workspace, so `git clone` and `mindweaver load` bring it
+back; and the push made with the system's `git`, the one place core runs it
+([exporting and backing up the library](#exporting-and-backing-up-the-library)).
+That reopens [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)
+for a backup alone, which turned down shelling out to `git`: `gix` cannot
+push, and the `git` already configured is what logs in as the person, their
+helpers (`gh auth setup-git` among them) and ssh keys included, which is
+what was asked for. D-16's other half holds: a token comes from the front
+end, through `--token-env`, for one run, never kept nor prompted for. The
+check-out is made by `git` too, not `gix`, so a backup logs in one way from
+start to end, and a token reaches the clone of a private repository as it
+reaches the push, without waiting for
+[#110](https://github.com/otsobide/mindweaver/issues/110). Rejected: the
+GitHub REST API with a token, which needs no `git` but reaches GitHub alone
+and waits for [D-14](#d-14-core-owns-http-behind-a-seam)'s client
+([#105](https://github.com/otsobide/mindweaver/issues/105)); exporting only,
+the push left to whoever runs it, which was less than asked; a format of
+its own for the backup, which would need a reader of its own; and the shelf
+or the projects' own artifacts in it, which a gather or the projects'
+repositories already keep. Gathering, everything else Mindweaver does with a
+repository, stays on `gix`.
+
 ## Open questions
 
+- **What ssh asks during a backup.** `git` is told never to prompt, but the
+  ssh it runs for an ssh URL asks for a key's passphrase or a host key on
+  the terminal itself, as it does for a gather
+  ([why `gix`](#why-gix-rather-than-running-git)). A backup runs from a shell
+  alone, where somebody can answer, until progress and a cancel reach the
+  server (#112) and `BatchMode` can be set without overriding a
+  `core.sshCommand` somebody chose.
+- **Two backups racing to one branch.** Each starts from what the branch
+  holds, and the second push is refused as `git` refuses one that is not a
+  fast-forward (`backup_push_failed`), to be run again. Retrying on its own
+  was left out: a backup that silently rebased over another machine's would
+  hide that two libraries are being sent to one place.
 - **The ledger's port is shaped by the store it came from.** `LedgerStore`
   is the SQLite store's public methods as they were
   ([values, ports and adapters](#values-ports-and-adapters)), so a second

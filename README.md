@@ -286,7 +286,7 @@ guide](docs/api.md) walks through it with curl.
 ## From the terminal
 
 Everything the panel does is a command, and so is everything it does not do
-yet, such as gathering:
+yet, such as gathering and backing up:
 
 ```bash
 cd ~/Projects/blog && mind init          # make a repository a project
@@ -295,6 +295,7 @@ mindweaver gather git acme/skills        # put a repository's skills on the shel
 mindweaver install -p blog commit-style  # install one into a project
 mindweaver status                        # what every project holds, and how it stands
 mindweaver update --all --yes            # bring every project up to date
+mindweaver backup git@github.com:you/library.git   # push your own skills, rules and MCP servers to a repository
 mindweaver                               # the TUI: all of it from the keyboard
 ```
 

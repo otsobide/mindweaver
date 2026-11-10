@@ -236,6 +236,31 @@ fn scp_like(url: &str) -> Option<(&str, &str)> {
     (host.len() > 1).then_some((before, path))
 }
 
+/// Whether `url` is reached over ssh: a scheme naming it, legacy spellings
+/// included, or the scp-like form, `[user@]host:path`, whose `:` comes
+/// before any `/`.
+///
+/// What a token is never sent over: ssh logs in with keys of its own, and a
+/// token handed over for such a URL would be for nothing, so it is refused
+/// rather than ignored. A Windows drive letter (`C:\repos`) is a path.
+pub fn over_ssh(url: &str) -> bool {
+    if let Some((scheme, _)) = url.split_once("://") {
+        return is_ssh(scheme);
+    }
+    match url.find(':') {
+        Some(colon) => colon > 1 && !url[..colon].contains(['/', '\\']),
+        None => false,
+    }
+}
+
+/// Whether `url` is a path on this machine rather than an address: no
+/// scheme, and not the scp-like form ssh reads ([`over_ssh`]). What a front
+/// end resolves against the folder a command was typed in, since `git`
+/// would resolve it against wherever it runs.
+pub fn is_path(url: &str) -> bool {
+    !url.contains("://") && !over_ssh(url)
+}
+
 /// Whether `authority`, a URL's text from its `://` to its first `/`, is a
 /// user and the start of a password a `/` cut short rather than a host: a
 /// `:` with something other than a port's digits after it.

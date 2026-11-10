@@ -298,3 +298,45 @@ fn owner_and_repo_is_fetched_from_github_and_a_path_says_it_is_one() {
         assert_eq!(fetched(typed), typed, "{typed}");
     }
 }
+
+#[test]
+fn a_url_is_over_ssh_by_its_scheme_or_its_scp_like_form() {
+    for url in [
+        "ssh://git@github.com/you/backup.git",
+        "git+ssh://github.com/you/backup",
+        "SSH://host/repo",
+        "git@github.com:you/backup.git",
+        "github.com:you/backup",
+    ] {
+        assert!(over_ssh(url), "{url}");
+    }
+    for url in [
+        "https://github.com/you/backup.git",
+        "file:///srv/backup.git",
+        "/srv/backup.git",
+        "../backup",
+        "C:\\repos\\backup",
+        "C:/repos/backup",
+    ] {
+        assert!(!over_ssh(url), "{url}");
+    }
+}
+
+#[test]
+fn a_path_is_neither_an_address_nor_scp_like() {
+    for url in [
+        "/srv/backup.git",
+        "../backup",
+        "backup.git",
+        "C:/repos/backup",
+    ] {
+        assert!(is_path(url), "{url}");
+    }
+    for url in [
+        "https://github.com/you/backup.git",
+        "file:///srv/backup.git",
+        "git@github.com:you/backup.git",
+    ] {
+        assert!(!is_path(url), "{url}");
+    }
+}
