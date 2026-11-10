@@ -202,8 +202,15 @@ under `apps/` with its own `Makefile`:
   token, and skills.sh's and api.claude-plugins.dev's, unstable, each read
   in a module of its own, the finders a workspace's `finders` enables,
   `finder::enabled`, a search, `Search`, followed by a `finder::Watch`, and
-  what it found, each skill once, `Found` and `Hit`), gathering from a
-  Claude Code plugin marketplace (`marketplace`: its catalog,
+  what it found, each skill once, `Found` and `Hit`), the official MCP Registry read through it, a search
+  a page at a time, a refresh asking only what changed since, a server
+  deleted since among it, and one version of one server by the name the
+  registry gives it (`mcp_registry`), and one of its servers made into a
+  definition's text, every input read from a variable, never a secret's
+  value, and a manual step said where no command of its registry type
+  starts it (`mcp_registry::import`), none of it called from a command yet
+  (#107 is its first caller), gathering from a Claude Code plugin
+  marketplace (`marketplace`: its catalog,
   `.claude-plugin/marketplace.json`, read leniently and never obeyed,
   `Catalog`, each plugin an `Entry` and where it is a `Place`, recorded
   as a source of its own kind and listed, `Listing`, and each plugin
@@ -274,7 +281,8 @@ under `apps/` with its own `Makefile`:
   front end judging what is typed (`draft`). Every record, report and view
   it builds is an aggregate of the value objects in `value` (a copy's
   `ContentHash`, a `Redacted` URL or message, an `Origin`, an
-  `ArtifactName`, a `Revision`, a `ProjectId`, a source's `Pin`), each of
+  `ArtifactName`, a `Revision`, a `ProjectId`, a source's `Pin`, a
+  registry's `UpstreamName`), each of
   which, and each
   record, a test builds through its object mother in `mother`, compiled only
   for tests (`cfg(test)`, or the `mother` feature a dev-dependency turns
@@ -549,10 +557,11 @@ These are easy to break from a single file without noticing.
   `String`: one held to a rule (`ContentHash`, `ProjectId`, `Redacted`,
   `SourceName`, `Pin`) is
   made only the way its rule allows, so no `From<String>`, and one named
-  apart (`ArtifactName`, `Origin`, `Revision`, and an MCP server's
-  `InputName` and `VariableName`) holds any text, since core reads
-  leniently, the last two judged by a rule they say of themselves and are
-  not made by (`is_writable`, `is_portable`). A new value joins `value` through its `text_value!`
+  apart (`ArtifactName`, `Origin`, `Revision`, an MCP server's
+  `InputName` and `VariableName`, and what a registry names one,
+  `UpstreamName`) holds any text, since core reads leniently, the last
+  three judged by a rule they say of themselves and are not made by
+  (`is_writable`, `is_portable`, `is_well_formed`). A new value joins `value` through its `text_value!`
   macro, so it reads as its text and goes out as one, said in TypeScript
   and JSON Schema as a `String` is, and no contract moves
   (`make web/types/check`, `make api/schemas/check`); its store's adapter
@@ -1865,7 +1874,11 @@ These are easy to break from a single file without noticing.
   `given_address`, `given`, and the shapes it refuses, `given_unfit`,
   `given_with_literal`, `given_repeating` and `given_refused_unread`; and
   `InputNameMother` and `VariableNameMother` for its values, with what each
-  rule refuses), a project's settings
+  rule refuses), what an MCP registry answers, as JSON (`RegistryMother`:
+  one version of a server, its packages and remotes, what each asks
+  somebody to supply, a page of a listing, and `UpstreamNameMother` for
+  the name it gives a server, with what its rule refuses), a project's
+  settings
   (`SettingsMother`), the URLs a credential can be typed into (`UrlMother`,
   each form beside what redacting leaves of it) and what lives on the disk
   (`WorkspaceMother`, `ProjectMother`, among it a project a version 1 or 2

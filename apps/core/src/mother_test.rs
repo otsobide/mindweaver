@@ -309,6 +309,45 @@ fn input_and_variable_names_are_drawn_as_they_are_usually_written() {
 }
 
 #[test]
+fn upstream_names_are_drawn_as_a_registry_names_a_server_and_the_ill_formed_are_not() {
+    for _ in 0..DRAWS {
+        let name = UpstreamNameMother::random();
+
+        assert!(name.is_well_formed(), "{name}");
+        assert_eq!(name.matches('/').count(), 1, "{name}");
+        assert_eq!(UpstreamNameMother::create(&name), name);
+    }
+    for (why, text) in UpstreamNameMother::ill_formed() {
+        assert!(
+            !UpstreamNameMother::create(&text).is_well_formed(),
+            "{why}: {text:?}"
+        );
+    }
+}
+
+/// What the registry mother draws reads as the registry's answer does,
+/// and makes a definition, as a package the import starts.
+#[test]
+fn registry_answers_are_drawn_as_the_registry_writes_them() {
+    for _ in 0..DRAWS {
+        let answer = RegistryMother::random();
+
+        let entry = crate::mcp_registry::Entry::read(answer.clone()).unwrap();
+
+        assert!(entry.name.is_well_formed(), "{answer}");
+        assert_eq!(entry.status, crate::mcp_registry::Status::Active);
+        assert!(
+            crate::mcp_registry::time::instant(entry.updated_at.as_deref().unwrap()).is_some(),
+            "{answer}"
+        );
+        assert!(matches!(
+            entry.ways()[..],
+            [crate::mcp_registry::Way::Package { .. }]
+        ));
+    }
+}
+
+#[test]
 fn input_and_variable_names_named_for_breaking_their_rule_break_it() {
     for (why, text) in InputNameMother::unwritable() {
         assert!(

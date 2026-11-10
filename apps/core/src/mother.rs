@@ -28,6 +28,7 @@ pub mod fixture;
 pub mod ledger;
 pub mod marketplace;
 pub mod random;
+pub mod registry;
 pub mod settings;
 pub mod url;
 pub mod value;
@@ -41,11 +42,12 @@ pub use ledger::{
     MovedMother, SourceMother, TakenMother, TargetMother,
 };
 pub use marketplace::MarketplaceMother;
+pub use registry::RegistryMother;
 pub use settings::SettingsMother;
 pub use url::{Credentialed, UrlMother};
 pub use value::{
     ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, PinMother,
-    ProjectIdMother, RedactedMother, RevisionMother, VariableNameMother,
+    ProjectIdMother, RedactedMother, RevisionMother, UpstreamNameMother, VariableNameMother,
 };
 
 #[cfg(test)]
