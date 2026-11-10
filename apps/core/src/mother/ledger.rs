@@ -43,6 +43,31 @@ impl SourceMother {
             directory: random::word(),
             name: SourceName::derived(&crate::url::canonical(url)),
             pin: None,
+            parent_id: None,
+            parent: None,
+            entry: None,
+        }
+    }
+
+    /// A plugin `parent`, a marketplace, lists as `entry`, at `url`, as a
+    /// gather of it registers one (#103): a git source with no branch of
+    /// its own, called after the marketplace and the entry.
+    pub fn listed_by(parent: &Source, entry: &str, url: &str) -> Source {
+        Source {
+            parent_id: Some(parent.id),
+            parent: Some(parent.name.clone()),
+            entry: Some(entry.to_owned()),
+            name: SourceName::parse(&format!("{}.{entry}", parent.name))
+                .expect("a marketplace's name and an entry's are a name together"),
+            ..Self::create(url, None)
+        }
+    }
+
+    /// A marketplace at `url`, as `gather marketplace` registers one.
+    pub fn marketplace(url: &str) -> Source {
+        Source {
+            kind: SourceKind::Marketplace,
+            ..Self::create(url, None)
         }
     }
 

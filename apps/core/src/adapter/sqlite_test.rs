@@ -2074,6 +2074,9 @@ fn gathered_from(url: &str) -> Gathered {
             directory: String::from("github.com-acme-skills"),
             name: SourceName::recorded(String::from("acme-skills")),
             pin: Pin::parse(PINNED),
+            parent_id: None,
+            parent: None,
+            entry: None,
         },
         upstream_path: Some(String::from("skills/deploy")),
         content_hash: ContentHash::parse(HASHED),
@@ -2092,7 +2095,8 @@ const HASHED: &str = "333a6f445f9f99532a56dc9fb631f77e1b14275a737d7011845d6cc7d8
 /// What a gathered artifact serializes to is a contract, as a status
 /// report's is: each field by its name, its source's among them, but the
 /// row id, which is the ledger's. The source's `pin` and the artifact's
-/// `upstream_path`, `content_hash` and `licence` came after the rest (#99).
+/// `upstream_path`, `content_hash` and `licence` came after the rest (#99),
+/// and the source's `parent` and `entry` after those (#103).
 #[test]
 fn a_gathered_artifact_serializes_every_field_and_its_source() {
     let serialized =
@@ -2109,7 +2113,7 @@ fn a_gathered_artifact_serializes_every_field_and_its_source() {
             r#""reference":"main","subdirectory":"skills","#,
             r#""revision":"4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3","#,
             r#""directory":"github.com-acme-skills","name":"acme-skills","#,
-            r#""pin":"4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3"},"#,
+            r#""pin":"4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3","parent":null,"entry":null},"#,
             r#""upstream_path":"skills/deploy","#,
             r#""content_hash":"333a6f445f9f99532a56dc9fb631f77e1b14275a737d7011845d6cc7d814d731","#,
             r#""licence":{"from":"manifest","text":"MIT"}}"#,

@@ -267,6 +267,12 @@ impl Request {
     /// folder is always named, the one it was registered from, so a source
     /// of rules from the root is gathered from there again rather than
     /// refused for naming none.
+    ///
+    /// A marketplace (#103) is its catalog's repository at its branch, which
+    /// is all a gather of one fetches before it reads the catalog: it is
+    /// gathered again through [`crate::marketplace`], which takes from this
+    /// how its front end fetches, its watch, its remote and its token, and
+    /// so is a plugin it lists, through its marketplace.
     pub fn again(source: &ledger::Source, kind: Kind) -> Self {
         match source.kind {
             SourceKind::Git => Request::git(source.url.as_str())
@@ -274,6 +280,9 @@ impl Request {
                 .at(source.reference.clone())
                 .from_subdirectory(source.subdirectory.clone())
                 .pinned(source.pin.as_ref().map(|pin| pin.as_str().to_owned())),
+            SourceKind::Marketplace => {
+                Request::git(source.url.as_str()).at(source.reference.clone())
+            }
         }
     }
 }

@@ -983,6 +983,8 @@ struct Source {
     directory: String,
     name: String,
     pin: Option<String>,
+    parent: Option<String>,
+    entry: Option<String>,
 }
 
 /// What a shelf offer says of its licence: where it was read, beside what

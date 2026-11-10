@@ -217,6 +217,10 @@ every_store![
     a_source_is_found_by_its_name_and_takes_another_when_renamed,
     a_source_would_be_registered_under_the_name_and_folder_registering_gives_it,
     a_source_moved_to_another_folder_is_found_there_and_keeps_the_rest,
+    a_plugin_is_registered_once_by_its_entry_and_moved_where_its_catalog_says,
+    a_plugin_at_a_sources_place_is_a_source_of_its_own,
+    a_marketplaces_plugins_are_listed_straight_after_it_by_their_entries,
+    forgetting_a_marketplace_takes_its_plugins_and_what_they_brought,
     a_project_is_known_by_its_id_at_the_route_it_was_last_seen_at,
     an_id_seen_at_another_route_moves_there_unless_it_was_last_seen_at_a_stale_one,
     a_route_seen_holding_another_id_forgets_the_one_it_held,
@@ -2244,6 +2248,146 @@ fn a_source_moved_to_another_folder_is_found_there_and_keeps_the_rest(mut store:
         store.source(SourceKind::Git, &url, None, WHOLE).unwrap(),
         Some(moved)
     );
+}
+
+// ---------------------------------------------------------------------------
+// A marketplace's plugins (#103)
+// ---------------------------------------------------------------------------
+
+/// A marketplace registered for `url`, as `gather marketplace` registers
+/// one: its catalog's repository, from its root.
+fn marketplace(store: &Store, url: &str) -> Source {
+    store
+        .source_for(SourceKind::Marketplace, url, None, ".")
+        .unwrap()
+}
+
+/// A plugin is registered once for its entry, called after its marketplace
+/// and its entry, a git source of no branch of its own, and moved where its
+/// catalog says it is today, keeping its name and its folder.
+fn a_plugin_is_registered_once_by_its_entry_and_moved_where_its_catalog_says(mut store: Store) {
+    let parent = marketplace(&store, &UrlMother::https());
+    let entry = random::kebab();
+    let (url, moved_to) = (UrlMother::https(), UrlMother::https());
+
+    let child = store.child_for(&parent, &entry, &url, ".").unwrap();
+    store.reopen();
+    let again = store.child_for(&parent, &entry, &url, ".").unwrap();
+    store.reopen();
+    let moved = store
+        .child_for(&parent, &entry, &moved_to, "plugins/x")
+        .unwrap();
+
+    assert_eq!(again, child, "{entry}");
+    assert_eq!(child.kind, SourceKind::Git);
+    assert_eq!(child.reference, None);
+    assert_eq!(child.parent_id, Some(parent.id));
+    assert_eq!(child.parent.as_ref(), Some(&parent.name));
+    assert_eq!(child.entry.as_deref(), Some(entry.as_str()));
+    assert_eq!(child.name.as_str(), format!("{}.{entry}", parent.name));
+    assert_eq!(moved.id, child.id);
+    assert_eq!(moved.url, moved_to.as_str());
+    assert_eq!(moved.subdirectory, "plugins/x");
+    assert_eq!(
+        (&moved.name, &moved.directory),
+        (&child.name, &child.directory)
+    );
+    store.reopen();
+    assert_eq!(store.source_named(&child.name).unwrap(), Some(moved));
+}
+
+/// A plugin at the place a git source of its own is, and two entries of one
+/// catalog at one place, are each a source of their own: the git source is
+/// the one its coordinate finds, and every folder is another's.
+fn a_plugin_at_a_sources_place_is_a_source_of_its_own(mut store: Store) {
+    let url = UrlMother::https();
+    let gathered = source(&store, &url);
+    let parent = marketplace(&store, &url);
+
+    let one = store.child_for(&parent, "one", &url, ".").unwrap();
+    let other = store.child_for(&parent, "other", &url, ".").unwrap();
+
+    store.reopen();
+    let found = store
+        .source(
+            SourceKind::Git,
+            &url,
+            None,
+            mindweaver_core::DEFAULT_SUBDIRECTORY,
+        )
+        .unwrap();
+    assert_eq!(found, Some(gathered.clone()));
+    let folders: BTreeSet<String> = [&gathered, &parent, &one, &other]
+        .iter()
+        .map(|source| source.directory.clone())
+        .collect();
+    assert_eq!(folders.len(), 4, "{folders:?}");
+    assert_eq!(
+        store
+            .children(&parent)
+            .unwrap()
+            .into_iter()
+            .map(|child| child.id)
+            .collect::<Vec<_>>(),
+        [one.id, other.id]
+    );
+}
+
+/// Every source is listed with each marketplace's plugins straight after
+/// it, by their entries, whatever their URLs.
+fn a_marketplaces_plugins_are_listed_straight_after_it_by_their_entries(mut store: Store) {
+    let parent = marketplace(&store, &UrlMother::https());
+    let mut entries: Vec<String> = (0..random::between(2, 6))
+        .map(|n| format!("{}-{n}", random::kebab()))
+        .collect();
+    for entry in &entries {
+        store
+            .child_for(&parent, entry, &UrlMother::https(), ".")
+            .unwrap();
+    }
+    for _ in 0..random::between(1, 4) {
+        source(&store, &UrlMother::https());
+    }
+
+    store.reopen();
+    let listed = store.sources().unwrap();
+    let at = listed
+        .iter()
+        .position(|source| source.id == parent.id)
+        .unwrap();
+    entries.sort();
+    let under: Vec<Option<String>> = listed[at + 1..=at + entries.len()]
+        .iter()
+        .map(|child| child.entry.clone())
+        .collect();
+    assert_eq!(under, entries.into_iter().map(Some).collect::<Vec<_>>());
+}
+
+/// Forgetting a marketplace forgets every plugin it lists, and what each
+/// brought, and nothing else.
+fn forgetting_a_marketplace_takes_its_plugins_and_what_they_brought(mut store: Store) {
+    let parent = marketplace(&store, &UrlMother::https());
+    let child = store
+        .child_for(&parent, &random::kebab(), &UrlMother::https(), ".")
+        .unwrap();
+    let kept = source(&store, &UrlMother::https());
+    for from in [&child, &kept] {
+        store
+            .record(
+                from,
+                &TakenMother::create(Kind::Skill, "deploy", "x/deploy"),
+            )
+            .unwrap();
+    }
+
+    assert!(store.forget_source(parent.id).unwrap());
+
+    store.reopen();
+    assert_eq!(store.sources().unwrap(), std::slice::from_ref(&kept));
+    assert_eq!(store.source_named(&child.name).unwrap(), None);
+    let gathered = store.gathered().unwrap();
+    assert_eq!(gathered.len(), 1, "{gathered:#?}");
+    assert_eq!(gathered[0].source.id, kept.id);
 }
 
 // ---------------------------------------------------------------------------
