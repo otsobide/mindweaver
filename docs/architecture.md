@@ -2549,6 +2549,18 @@ type derives `Serialize` from the start:
   neither `ENVELOPE_VERSION` nor `view::FORMAT`. Every `origin` holds what
   it held, which an install records ([everything is namespaced by its
   source](#everything-is-namespaced-by-its-source)).
+- **Kept by #99**: the commit a source is pinned to, as `pin` on a
+  `ledger::Source`, a `value::Pin` written as its digits, `null` while it
+  follows its branch, and on a gather's `Report`; and of each artifact
+  gathered, as `upstream_path`, `content_hash` and `licence` on `Gathered`,
+  and so on each shelf row of the snapshot and of `gather list --json`,
+  `null` each for a row from before them. A `licence::Licence` is derived,
+  tagged by `from` inside the object beside what that place said
+  (`{"from": "manifest", "text"}`, `{"from": "file", "file", "text"}`,
+  `{"from": "unknown"}`), each variant renamed to its word in snake_case:
+  where a licence was read is a word of core's, and no word a command line
+  takes. Names added, which move neither `ENVELOPE_VERSION` nor
+  `view::FORMAT`.
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3266,6 +3278,92 @@ taken and on what is wrong, so a script can ask first. The panel refuses it as
 it refuses every gather (`Refusal::Unwatched`), and the TUI's gather form has
 no key for it.
 
+### A source pinned to a commit
+
+`gather git --pin` takes one commit rather than whatever the branch is at
+(#99), so what a source supplies stays what somebody read and chose until
+they choose again. The pin is a value held to a rule (`value::Pin`): a
+commit in full, 40 hexadecimal digits, kept in lowercase, refused otherwise
+before anything is registered or fetched (`source_pin_invalid`). A commit
+shortened, a branch or a tag would be resolved by the server to whatever it
+names on the day, which is what a pin exists to rule out, and a short one is
+ambiguous in a large enough repository besides. A pin is refused as a
+credential is when one is typed there, as the branch and the folder are.
+
+It sits beside the branch rather than in the source's identity, in the
+`pin` column schema 7 made for it: gathered again with another pin, or with
+none, a repository at a branch from a folder is the same source, so what was
+installed from it keeps its origin and an update finds its offer. The pin is
+written with the revision once the shelf has changed (`saw_source`), so a
+source is pinned exactly while its shelf holds what a pin took: a gather that
+fails or is cancelled leaves it pinned as it was, and one with no `--pin`
+unpins it, since `gather git` says in full what to take and there is no
+other command that gathers a source again. The report says `, pinned` after
+the revision, and `gather list` gives a pinned source's commit a column of
+its own, beside the name `--from` takes rather than in it.
+
+The `Remote` port takes the pin beside the branch (`Remote::fetch`), and an
+adapter hands back the pin as the revision or `GitError::PinUnreachable`
+(`git_pin_unreachable`). The gix adapter asks for the commit alone,
+`PrepareFetch::with_revision`, shallow, HEAD detached at it, which GitHub,
+GitLab and git's own server over protocol v2 hand out for any object they
+hold. A server that refuses an object it does not advertise, as git over
+protocol v1 without `uploadpack.allowAnySHA1InWant` does, fails that fetch,
+and only that kind of failure (`GitError::Fetch`) is tried the other way: the
+branch, or the remote's HEAD, cloned with its whole history, the pin looked
+for among the commits it reaches, HEAD detached at it and its tree checked
+out (`adapter::gix::reaching`). The whole history because that is what tells
+whether the branch reaches the pin, and the pin is most often older than the
+tip a shallow clone holds. A credential nobody has or a cancel fails the same
+whichever way is tried, so neither is tried twice. Taken by itself, the pin
+is not held to the branch it was asked with, which only the fallback can see
+([open questions](#open-questions)). The adapter's test turns protocol v2
+off for git's own server to see the fallback taken, through configuration it
+hands the clone beside the machine's, which nothing but that test passes.
+
+### What is kept of each artifact gathered
+
+An artifact on the shelf kept its name, its path there, its summary and the
+commit it was taken at. An audit asks more of it, and an update will (#99):
+where in the repository it was, whether the shelf still holds what was taken,
+and the licence it said it was under. So each row keeps, from schema 8 on:
+
+- `upstream_path`, its folder's route from the repository's root, `/`
+  separated, `.` for a skill that is the whole repository: the route
+  #101's harvest finds it by (`Harvested::route`), which `--dry-run`
+  prints, so the two never disagree.
+- `content_hash`, `hash::tree` of its copy on the shelf, the one recipe an
+  install keeps of what it writes, over the copy rather than the clone's
+  folder: the shelf's copy leaves out what every install's copy leaves out
+  (a skill's own `.claude-plugin`, the clone's `.git`) and holds no link,
+  which the recipe refuses, so an install of an untouched shelf copy
+  records the hash the gather did. A copy that cannot be read back is
+  recorded with none and said (`gathered_unhashed`), as an install records
+  one.
+- Its licence, as it says it (`licence::Licence`): its manifest's `license`,
+  as written, else the first line that holds anything of a licence file
+  directly in its folder (`LICENSE` or `LICENCE`, in any case, alone or
+  followed by an extension or a `-`, the first by name), read up to 4 KiB and
+  kept to 200 characters, with the file's name, else `unknown`, which is said
+  rather than left out. Nothing is matched against SPDX or judged: which
+  licences a workspace takes is somebody's policy, and a name guessed out of
+  a file's words would be a fact nobody wrote. The repository's own licence,
+  which a forge's API says, is out of #99's scope; a gather asks no API.
+
+The commit it was taken at is the `revision` the row kept already, which
+the fetch resolves, the pin itself when its source is pinned. A row a build
+from before schema 8 wrote keeps none of the three until its source is
+gathered again: each is read off what a gather fetched and placed, which no
+SQL can read, and the three are filled in together or not at all. The
+ledger is told of each artifact as one record (`ledger::Taken`), rather than
+more arguments to `record`, and hands the three back as options on
+`Gathered`, which `gather list --json` and the snapshot's shelf carry as
+`upstream_path`, `content_hash` and `licence`, and the source's `pin`,
+added names that move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
+`gather list` shows the licence in a column that, like the kind's and the
+pin's, is there only once something listed has one, so a listing of what
+loaded workspaces offer reads as it did.
+
 ### The clone is kept, and re-made
 
 The clone stays under `cache/` so a gather can be looked at afterwards, and
@@ -3665,8 +3763,10 @@ it](#a-read-leaves-the-ledger-as-it-finds-it)).
 
 Six things are recorded: the **sources** gathered from, each by its name and
 the identity of its URL ([everything is namespaced by its
-source](#everything-is-namespaced-by-its-source)), the **artifacts** on
-the shelf and which source each came from, the **installations** (which skill,
+source](#everything-is-namespaced-by-its-source)) and the commit it is pinned
+to, the **artifacts** on the shelf, which source each came from, where in it,
+a hash of what was taken and its licence ([what is kept of each artifact
+gathered](#what-is-kept-of-each-artifact-gathered)), the **installations** (which skill,
 rule or MCP server Mindweaver put into which project, from where, every copy it
 wrote and a hash of what it wrote, or for a server every entry it wrote into
 an agent's config file and the fingerprint of each), the **files Mindweaver
@@ -3688,7 +3788,7 @@ A source's shelf folder is stored rather than derived: two URLs can reduce to
 the same readable name, and where a source's files went is a fact about the
 past that must not move when the naming rule changes.
 
-The schema has had seven versions, each a block in the SQLite store's
+The schema has had eight versions, each a block in the SQLite store's
 migration (`adapter::sqlite::Sqlite::migrate`) and a
 constant beside it:
 
@@ -3732,11 +3832,19 @@ constant beside it:
    repository however its URL is spelled (#98,
    [D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), closing
    the hole #7 left); and `pin` and `parent_id`, for what a source is
-   pinned to (#99) and the marketplace it is listed by (#103), which
-   nothing reads or writes yet. The columns go on the end of the table
+   pinned to (#99) and the marketplace it is listed by (#103), which no
+   build of this schema reads or writes, and a gather writes `pin` from
+   schema 8 on. The columns go on the end of the table
    rather than into a new one, which would be copied in under foreign keys
    that cascade a dropped `sources` into every artifact, and the old
    `UNIQUE` stays, holding nothing the new index does not.
+8. On `artifacts`, `upstream_path`, `content_hash` and the licence as three
+   columns, `licence_from` (`manifest`, `file` or `unknown`), `licence` and
+   `licence_file`: where in its source each artifact was, a hash of what was
+   put on the shelf and the licence it says it is under ([what is kept of
+   each artifact gathered](#what-is-kept-of-each-artifact-gathered), #99).
+   The source's `pin`, which step 7 made, is written by every gather from
+   this version on, so this step adds nothing for it.
 
 An older ledger is migrated step by step, so one made two versions ago ends
 where one made today begins, and two rules hold for every step:
@@ -3817,6 +3925,11 @@ writes tries again, until it goes. While a merge is kept its folder name is
 given to no new source, so no gather can clone into a folder about to be
 removed. A credential is left where the scrub finds it, which rewrites a
 clone before its row, and which the first command that writes runs next.
+Version 8 fills in nothing: what it adds is read off what a gather fetched
+and placed, which a row from before it kept none of and no SQL can read, so
+each row keeps its new columns empty until its source is gathered again. Its
+upstream path alone could be spelled from its source's folder and its own,
+and is not, so the three are there together or not at all.
 D-04's states (#47) took no step of their own: what tells them apart is the hash each copy was written with, which versions
 3 and 4 keep, and what the place it came from offers now, which is read where
 it is offered rather than kept. A record with no hash is held to its offer
@@ -13501,6 +13614,31 @@ repository, stays on `gix`.
   nothing sweeps it, as an install's next run sweeps `.mind/tmp`. Nor is
   `.mindweaver/tmp` taken away once empty, since the panel's save makes and
   writes into it from another process.
+- **A pin taken by itself is not held to its branch.** Where the server hands
+  out a commit by its id, a pin is fetched alone, shallow, and nothing says
+  whether the branch the source is asked at (`--ref`, or the remote's HEAD)
+  reaches it, which only the fallback, cloning that branch whole, can see. A
+  pin on another branch is then gathered all the same. Holding every pin to
+  its branch would cost every pinned gather the branch's whole history, or a
+  second, deepening fetch, for a check the person typing the commit can
+  make; a source's identity carries its branch whatever it is pinned to.
+- **A pin from the panel and the TUI.** Neither front end's gather asks for
+  one (`Task::Gather` holds no pin), and the panel's shelf and sources pages
+  show neither the pin nor the licence, though the snapshot carries both:
+  `gather git --pin` and `gather list` are the way to them until a page or a
+  form is given them.
+- **A commit named in a folder's address.** `/tree/<commit>/skills`, as a
+  forge links to a commit, reads as a branch named like the commit, which
+  the fetch then fails to find. Reading 40 hexadecimal digits there as a pin
+  would follow what a browser shows, and is left until a forge's link is
+  asked for by somebody pinning.
+- **Each skill's own provenance in its folder.** What is kept of an
+  artifact (#99) is the ledger's alone: nothing is written beside the
+  shelf's copy, nor into a project's, for an agent or a person reading the
+  folder to find, as `gh skill` writes its `github-` keys into the front
+  matter of what it installs ([adopting what a project already
+  keeps](#adopting-what-a-project-already-keeps)). The shelf's copy is the
+  source's, byte for byte, which is what its hash is of.
 - **Directories edited into a marker by hand.** Where a holder's directories
   may be (inside it and, for a workspace, clear of the shelf and the cache) is
   checked when `init` writes the marker, not each time it is read, so a marker
