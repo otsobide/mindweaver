@@ -6,12 +6,13 @@ use std::path::Path;
 
 use mindweaver_core::gather::{self, Report, Request, Scrub, Watch};
 use mindweaver_core::install::{offered_by_loads, Offer};
+use mindweaver_core::port::Token;
 use mindweaver_core::url::redacted;
 use mindweaver_core::{Kind, WeaverWorkspace};
 
 use super::{reading_workspace, workspace_here};
 use crate::render::{indent, json_or_text, plural, printable, table};
-use crate::{CliError, Failure, GatherCommand, Lookup, Outcome, Warning};
+use crate::{token, CliError, Credential, Failure, GatherCommand, Lookup, Outcome, Warning};
 
 /// Collect artifacts onto the workspace shelf, or say what is already on it.
 ///
@@ -31,6 +32,7 @@ pub(crate) fn run_gather(
             reference,
             name,
             dry_run,
+            credential,
         } => {
             // Found as a gather finds it, a dry run's too, which fetches into
             // the workspace's scratch folder and so needs one made.
@@ -39,7 +41,8 @@ pub(crate) fn run_gather(
                 .from_subdirectory(path.clone())
                 .at(reference.clone())
                 .named(name.clone())
-                .watched_by(watch.clone());
+                .watched_by(watch.clone())
+                .with_token(handed(url, credential)?);
             if *dry_run {
                 // A read of the ledger, which a workspace that never
                 // gathered does not make, and no scrub: a dry run writes
@@ -66,6 +69,21 @@ pub(crate) fn run_gather(
             Ok(json_or_text(found.filter(|_| *json), text))
         }
     }
+}
+
+/// The token `credential` says a gather of `url` logs in with, read now,
+/// for this run alone: the variable `--token-env` names, or what `gh` has
+/// for the host core says the token goes to, which refuses a URL no token
+/// goes over before `gh` is asked. `None` when neither is given, and the
+/// gather logs in as git config's helpers and ssh do.
+fn handed(url: &str, credential: &Credential) -> Result<Option<Token>, CliError> {
+    if let Some(name) = &credential.token_env {
+        return token::from_variable(name).map(Some);
+    }
+    if credential.gh {
+        return token::from_gh(&gather::token_host(url)?).map(Some);
+    }
+    Ok(None)
 }
 
 /// `mindweaver gather list`: what can be installed from elsewhere, from a
@@ -138,8 +156,8 @@ impl Scrubbed {
 
 /// What the scrub that opening the ledger to write runs took out
 /// ([`mindweaver_core::WeaverWorkspace::ledger_to_write`]), said the way a
-/// person can act on: every source it scrubbed now needs its credential from
-/// a git credential helper.
+/// person can act on: every source it scrubbed now needs its credential
+/// handed over for the run, or from a git credential helper.
 pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
     // What the step to schema 7 made one first, which came first: the
     // spelling that went is what a script may still name it by.
@@ -163,7 +181,8 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
     notes.extend(scrub.sources.iter().map(|source| {
         format!(
             "note: {}: the user name, password or token an older Mindweaver stored in this \
-                 URL is taken out; gathering it again needs a git credential helper that has it",
+                 URL is taken out; gathering it again needs it from --token-env, --gh or a git \
+                 credential helper",
             source.url
         )
         .into()

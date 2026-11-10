@@ -1150,6 +1150,17 @@ pub enum Refusal {
         "sends over the network with git for as long as that takes, which only a shell shows, and whose ssh may ask on its terminal"
     )]
     Sends,
+    /// `mindweaver gather git` with `--token-env` or `--gh`: a token read
+    /// where the line runs, from its environment or from its account's
+    /// `gh`, and sent to the host the line names. On the panel's server
+    /// that is the server's own, which a browser has no business naming
+    /// a host to hand over, and a front end without a terminal enters no
+    /// credential (D-16): no task carries either option, and this keeps
+    /// one built some other way from running.
+    #[error(
+        "logs in with a token read from the environment or from gh where it runs, which only a shell hands it"
+    )]
+    Credential,
 }
 
 codes!(Refusal {
@@ -1160,6 +1171,7 @@ codes!(Refusal {
     Self::Unheld => "show_unheld",
     Self::Panel => "serves_panel",
     Self::Sends => "backup_unwatched",
+    Self::Credential => "reads_credential",
 });
 
 impl Refusal {
@@ -1222,6 +1234,13 @@ impl Refusal {
             Some(WeaverCommand::Activate { .. }) => Some(Refusal::Shell),
             Some(WeaverCommand::Show { .. }) => Some(Refusal::Unheld),
             Some(WeaverCommand::Backup { .. }) => Some(Refusal::Sends),
+            // Before the gather the arm below runs: the token, not the
+            // network, is what a front end without a terminal never runs.
+            Some(WeaverCommand::Gather(GatherCommand::Git { credential, .. }))
+                if credential.is_given() =>
+            {
+                Some(Refusal::Credential)
+            }
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Some(Refusal::Panel),
             Some(

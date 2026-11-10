@@ -313,13 +313,17 @@
           "token_file_unwritable",
           "token_file_unremoved",
           "token_env_unset",
+          "gh_missing",
+          "gh_unrun",
+          "gh_token_missing",
           "opens_screen",
           "opens_editor",
           "reads_stdin",
           "prints_shell_code",
           "show_unheld",
           "serves_panel",
-          "backup_unwatched"
+          "backup_unwatched",
+          "reads_credential"
         ],
         "type": "string"
       },
@@ -671,6 +675,8 @@
           "gathered_root_unnamed",
           "gather_cancelled",
           "credentials_in_url",
+          "gather_token_over_ssh",
+          "gather_token_not_https",
           "gather_no_such_folder",
           "gather_nothing_found",
           "gather_path_outside",

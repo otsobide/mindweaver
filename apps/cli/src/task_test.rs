@@ -7,7 +7,7 @@ use clap::{ArgMatches, CommandFactory, Parser};
 
 use super::*;
 use crate::tui::minds::{Minds, Row, Standing};
-use crate::{Cli, WeaverCli};
+use crate::{Cli, Credential, WeaverCli};
 
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
@@ -875,6 +875,56 @@ fn a_task_sent_with_a_field_it_does_not_have_is_refused() {
     }
 }
 
+/// The panel enters no credential (D-16): a gather it sends names the
+/// repository, the folder and the branch, and a token beside them, by
+/// whatever name, is a field the task does not have.
+#[test]
+fn a_gather_task_carries_no_token_by_any_name() {
+    for field in ["token", "token_env", "gh", "credential"] {
+        let json = format!(
+            r#"{{"type": "gather", "url": "acme/private", "folder": ".", "reference": null,
+                "{field}": "GITHUB_TOKEN"}}"#
+        );
+
+        let error = serde_json::from_str::<Task>(&json).unwrap_err();
+
+        assert!(error.to_string().contains(field), "{json}: {error}");
+    }
+}
+
+/// Nor do the lines a gather task is spelled as hand one over, whatever a
+/// browser fills its values with: each reaches the line as a value, never
+/// as `--token-env` or `--gh`, so no line of it is refused for one.
+#[test]
+fn a_gather_task_s_lines_hand_over_no_token_whatever_its_values() {
+    for value in ["--gh", "--token-env=HOME", "--token-env", "-gh"] {
+        for task in [
+            Task::Gather {
+                url: value.to_owned(),
+                folder: String::from(DEFAULT_SUBDIRECTORY),
+                reference: None,
+            },
+            Task::Gather {
+                url: String::from("acme/private"),
+                folder: value.to_owned(),
+                reference: Some(value.to_owned()),
+            },
+        ] {
+            for words in task.commands() {
+                let parsed = WeaverCli::try_parse_from(&words)
+                    .unwrap_or_else(|error| panic!("{words:?}: {error}"));
+                let Some(WeaverCommand::Gather(GatherCommand::Git { credential, .. })) =
+                    parsed.command
+                else {
+                    panic!("{words:?} is no gather");
+                };
+                assert_eq!(credential, Credential::default(), "{words:?}");
+            }
+            assert_eq!(task.refusal(), None, "{task:?}");
+        }
+    }
+}
+
 #[test]
 fn a_task_holding_a_word_no_command_line_takes_is_refused() {
     let error = serde_json::from_str::<Task>(
@@ -1414,6 +1464,18 @@ fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_or_shows() {
             "mind weaver backup ../library.git --kind skills --token-env TOKEN",
             Refusal::Sends,
         ),
+        (
+            "mindweaver gather git https://example.com/private.git --token-env TOKEN",
+            Refusal::Credential,
+        ),
+        (
+            "mind weaver gather git acme/private --gh",
+            Refusal::Credential,
+        ),
+        (
+            "mindweaver gather git --dry-run --gh acme/private",
+            Refusal::Credential,
+        ),
         ("mind show deploy", Refusal::Unheld),
         ("mind -C alpha show --json rule:style", Refusal::Unheld),
         ("mindweaver show -p alpha deploy", Refusal::Unheld),
@@ -1607,6 +1669,7 @@ fn a_refusal_says_why_by_a_code_of_its_own() {
         Refusal::Unheld,
         Refusal::Panel,
         Refusal::Sends,
+        Refusal::Credential,
     ]
     .iter()
     .map(Refusal::code)

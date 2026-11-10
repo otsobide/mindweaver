@@ -13,8 +13,8 @@ use mindweaver_core::mother::{random, Credentialed, GitRepositoryMother, UrlMoth
 /// The refusal a gather of a URL with a credential in it ends with, after
 /// the URL without it.
 const REFUSED: &str = "a password, a token or, over http(s), a user name in the URL is refused, \
-     because gathering stores and shows the URL: gather it without one, and configure a git \
-     credential helper that has it";
+     because gathering stores and shows the URL: gather it without one, and hand the token over \
+     with --token-env or --gh, or configure a git credential helper that has it";
 
 /// Everything a command said, whether it ran or not: its report and every
 /// line beside it, or why it stopped and what it had noticed first.

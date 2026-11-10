@@ -1525,6 +1525,34 @@ pub struct ShareMode {
     pub yes: bool,
 }
 
+/// Where the token a gather logs in with for this run comes from, when it
+/// is not the login git config's credential helpers or ssh give (D-16):
+/// a variable, or `gh`. Neither is ever kept, printed nor asked for.
+///
+/// Two options rather than one taking a provider's name, since each takes
+/// what the other does not: `--token-env` a variable's name, `--gh` nothing,
+/// asking `gh` for the token of the repository's own host. The grammar
+/// refuses both at once.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Args)]
+pub struct Credential {
+    /// The environment variable holding a token to log in with over https,
+    /// read for this run and never kept.
+    #[arg(long, value_name = "VARIABLE", conflicts_with = "gh")]
+    pub token_env: Option<String>,
+
+    /// Log in over https with the token `gh auth token` gives for the
+    /// repository's host, asked for this run and never kept.
+    #[arg(long)]
+    pub gh: bool,
+}
+
+impl Credential {
+    /// Whether a token is to be handed over at all.
+    pub fn is_given(&self) -> bool {
+        self.token_env.is_some() || self.gh
+    }
+}
+
 /// Where a gather takes artifacts from.
 ///
 /// A subcommand per method rather than a `--from` flag: each one takes
@@ -1561,6 +1589,9 @@ pub enum GatherCommand {
         /// own, removed afterwards.
         #[arg(long)]
         dry_run: bool,
+
+        #[command(flatten)]
+        credential: Credential,
     },
 
     /// List what can be installed from the shelf and from loaded workspaces,
