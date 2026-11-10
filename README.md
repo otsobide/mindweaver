@@ -106,6 +106,12 @@ files.
 
 ![The library's skills, each with the projects that hold a copy and its state there](docs/images/library.png)
 
+Below them, the library can be exported into a folder, or backed up to a
+git repository, the one thing in a workspace no gather brings back. A
+backup shows each step as it goes, and can be stopped until it pushes; a
+token is never typed into the panel, only the name of the variable that
+holds one.
+
 Each one opens on a page of its own: what its front matter declares, its
 body rendered, every file it carries, what `validate` says of it and where
 it is installed.
@@ -286,7 +292,7 @@ guide](docs/api.md) walks through it with curl.
 ## From the terminal
 
 Everything the panel does is a command, and so is everything it does not do
-yet, such as gathering and backing up:
+yet, such as gathering:
 
 ```bash
 cd ~/Projects/blog && mind init          # make a repository a project

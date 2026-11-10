@@ -1498,13 +1498,14 @@ The commit is made as the identity your git configuration names, or as
 checking the repository out, exporting the library, committing, pushing. On a
 terminal each is drawn over the last on one line of stderr, as a gather's
 are, and wiped before what it did is said. Until it starts pushing it can be
-stopped, with `esc` in [the TUI](#the-tui) or a cancel through the [control
-panel](#control-panel)'s API: what `git` was running is stopped, nothing is
-sent, the repository is as it was and the check-out is taken away. Once it
-pushes, a stop is too late, and the push finishes.
+stopped, with `esc` in [the TUI](#the-tui) or **Stop** in the [control
+panel](#control-panel): what `git` was running is stopped, nothing is sent,
+the repository is as it was and the check-out is taken away. Once it pushes,
+a stop is too late, and the push finishes.
 
 From the TUI, `x` exports and `b` backs up, each from a form that shows the
-line it is about to run. A front end never takes a token, nor sends one:
+line it is about to run, and so does the control panel, below its library.
+A front end never takes a token, nor sends one:
 `--token-env` names the variable holding it, read in the environment the TUI
 or `mindweaver ui` was started with, and through the API only a variable
 named for a token, ending in `TOKEN` (`GITHUB_TOKEN`), whose value is sent to
@@ -2258,11 +2259,13 @@ TUI does. It sends a task; the server turns it into the command lines you
 could have typed, shows them before they run, and runs them through the same
 parser, one at a time. A command that would open a screen, an editor or a
 shell, or read standard input, is refused, and so is a path outside what
-the workspace allows, each with a reason and a code. A gather runs as any
-change does, showing how far it has got as it goes, and stops when asked,
-until it starts placing what it read on the shelf, as in the TUI. The
-first Ctrl-C (or, on Unix, the `SIGTERM` `kill` sends) stops a gather
-under way as a cancel does, lets whatever else is running finish, a second
+the workspace allows, each with a reason and a code. A gather or a backup
+runs as any change does, its dialog showing each step as it takes it, with
+**Stop**, which stops it until it starts placing what it read on the shelf,
+or pushing, as in the TUI; past that, the dialog says it is too late to
+stop, and it finishes. The first Ctrl-C (or, on Unix, the `SIGTERM` `kill`
+sends) stops such a run under way as a cancel does, lets whatever else is
+running finish, a second
 stops at once, and on the way out it prints every command that changed
 something, with what each said, as the TUI does when it closes:
 
@@ -2449,6 +2452,22 @@ kind's templates ([from a template](#from-a-template)), judged as you type by wh
 `mindweaver add` would refuse, in its words, and by what `validate` would say
 of it once written. **Add** runs `mindweaver add [--template <template>] <kind>
 <name> <description>`, shown first, and opens what it added.
+
+Below the library's own, **A copy of the library elsewhere** offers two
+forms ([exporting and backing up the
+library](#exporting-and-backing-up-the-library)), each of every kind the
+library keeps, or only those ticked. **Export** writes it into a folder,
+typed or chosen with **Browse**: `mindweaver export [--kind <kind>]...
+<folder>`, which adds and says what it would change; ticking **Change or
+remove what an earlier export wrote there** adds `--yes`, a confirmation
+since it deletes what the library no longer holds. **Back up** sends it to a
+git repository, on a branch and with a message when you give them:
+`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message
+<message>] [--token-env <variable>] <url>`, followed step by step and
+stoppable until it pushes. The panel never takes a token: **Token
+variable** names the variable holding one in the environment `mindweaver
+ui` was started with, ending in `TOKEN`, as `GITHUB_TOKEN` does, which is
+read for the one run; left empty, it logs in as the `git` it runs does.
 
 **MCP servers**, beside the library in the sidebar, is a page of the
 library's MCP servers ([what an MCP server looks

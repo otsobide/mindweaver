@@ -7968,6 +7968,22 @@ was let go.
   lost, it marks the same stale itself and waits for that. Nothing the run
   answered is written into a view: an update made beforehand would be a
   second guess at what core says, and could disagree with it.
+- **A run that takes a cancel is followed, and stopped when asked.** A
+  gather's or a backup's preview says `cancellable`, and while it runs the
+  dialog draws the latest step the stream told of it, in the backend's
+  words (`Step::said`), and **Stop**. The live updates keep the run under
+  way as the stream tells it, whoever sent it (`Live::underway`: its
+  number, its lines, whether it takes a cancel and was asked to, and its
+  latest step), and the runner takes the one whose lines are the ones it
+  showed (`Runner::underway`), its number being the stream's to tell, since
+  the run's answer comes only once it is over. Stop is `POST
+  /api/v1/tasks/cancel` with that number (`Transport::cancel`), asked once,
+  and offered only while the step says a cancel still stops it
+  (`Step::cancellable`, core's): past it, the dialog says in words that it
+  is too late, as it says that a stop was asked for, so neither is told by
+  the button's colour alone. What the stop did is the run's outcome to
+  say. A cancel the server refuses, the run over already, changes nothing,
+  and is said nowhere beside it.
 - **How it went is a toast, and what it said a drawer.** A toast says what
   ran, or which line failed, and what the lines printed. When a run failed,
   or said a line with a code, the warnings drawer (`WarningsDrawer.vue`)
@@ -11540,7 +11556,10 @@ on one line of stderr, the TUI in the box it draws over a gather
 server streams. So `backup` left the list of what a front end with no
 terminal does not run (`Refusal::Sends`, and with it the code
 `backup_unwatched`, which nothing gives any more and no other condition is
-given), and joined `task::Followed`. The TUI opens a form for each command,
+given), and joined `task::Followed`. The panel offers both below its
+library (`ExportForm.vue`, `BackupForm.vue`), each sending its task
+through the runner, which follows a backup and stops it as it does a
+gather ([its changes](#its-changes)). The TUI opens a form for each command,
 `x` and `b`, on any row, the library being the workspace's whatever row is
 lit; the export form's `replace` is `--yes`, asked about before it runs, as
 a deletion is. A task names a token only by the variable holding it, read
