@@ -3352,7 +3352,7 @@
             ]
           },
           "subdirectory": {
-            "description": "The folder inside the source that was harvested, `skills` by default.",
+            "description": "The folder inside the source that was harvested: `.`, the whole\nrepository, by default, and `skills` for a source an older build\nregistered with what was its default then.",
             "type": "string"
           },
           "url": {
@@ -3603,7 +3603,7 @@
             ]
           },
           "subdirectory": {
-            "description": "The folder inside the source that was harvested, `skills` by default.",
+            "description": "The folder inside the source that was harvested: `.`, the whole\nrepository, by default, and `skills` for a source an older build\nregistered with what was its default then.",
             "type": "string"
           },
           "url": {

@@ -636,7 +636,7 @@ preview are no runs, and are not there.
 ### Stopping a run
 
 A gather is the network, and takes as long as that does. A `gather` task,
-`{"type": "gather", "url": ..., "folder": "skills", "reference": null}`,
+`{"type": "gather", "url": ..., "folder": ".", "reference": null}`,
 is previewed as `cancellable`, and while it runs `/events` tells each step
 it takes ([following what happens](#following-what-happens)). Its source
 is an address, which the gather refuses when it carries a credential, or a

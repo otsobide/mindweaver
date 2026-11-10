@@ -3454,7 +3454,7 @@ fn source() -> (TempDir, String) {
 }
 
 fn gather(url: &str) -> Task {
-    task(json!({"type": "gather", "url": url, "folder": "skills", "reference": null}))
+    task(json!({"type": "gather", "url": url, "folder": ".", "reference": null}))
 }
 
 /// A run numbered 1, whose every step is kept, and asked to stop on the
