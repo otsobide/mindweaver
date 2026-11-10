@@ -126,6 +126,44 @@ fn a_gather_is_told_step_by_step_until_what_it_found_is_on_the_shelf() {
         .prints("pdf  src-acme-skills  unknown  Read PDFs\n");
 }
 
+/// A gather task that says it takes rules runs the line `--kind rules`
+/// is, naming the folder they are gathered from, and puts them on the
+/// shelf by their routes (#111).
+#[test]
+fn a_gather_of_rules_runs_with_its_kind_and_its_folder_and_shelves_them() {
+    let scenario = Scenario::projects(&["api"]);
+    scenario.source(
+        "~/src/acme-rules",
+        &[
+            (
+                "rules/git/commits.md",
+                "# Commit one coherent step at a time\n",
+            ),
+            ("rules/README.md", "# Our rules\n"),
+        ],
+    );
+    let served = scenario.serve("~/Projects");
+    let gather = json!({"type": "gather", "url": "/home/you/src/acme-rules",
+                        "folder": "rules", "reference": null, "kind": "rule"});
+    let lines = json!([
+        "mindweaver -W /home/you/Projects gather git --kind rules --path rules \
+         /home/you/src/acme-rules"
+    ]);
+
+    served
+        .post("/tasks/preview", gather.clone())
+        .answers(json!({"lines": lines, "confirm": [], "cancellable": true}));
+    served
+        .post("/tasks", gather)
+        .is(200)
+        .answers_at("/outcome/ok", json!(true));
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints("git/commits  src-acme-rules  unknown  Commit one coherent step at a time\n");
+}
+
 #[test]
 fn a_change_made_in_a_terminal_is_told_by_the_project_it_reached() {
     let scenario = Scenario::projects(&["api"]);
