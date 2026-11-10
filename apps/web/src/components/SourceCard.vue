@@ -4,6 +4,8 @@ import type { ShelfSource } from '@/api/generated/ShelfSource'
 import type { Shelved } from '@/api/generated/Shelved'
 import { useRunner } from '@/api/commands'
 import type { Ran } from '@/api/transport'
+import PluginPicker from '@/components/PluginPicker.vue'
+import { listed, type Listed } from '@/plugins'
 import { instant, when } from '@/time'
 
 /*
@@ -13,7 +15,10 @@ import { instant, when } from '@/time'
  * renamed (`gather rename`), and forgotten (`gather remove`), its dry run
  * first, which says what it would take away and leave orphaned, then the
  * line with `--yes`, offered only then, which the preview asks about. What
- * a name may be is the command's to say, by its code.
+ * a name may be is the command's to say, by its code. A Claude Code
+ * marketplace lists its plugins too (`gather marketplace --list`), for more
+ * of them to be gathered, and holds the plugins gathered of it, each a
+ * source of its own, which the page hands it to draw under it.
  */
 
 const props = defineProps<{
@@ -47,6 +52,21 @@ watch(() => props.source.name, (name) => {
   to.value = name
   dry.value = undefined
 })
+
+/** What its catalog lists, once listed: shown until it is gathered from or listed again. */
+const plugins = ref<Listed>()
+
+/** `mindweaver gather marketplace --list --json`, of the marketplace it is, at its branch. */
+async function list() {
+  const ran = await runner.ask({ type: 'list_marketplace', source: props.source.url, reference: props.source.reference })
+  plugins.value = (ran && listed(ran)) || undefined
+}
+
+/** What the plugins ticked came to, for the page; the listing is let go, since it says what was gathered before. */
+function pluginsRan(what: string, ran: Ran) {
+  plugins.value = undefined
+  emit('ran', what, ran)
+}
 
 /** A commit as a person refers to it; the whole of it is its title. */
 function short(revision: string): string {
@@ -289,6 +309,17 @@ async function forget() {
         @click="again"
       />
       <UButton
+        v-if="source.kind === 'marketplace'"
+        label="List its plugins"
+        icon="i-lucide-list-checks"
+        size="sm"
+        color="neutral"
+        variant="outline"
+        :disabled="busy"
+        data-testid="list-plugins"
+        @click="list"
+      />
+      <UButton
         label="Rename"
         icon="i-lucide-text-cursor-input"
         size="sm"
@@ -346,6 +377,14 @@ async function forget() {
       />
     </form>
 
+    <PluginPicker
+      v-if="plugins"
+      :listed="plugins"
+      :source="source.url"
+      :reference="source.reference"
+      @ran="pluginsRan"
+    />
+
     <template v-if="dry && dry.of === source.name">
       <pre
         class="w-full overflow-x-auto rounded-md border border-default bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap text-toned"
@@ -363,5 +402,8 @@ async function forget() {
         @click="forget"
       />
     </template>
+
+    <!-- What it holds of its own, a marketplace's plugins, each a source drawn as this one is. -->
+    <slot />
   </li>
 </template>

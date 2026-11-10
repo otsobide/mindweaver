@@ -43,6 +43,20 @@ function supplied(snapshot: Snapshot, source: ShelfSource): Shelved[] {
   return snapshot.shelf.filter(shelved => shelved.source.directory === source.directory)
 }
 
+/**
+ * The sources listed at the top, in the snapshot's order: each but a
+ * plugin whose marketplace the snapshot lists, which is drawn under it.
+ */
+function tops(snapshot: Snapshot): ShelfSource[] {
+  const names = new Set(snapshot.sources.map(source => source.name))
+  return snapshot.sources.filter(source => source.parent === null || !names.has(source.parent))
+}
+
+/** The plugins gathered of `parent`, in the snapshot's order: the sources naming it as theirs. */
+function children(snapshot: Snapshot, parent: ShelfSource): ShelfSource[] {
+  return snapshot.sources.filter(source => source.parent === parent.name)
+}
+
 /** `mindweaver gather update --all`: every source gathered again, one after the other. */
 async function everyOne() {
   const ran = await runner.ask({ type: 'update_sources', names: [] })
@@ -205,12 +219,27 @@ async function everyOne() {
             aria-label="Every source, by its name"
           >
             <SourceCard
-              v-for="source in snapshot.sources"
+              v-for="source in tops(snapshot)"
               :key="source.directory"
               :source="source"
               :supplied="supplied(snapshot, source)"
               @ran="told"
-            />
+            >
+              <ul
+                v-if="children(snapshot, source).length"
+                class="flex flex-col gap-3"
+                :aria-label="`The plugins gathered of ${source.name}`"
+                data-testid="children"
+              >
+                <SourceCard
+                  v-for="child in children(snapshot, source)"
+                  :key="child.directory"
+                  :source="child"
+                  :supplied="supplied(snapshot, child)"
+                  @ran="told"
+                />
+              </ul>
+            </SourceCard>
           </ul>
         </section>
 

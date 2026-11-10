@@ -110,6 +110,25 @@ describe('the page of sources', () => {
     expect(await violations()).toEqual([])
   })
 
+  it('passes axe with a marketplace\'s plugins listed to tick, one of them ticked', async () => {
+    const listed = gathered()[10]!
+    const { transport } = commanding(fixture('sources'), [listed])
+    const { page } = await render('/sources', transport)
+
+    document.querySelectorAll<HTMLElement>('[data-testid="source-is"] [role="radio"]')[1]!.click()
+    await flushPromises()
+    await page.get('input[data-testid="source-url"]').setValue(listed.task.type === 'list_marketplace' ? listed.task.source : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="plugins"]')).not.toBeNull())
+    document.querySelector<HTMLElement>('[data-testid="plugin-review"] [role="checkbox"], [role="checkbox"][data-testid="plugin-review"]')!.click()
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="plugins-gather"]')?.hasAttribute('disabled')).toBe(false)
+    expect(await violations()).toEqual([])
+  })
+
   it('passes axe with what a gather stopped said', async () => {
     const [dry, , stopped] = gathered()
     const { transport } = commanding(fixture('sources'), [dry!, stopped!])

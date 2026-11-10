@@ -5,6 +5,8 @@ import type { Kind } from '@/api/generated/Kind'
 import { useRunner } from '@/api/commands'
 import type { Ran, Task } from '@/api/transport'
 import FolderPicker from '@/components/FolderPicker.vue'
+import PluginPicker from '@/components/PluginPicker.vue'
+import { listed, type Listed } from '@/plugins'
 
 /*
  * A source added (`mindweaver gather git`): what a gather would take said
@@ -18,6 +20,11 @@ import FolderPicker from '@/components/FolderPicker.vue'
  * and the folder each is looked for in when none is typed, are core's
  * (`gatherable`). A token is never typed here, nor sent (D-16): a private
  * repository logs in as git's credential helpers do on the server's machine.
+ *
+ * Or a Claude Code marketplace (`mindweaver gather marketplace`, #103): its
+ * catalog listed first, `--list`, which records the marketplace as a source
+ * and gathers none of its plugins, then the plugins ticked gathered, each a
+ * source of its own under it (`PluginPicker`).
  */
 
 const props = defineProps<{
@@ -32,6 +39,9 @@ const emit = defineEmits<{
 
 const runner = useRunner()
 const { busy } = runner
+
+/** Which command adds it: a git repository's, or a marketplace's. */
+const adding = ref<'git' | 'marketplace'>('git')
 
 const url = ref('')
 const kind = ref<Kind | undefined>(props.gatherable[0]?.kind)
@@ -75,6 +85,12 @@ function gather(dryRun: boolean): Task | undefined {
   }
 }
 
+/** The marketplace the fields say, listed: none while there is no repository. */
+function listing(): Task | undefined {
+  const source = given(url.value)
+  return source === null ? undefined : { type: 'list_marketplace', source, reference: given(reference.value) }
+}
+
 /** The gather the fields say now, as text, which tells one dry run from another's. */
 const asked = computed(() => JSON.stringify(gather(false) ?? null))
 
@@ -104,6 +120,41 @@ async function look() {
   }
 }
 
+/** The marketplace the fields say now, as text, which tells one listing from another's. */
+const listingAsked = computed(() => JSON.stringify(listing() ?? null))
+
+/**
+ * What its catalog lists, once it was listed, of the marketplace it was
+ * listed of, as the line named it: shown, its plugins to tick, only while
+ * the fields still say that one.
+ */
+const plugins = ref<{ of: string, listed: Listed, source: string, reference: string | null }>()
+
+/** `mindweaver gather marketplace --list --json`: its catalog, read back. */
+async function list() {
+  const task = listing()
+  if (task === undefined || task.type !== 'list_marketplace') {
+    return
+  }
+  const of = listingAsked.value
+  const ran = await runner.ask(task)
+  const read = ran && listed(ran)
+  if (read) {
+    plugins.value = { of, listed: read, source: task.source, reference: task.reference }
+  }
+}
+
+/** What the plugins ticked came to, for the page; the listing is let go, since it says what was gathered before. */
+function pluginsRan(what: string, ran: Ran) {
+  plugins.value = undefined
+  emit('ran', what, ran)
+}
+
+/** What submitting the form asks for: what a gather would take, or a marketplace's plugins. */
+function submit() {
+  return adding.value === 'git' ? look() : list()
+}
+
 /**
  * The gather itself, offered only once its dry run has been read: the same
  * line without `--dry-run`. What it said, a stop among it, is the page's to
@@ -127,7 +178,7 @@ async function take() {
     class="flex flex-col gap-3 rounded-lg border border-default p-4"
     aria-labelledby="add-heading"
     data-testid="add-source"
-    @submit.prevent="look"
+    @submit.prevent="submit"
   >
     <div>
       <h2
@@ -137,10 +188,24 @@ async function take() {
         Add a source
       </h2>
       <p class="text-sm text-muted">
-        A git repository, gathered onto the shelf as <code class="font-mono text-xs">mindweaver gather git</code> gathers it.
-        See what it would take first: nothing is gathered until you gather it, and either can be stopped while it fetches.
+        A git repository, gathered onto the shelf as <code class="font-mono text-xs">mindweaver gather git</code> gathers it,
+        or a Claude Code marketplace, whose plugins <code class="font-mono text-xs">mindweaver gather marketplace</code> gathers.
+        See what it would take, or what it lists, first: nothing is gathered until you gather it, and each can be stopped while it fetches.
       </p>
     </div>
+
+    <URadioGroup
+      v-model="adding"
+      legend="What it is"
+      orientation="horizontal"
+      :items="[
+        { value: 'git', label: 'a git repository', description: 'gather git' },
+        { value: 'marketplace', label: 'a Claude Code marketplace', description: 'gather marketplace' }
+      ]"
+      :disabled="busy"
+      :ui="{ legend: 'mb-1.5 text-sm font-medium text-default', description: 'font-mono text-xs' }"
+      data-testid="source-is"
+    />
 
     <div class="flex flex-wrap items-end gap-2">
       <UFormField
@@ -176,6 +241,7 @@ async function take() {
     </div>
 
     <URadioGroup
+      v-if="adding === 'git'"
       v-model="kind"
       legend="What to take"
       orientation="horizontal"
@@ -187,6 +253,7 @@ async function take() {
 
     <div class="grid gap-3 sm:grid-cols-2">
       <UFormField
+        v-if="adding === 'git'"
         label="Folder in it"
         name="folder"
         :required="unsaid === null"
@@ -229,6 +296,7 @@ async function take() {
         />
       </UFormField>
       <UFormField
+        v-if="adding === 'git'"
         label="Name"
         description="What to call it, instead of its owner and repository: what --from takes."
         name="name"
@@ -246,6 +314,7 @@ async function take() {
         />
       </UFormField>
       <UFormField
+        v-if="adding === 'git'"
         label="Pin to a commit"
         description="A commit in full to take, instead of whatever the branch is at now; empty to follow it."
         name="pin"
@@ -264,6 +333,7 @@ async function take() {
     </div>
 
     <UButton
+      v-if="adding === 'git'"
       type="submit"
       label="See what it would take"
       icon="i-lucide-file-search"
@@ -274,8 +344,28 @@ async function take() {
       :disabled="busy || gather(true) === undefined"
       data-testid="source-dry"
     />
+    <UButton
+      v-else
+      type="submit"
+      label="List its plugins"
+      icon="i-lucide-list-checks"
+      size="sm"
+      color="neutral"
+      variant="outline"
+      class="self-start"
+      :disabled="busy || listing() === undefined"
+      data-testid="source-list"
+    />
 
-    <template v-if="dry && dry.of === asked">
+    <PluginPicker
+      v-if="adding === 'marketplace' && plugins && plugins.of === listingAsked"
+      :listed="plugins.listed"
+      :source="plugins.source"
+      :reference="plugins.reference"
+      @ran="pluginsRan"
+    />
+
+    <template v-if="adding === 'git' && dry && dry.of === asked">
       <pre
         class="w-full overflow-x-auto rounded-md border border-default bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap text-toned"
         aria-label="What a gather would take"

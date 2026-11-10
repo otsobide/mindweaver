@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
+import type { Envelope } from '@/api/generated/Envelope'
+import type { MarketplaceListing } from '@/api/generated/MarketplaceListing'
 import type { Task } from '@/api/transport'
 import { useShell } from '@/stores/shell'
 import { instant, when } from '@/time'
@@ -15,8 +17,8 @@ afterEach(unmount)
  * stream as the server tells it (gathering.json).
  */
 
-const [DRY, GATHER, STOPPED, AGAIN, EVERY, RENAMED, TAKEN, LOOKED, FORGOT, HALTED] = gathered() as [
-  Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded
+const [DRY, GATHER, STOPPED, AGAIN, EVERY, RENAMED, TAKEN, LOOKED, FORGOT, HALTED, LISTED, PLUGINS] = gathered() as [
+  Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded, Commanded
 ]
 const [CONNECTING, RECEIVING, RESOLVING, , , PLACING] = gatheringSteps()
 
@@ -48,6 +50,14 @@ function following() {
         stoppable: !document.body.querySelector('[data-testid="stop"]')?.hasAttribute('disabled')
       }
     : undefined
+}
+
+/** The marketplace `LISTED` lists, as the form is typed. */
+const MARKET = LISTED.task.type === 'list_marketplace' ? LISTED.task.source : ''
+
+/** What `LISTED` printed, read as the envelope it is. */
+function catalogOf(commanded: Commanded) {
+  return (JSON.parse(commanded.ran.outcome.runs[0]!.stdout) as Envelope<MarketplaceListing>).data
 }
 
 /** `task`'s run as the fixture holds it: what its one line printed. */
@@ -376,5 +386,86 @@ describe('changing a source', () => {
 
     expect(page.get('[data-testid="summary"] h2').text()).toBe('What forgetting team-rules said')
     expect(page.get('[data-testid="summary-output"]').text()).toBe(printed(FORGOT).trim())
+  })
+})
+
+describe('a Claude Code marketplace', () => {
+  it('holds the plugins gathered of it under it, as their sources name it', async () => {
+    const snapshot = fixture('sources')
+    const market = snapshot.sources.find(source => source.kind === 'marketplace')!
+    const plugins = snapshot.sources.filter(source => source.parent === market.name)
+    expect(plugins.map(source => source.name)).toEqual(['acme-tools.formatter'])
+
+    const { page } = await render('/sources', snapshot)
+
+    const top = page.get('[data-testid="list"] > ul')
+    expect(top.findAll(':scope > [data-testid="source"]').map(card => card.get('[data-testid="name"]').text()))
+      .toEqual(snapshot.sources.filter(source => source.parent === null).map(source => source.name))
+    const card = top.findAll(':scope > [data-testid="source"]').find(each => each.get('[data-testid="name"]').text() === market.name)!
+    expect(card.get('[data-testid="kind"]').text()).toBe('marketplace')
+    expect(texts(card.get('[data-testid="children"]'), '[data-testid="source"] [data-testid="name"]')).toEqual(plugins.map(source => source.name))
+    expect(card.find('[data-testid="list-plugins"]').exists()).toBe(true)
+    // A plugin's own card lists no catalog: its marketplace's does.
+    expect(card.get('[data-testid="children"]').find('[data-testid="list-plugins"]').exists()).toBe(false)
+  })
+
+  it('lists what its catalog lists from the form, then gathers the plugins ticked by name, in the catalog\'s order', async () => {
+    const { sent, transport } = commanding(fixture('sources'), [LISTED, PLUGINS])
+    const { page } = await render('/sources', transport)
+    const catalog = catalogOf(LISTED)
+
+    document.body.querySelectorAll<HTMLElement>('[data-testid="source-is"] [role="radio"]')[1]!.click()
+    await flushPromises()
+    expect(page.find('[data-testid="source-kind"]').exists()).toBe(false)
+    expect(page.find('input[data-testid="source-pin"]').exists()).toBe(false)
+    await page.get('input[data-testid="source-url"]').setValue(MARKET)
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    expect(sent).toEqual([{ task: LISTED.task, mode: 'preview' }])
+    expect(shown()).toEqual({ lines: LISTED.preview.lines.map(line => `$ ${line}`), cautions: [] })
+    expect(LISTED.preview.cancellable).toBe(true)
+    clicked('run')
+    await flushPromises()
+
+    const picker = page.get('[data-testid="add-source"] [data-testid="plugins"]')
+    expect(picker.get('[data-testid="marketplace-name"]').text()).toBe(catalog.name)
+    expect(texts(picker, '[data-testid="plugin"] label')).toEqual(catalog.catalog.entries.map(entry => entry.name))
+    const [formatter, review, npm] = picker.findAll('[data-testid="plugin"]')
+    expect(formatter!.get('[data-testid="plugin-gathered"]').text()).toBe('gathered as acme-tools.formatter')
+    expect(formatter!.get('[data-testid="plugin-licence"]').text()).toBe('licence Apache-2.0')
+    expect(review!.get('[data-testid="plugin-where"]').text()).toBe('relative, path plugins/review')
+    expect(npm!.get('[data-testid="plugin-not-gathered"]').text()).toBe('not gathered: no gather takes it')
+    expect(npm!.get('[role="checkbox"]').attributes('disabled')).toBeDefined()
+    expect(picker.get('[data-testid="plugins-gather"]').attributes('disabled')).toBeDefined()
+
+    review!.get('[role="checkbox"]').element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    await picker.trigger('submit')
+    await flushPromises()
+    expect(sent.at(-1)).toEqual({ task: PLUGINS.task, mode: 'preview' })
+    expect(PLUGINS.task).toEqual({ type: 'gather_plugins', source: MARKET, reference: null, plugins: ['review'] })
+    clicked('run')
+    await flushPromises()
+
+    expect(page.find('[data-testid="plugins"]').exists()).toBe(false)
+    expect(page.get('[data-testid="summary"] h2').text()).toBe(`What gathering ${catalog.name}'s plugins said`)
+    expect(page.get('[data-testid="summary-output"]').text()).toBe(printed(PLUGINS).trim())
+  })
+
+  it('lists a marketplace\'s plugins from its own card, by the address it was gathered from', async () => {
+    const snapshot = fixture('sources')
+    const market = snapshot.sources.find(source => source.kind === 'marketplace')!
+    expect(market.url).toBe(MARKET)
+    const { sent, transport } = commanding(snapshot, [LISTED])
+    const { page } = await render('/sources', transport)
+    const card = page.findAll('[data-testid="source"]').find(each => each.get('[data-testid="name"]').text() === market.name)!
+
+    await card.get('[data-testid="list-plugins"]').trigger('click')
+    await flushPromises()
+    expect(sent).toEqual([{ task: LISTED.task, mode: 'preview' }])
+    clicked('run')
+    await flushPromises()
+
+    expect(texts(card.get('[data-testid="plugins"]'), '[data-testid="plugin"] label')).toEqual(catalogOf(LISTED).catalog.entries.map(entry => entry.name))
   })
 })
