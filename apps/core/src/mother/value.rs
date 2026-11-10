@@ -5,7 +5,8 @@ use crate::hash;
 use crate::mother::random;
 use crate::mother::url::UrlMother;
 use crate::value::{
-    ArtifactName, ContentHash, InputName, Origin, Pin, ProjectId, Redacted, Revision, VariableName,
+    ArtifactName, ContentHash, InputName, Origin, Pin, ProjectId, Redacted, Revision, UpstreamName,
+    VariableName,
 };
 
 /// Makes [`ContentHash`]es, through the recipe or the parser, the only ways
@@ -353,6 +354,66 @@ impl VariableNameMother {
             ("a dollar", format!("${word}")),
             ("a dot", format!("{word}.{word}")),
             ("a letter past ASCII", format!("{word}\u{c9}")),
+        ]
+    }
+}
+
+/// Makes [`UpstreamName`]s, as the official MCP registry names a server.
+pub struct UpstreamNameMother;
+
+impl UpstreamNameMother {
+    /// A namespace in reverse-DNS form, a slash and a name, the shape a
+    /// registry gives every server: `io.github.<owner>/<name>` or a domain
+    /// of its own turned round, a capitalised word before the name now
+    /// and then, as a .NET package's is.
+    pub fn random() -> UpstreamName {
+        let owner = random::word();
+        let namespace = if random::chance() {
+            format!("io.github.{owner}")
+        } else {
+            format!(
+                "{}.{owner}",
+                random::pick(&["com", "ai", "dev", "io.example"])
+            )
+        };
+        let mut name = random::kebab();
+        if random::chance() {
+            name = format!("{}.{name}", random::word().to_ascii_uppercase());
+        }
+        UpstreamName::from(format!("{namespace}/{name}"))
+    }
+
+    /// Exactly `text`, whatever it holds: a registry's answer is read
+    /// whatever it names a server.
+    pub fn create(text: &str) -> UpstreamName {
+        UpstreamName::from(text)
+    }
+
+    /// Texts no registry names a server, each beside why: what
+    /// [`UpstreamName::is_well_formed`] refuses.
+    pub fn ill_formed() -> Vec<(&'static str, String)> {
+        let word = random::word();
+        vec![
+            ("empty", String::new()),
+            ("no slash", format!("io.github.{word}")),
+            ("two slashes", format!("io.github.{word}/{word}/{word}")),
+            ("an empty namespace", format!("/{word}")),
+            ("an empty name", format!("io.github.{word}/")),
+            ("a query", format!("io.github.{word}/{word}?version=1")),
+            ("a space", format!("io.github.{word}/{word} {word}")),
+            (
+                "an underscore in the namespace",
+                format!("io_{word}/{word}"),
+            ),
+            ("a percent sign", format!("io.github.{word}/{word}%2F")),
+            (
+                "a letter past ASCII",
+                format!("io.github.{word}/{word}\u{e9}"),
+            ),
+            (
+                "one character over the limit",
+                format!("io/{}", "a".repeat(UpstreamName::MAX_LEN - 2)),
+            ),
         ]
     }
 }

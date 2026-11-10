@@ -21,11 +21,13 @@ use mindweaver_core::install::{is_folder_name, is_installable_name};
 use mindweaver_core::mother::random;
 use mindweaver_core::mother::{
     ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, PinMother,
-    ProjectIdMother, RedactedMother, RevisionMother, SourceMother, UrlMother, VariableNameMother,
+    ProjectIdMother, RedactedMother, RevisionMother, SourceMother, UpstreamNameMother, UrlMother,
+    VariableNameMother,
 };
 use mindweaver_core::url::carries_credentials;
 use mindweaver_core::value::{
-    ArtifactName, ContentHash, InputName, Origin, Pin, ProjectId, Redacted, Revision, VariableName,
+    ArtifactName, ContentHash, InputName, Origin, Pin, ProjectId, Redacted, Revision, UpstreamName,
+    VariableName,
 };
 use mindweaver_core::Kind;
 use serde::Serialize;
@@ -878,6 +880,70 @@ fn input_and_variable_names_written_and_read_again_are_the_same_names() {
         );
         assert!(
             serde_json::from_value::<VariableName>(refused.clone()).is_err(),
+            "{refused}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UpstreamName: any text, since a registry's answer is read whatever it names
+// a server, and a rule asked of it before it goes into a request's path.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_upstream_name_holds_any_text_since_a_registry_may_answer_anything() {
+    for _ in 0..DRAWS {
+        let text = random::text(40);
+
+        reads_as_its_text(&UpstreamName::from(text.as_str()), &text);
+        assert_eq!(UpstreamNameMother::create(&text), text.as_str());
+    }
+    let drawn = UpstreamNameMother::random();
+    reads_as_its_text(&drawn, &drawn.clone().into_string());
+}
+
+#[test]
+fn an_upstream_name_is_well_formed_only_as_a_namespace_a_slash_and_a_name() {
+    let namespace = format!("{}{}.-", random::LOWERCASE, random::DIGITS);
+    let name = format!(
+        "{}{}{}._-",
+        random::LOWERCASE,
+        random::LOWERCASE.to_ascii_uppercase(),
+        random::DIGITS
+    );
+    for _ in 0..DRAWS {
+        let drawn = UpstreamNameMother::random();
+        let any = UpstreamName::from(format!(
+            "{}/{}",
+            random::drawn_from(&namespace, random::between(1, 40)),
+            random::drawn_from(&name, random::between(1, 40))
+        ));
+
+        assert!(drawn.is_well_formed(), "{drawn}");
+        assert!(any.is_well_formed(), "{any}");
+    }
+    let longest = format!("io/{}", "a".repeat(UpstreamName::MAX_LEN - 3));
+    assert!(UpstreamName::from(longest.as_str()).is_well_formed());
+    for (why, text) in UpstreamNameMother::ill_formed() {
+        assert!(
+            !UpstreamName::from(text.as_str()).is_well_formed(),
+            "{why}: {text:?}"
+        );
+    }
+}
+
+#[test]
+fn an_upstream_name_written_and_read_again_is_the_same_name() {
+    for _ in 0..DRAWS {
+        let name = UpstreamName::from(random::text(40));
+
+        assert_eq!(written(&name), json!(name.as_str()));
+        let again: UpstreamName = serde_json::from_value(written(&name)).unwrap();
+        assert_eq!(again, name);
+    }
+    for refused in [json!(null), json!(7), json!(["io.github.a/b"])] {
+        assert!(
+            serde_json::from_value::<UpstreamName>(refused.clone()).is_err(),
             "{refused}"
         );
     }

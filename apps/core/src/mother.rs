@@ -43,7 +43,7 @@ pub use settings::SettingsMother;
 pub use url::{Credentialed, UrlMother};
 pub use value::{
     ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, PinMother,
-    ProjectIdMother, RedactedMother, RevisionMother, VariableNameMother,
+    ProjectIdMother, RedactedMother, RevisionMother, UpstreamNameMother, VariableNameMother,
 };
 
 #[cfg(test)]
