@@ -176,7 +176,13 @@ under `apps/` with its own `Makefile`:
   other key kept (`mcp::retransported`, `lifecycle::retransport`, what
   `edit` told the options does), the
   agents and where each kind goes for them (`agent`), the catalog, gathering
-  (through `port::Remote`), the ledger (through `port::LedgerStore`), installing, keeping installs out of git
+  (through `port::Remote`), reading a catalog over HTTP (through
+  `port::Http`), the redirects core follows, a status that is no success,
+  JSON read into what is asked and pages that follow one another
+  (`http::Client`, `http::with_query`, `http::next_link`), and the answers a
+  workspace keeps in its `cache/http` (`http::Cache`), none of it called
+  yet (#106 and #108 are its first callers), the ledger (through
+  `port::LedgerStore`), installing, keeping installs out of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
   Claude reads that block and the `@AGENTS.md` import in a project's
@@ -237,14 +243,18 @@ under `apps/` with its own `Makefile`:
   record, a test builds through its object mother in `mother`, compiled only
   for tests (`cfg(test)`, or the `mother` feature a dev-dependency turns
   on). Its only I/O beyond files
-  goes through a port (`port`: a `Remote` a gather fetches through, a
+  goes through a port (`port`: a `Remote` a gather fetches through, the
+  `Http` a catalog is read through, one `GET` answered whatever its
+  status, with its `HttpRequest`, `HttpResponse` and `HttpError`, a
   `LedgerStore` the ledger keeps its records in, a `Clock` it stamps them
   by), each implemented by an adapter in `adapter` (`adapter::gix::Gix`,
   its credentials callback in `adapter/gix/credentials.rs`;
-  `adapter::sqlite::Sqlite`, every query and schema step, its tests in
-  `adapter/sqlite_test.rs`; and `SystemClock`). `ledger::Ledger` is the
-  facade every caller holds, reaching its store's methods through `Deref`.
-  It never reads the environment. Under its `ts` feature, `typescript` gives what it hands a
+  `adapter::reqwest::Reqwest`, reqwest's blocking client over rustls,
+  following no redirect and reading no proxy; `adapter::sqlite::Sqlite`,
+  every query and schema step, its tests in `adapter/sqlite_test.rs`; and
+  `SystemClock`). `ledger::Ledger` is the facade every caller holds,
+  reaching its store's methods through `Deref`. It never reads the
+  environment. Under its `ts` feature, `typescript` gives what it hands a
   front end TypeScript (the roots its export writes), under its `schema`
   feature `schema` gives it JSON Schema (the roots its export writes, each
   given or taken, `Schemas`, `Together`), and under either `described` says
@@ -478,10 +488,15 @@ These are easy to break from a single file without noticing.
   Whatever core needs of the world beyond its files is a trait in `port`,
   in core's own words, its library's errors and types turned into those at
   the adapter: a gather fetches only through `Request::remote` (`Gix`
-  unless `through` hands another), the ledger keeps its records only in its
+  unless `through` hands another), a catalog is read over HTTP only through
+  an `http::Client`'s `Http` (`Reqwest` unless `Client::through` hands
+  another), which follows no redirect, keeps nothing between requests and
+  hands back whatever a server answered, every rule of what core makes of
+  it (redirects, statuses, pages, the cache) being `http`'s, the ledger
+  keeps its records only in its
   `LedgerStore` (SQLite unless `Ledger::new` hands another) and reads the
   time only through its `Clock` (`with_clock`), and no module but
-  `adapter` names `gix` for a fetch or `rusqlite` at all: a store's error
+  `adapter` names `gix` for a fetch, `reqwest` or `rusqlite` at all: a store's error
   reaches `LedgerError` boxed, so the port names no store's type. A new library outside core is an adapter of a port, injected
   with the default built in, as D-14 has it for HTTP; a new front end is
   one more driver of the command lines (`commands::run_line`), never a
@@ -1132,7 +1147,14 @@ These are easy to break from a single file without noticing.
     is the one function that takes them out: the ledger applies it to every
     URL it writes and reads, `GitError` to what it says, the gix adapter's
     scrub (`Remote::scrub`) to a clone's config and reflogs. A gather refuses a URL that carries one, and one typed as its branch,
-    folder or name, which the ledger would keep word for word. A
+    folder or name, which the ledger would keep word for word. So does an HTTP
+    request (`HttpRequest::get`, `at`, `http_url_credentialed`): a
+    credential goes in a header added as a secret (`HttpRequest::secret`,
+    and `Authorization`, `Cookie` and `Proxy-Authorization` however they
+    are added), which `Debug` never shows, the HTTP cache never keeps an
+    answer to, and a redirect or a next page never carries to another
+    site; and of an answer only the headers core reads are held
+    (`port::KEPT_HEADERS`), so a `Set-Cookie` is never kept. A
     command that writes to the ledger opens it with
     `WeaverWorkspace::ledger_to_write`, which scrubs what an older build
     stored first and hands back what it took out to be said; one that only
@@ -1175,7 +1197,10 @@ These are easy to break from a single file without noticing.
   Opening the ledger takes no lock: a schema migration keeps itself apart
   in its own transaction. The lock is not re-entrant: a writer never calls
   another while it holds it, and a front end never takes it. Reads
-  (`WeaverWorkspace::open`, `ledger_for_reading`) never take it. A wait is
+  (`WeaverWorkspace::open`, `ledger_for_reading`) never take it, nor does
+  the HTTP cache (`http::Cache`), each answer one file replaced whole by a
+  rename (`replace_bytes_unresolved`), so reading a catalog never waits
+  for a writer. A wait is
   bounded (`lock::WAIT`), ending in a `LockError::Busy` that names the
   holder's pid, except a record drop's or carry's (`install::disown`,
   `install::carry`), which follows a change already made.
@@ -1646,7 +1671,7 @@ These are easy to break from a single file without noticing.
   `tests/value_test.rs`, which holds every value to one set of laws
   (`reads_as_its_text`) and to its rule both ways, and a new port a
   contract suite every adapter of it runs (`tests/ledger_store_test.rs`,
-  `tests/remote_test.rs`).
+  `tests/remote_test.rs`, `tests/http_test.rs`).
 - No test reads the real home, the real agent homes or a workspace the
   developer's shell activated, which `HOME`, `MINDWEAVER_HOME`,
   `MINDWEAVER_WORKSPACE`, `MINDFLAYER_HOME`, `MINDFLAYER_WORKSPACE`,
@@ -1666,6 +1691,12 @@ These are easy to break from a single file without noticing.
   `config.toml` a server's name collides with or that marks a project
   trusted, makes that folder in a temp dir and hands it over in
   `AgentHomes` (`codex_mcp_test.rs`'s `codex_home`).
+- A catalog is never read over the network either. `tests/http_test.rs`
+  holds `Reqwest` to the `Http` contract against a server it starts on
+  127.0.0.1, on a port the system picks, and a fake keeping its sites in
+  memory, under `example.com`, to the same one, every slow or endless
+  answer bounded; anything else that reads over HTTP is handed a fake
+  (`http::Client::through`).
 - Git sources are built in-process with `gix` (`common::repository`): no
   network and no `git` binary. A CLI fixture's project is a repository given
   `mind init` (`common::new_project`), so a local install keeps its copies out
@@ -1981,15 +2012,14 @@ These are easy to break from a single file without noticing.
   and Windows (`test (macos)`, `test (windows)`, which set up Node too) run
   only by hand (`workflow_dispatch`) or on PRs labelled `full-matrix`, until
   the compatibility pass (#154) puts them back on pushes to `dev`/`main` and
-  PRs from `dev`, `main` or `release/*`. Every Linux job, both workflows',
-  runs on the repository's self-hosted runner, asked for by its labels
-  (`runs-on: [self-hosted, Linux, X64]`), and only macOS and Windows on
-  GitHub's: a step that needs what GitHub's image held installs it where it
-  is missing, since a self-hosted runner keeps what a job installed. Its
-  image holds `make` and a C compiler (`build-essential`), and it runs as a
-  user of its own with sudo, never root, which writes where a test takes the
-  permission away: `fmt and clippy` fails first thing on a runner that is
-  root.
+  PRs from `dev`, `main` or `release/*`. Every job, both workflows', runs
+  on GitHub's runners, the Linux ones named `ubuntu-latest` in the
+  workflow. The steps a self-hosted runner needed, while the account was
+  locked over billing, stay: a step that needs what an image may lack
+  installs it only where it is missing, and `fmt and clippy` fails first
+  thing on a runner that is root, which writes where a test takes the
+  permission away, so a self-hosted runner can take the jobs again by
+  changing `runs-on` alone.
 - The rulesets for `dev` and `main` require every check that runs on every
   pull request: `fmt and clippy`, `test (core)`, `test (cli)`, `test
   (server)`, `test (web)`, `types drift (web)`, `build (core)`, `build

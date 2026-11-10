@@ -2808,6 +2808,7 @@ dependencies = [
  "gix",
  "jsonc-parser",
  "mindweaver-core",
+ "reqwest",
  "rusqlite",
  "schemars",
  "serde",

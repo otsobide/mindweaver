@@ -25,6 +25,7 @@ use crate::port::{Clock, LedgerStore};
 use crate::settings::ProjectId;
 use crate::url::{canonical, carries_credentials, redacted};
 use crate::value::{ArtifactName, ContentHash, Origin, Redacted, Revision, SourceName};
+use crate::workspace::RESERVED_IN_CACHE;
 
 /// The schema version this build writes.
 ///
@@ -405,7 +406,8 @@ impl Sqlite {
         Ok(found)
     }
 
-    /// A readable directory name no other source has taken.
+    /// A readable directory name no other source has taken, and none the
+    /// cache keeps for core's own use ([`RESERVED_IN_CACHE`]).
     fn free_directory(&self, wanted: &str) -> Result<String, LedgerError> {
         for attempt in 1.. {
             let candidate = if attempt == 1 {
@@ -413,6 +415,9 @@ impl Sqlite {
             } else {
                 format!("{wanted}-{attempt}")
             };
+            if RESERVED_IN_CACHE.contains(&candidate.as_str()) {
+                continue;
+            }
             let taken = self
                 .connection
                 .query_row(
