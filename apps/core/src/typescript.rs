@@ -36,6 +36,7 @@ use crate::code::{self, CoreCode};
 use crate::contents::{self, Contents};
 use crate::draft::Judged;
 use crate::known::Switchable;
+use crate::marketplace;
 use crate::reading::{Shown, Validation};
 use crate::update::Updates;
 use crate::view::{Listing, Snapshot};
@@ -44,8 +45,9 @@ use crate::view::{Listing, Snapshot};
 /// the snapshot, an artifact's files and a file's contents, what an update
 /// of every project would do, the workspaces it may switch to, and the
 /// folders inside one, which the panel queries; what `list`,
-/// `show` and `validate` print, which a script reads; and every code core
-/// gives, which a front end compares a code with.
+/// `show` and `validate` print, which a script reads, and what `gather
+/// marketplace --list --json` prints, which the panel reads back from a
+/// run; and every code core gives, which a front end compares a code with.
 pub fn roots(visitor: &mut impl TypeVisitor) {
     visitor.visit::<Snapshot>();
     visitor.visit::<Updates>();
@@ -57,6 +59,7 @@ pub fn roots(visitor: &mut impl TypeVisitor) {
     visitor.visit::<Judged>();
     visitor.visit::<Switchable>();
     visitor.visit::<Folders>();
+    visitor.visit::<marketplace::Listing>();
     visitor.visit::<CoreCode>();
 }
 
