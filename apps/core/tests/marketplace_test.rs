@@ -1,7 +1,8 @@
 //! Gathering from a Claude Code plugin marketplace (#103, D-13), against
 //! real workspaces and real repositories made in process: a catalog
 //! recorded and listed, a plugin of it gathered as a source of its own only
-//! when chosen, each of a repository of its own fetched at its pin.
+//! when chosen, each of a repository of its own fetched at its pin, and the
+//! marketplace gathered again and forgotten with its plugins.
 //!
 //! A plugin a catalog names on GitHub is fetched through a stand-in for the
 //! forge ([`Forges`]), which hands a repository on the disk for each address
@@ -23,6 +24,7 @@ use mindweaver_core::marketplace::{
 };
 use mindweaver_core::mother::{GitRepositoryMother, MarketplaceMother, SkillMother};
 use mindweaver_core::port::{Cloned, GitError, Remote, Token};
+use mindweaver_core::sources::{self, Again};
 use mindweaver_core::value::{Pin, SourceName};
 use mindweaver_core::{Kind, Licence, WeaverWorkspace};
 use serde_json::json;
@@ -908,4 +910,191 @@ fn a_cancel_before_anything_is_placed_leaves_the_workspace_as_it_was() {
     assert!(fs::read_dir(workspace.cache_dir())
         .map(|entries| entries.count() == 0)
         .unwrap_or(true));
+}
+
+// ---------------------------------------------------------------------------
+// Gathering again, and forgetting
+// ---------------------------------------------------------------------------
+
+/// The marketplace of the mixed catalog with its formatter and its pinned
+/// deploy gathered, and the forges that serve it.
+fn two_gathered() -> (Mixed, TempDir, WeaverWorkspace, Ledger, Arc<Forges>) {
+    let mixed = mixed();
+    let (dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let forges = Forges::serving(&[("https://github.com/acme/deploy", &mixed.deploy)]);
+    gather(
+        &workspace,
+        &ledger,
+        &Request::listing(url(&mixed.catalog))
+            .plugins(vec![String::from("formatter"), String::from("deploy")])
+            .through(forges.clone()),
+    );
+    (mixed, dir, workspace, ledger, forges)
+}
+
+/// What an update of `names` came to, each fetched through `forges`.
+fn updated(
+    workspace: &WeaverWorkspace,
+    ledger: &Ledger,
+    names: &[&str],
+    forges: &Arc<Forges>,
+) -> Vec<sources::Regathered> {
+    let names: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+    let chosen = sources::chosen(ledger, &names).unwrap();
+    let forges: Arc<dyn Remote> = forges.clone();
+    sources::update(workspace, ledger, chosen, |source, kind| {
+        Ok(GitRequest::again(source, kind).through(Arc::clone(&forges)))
+    })
+    .unwrap()
+}
+
+/// `gather update` of a marketplace reads its catalog again and gathers
+/// each plugin of it gathered before as the catalog says it is now, a
+/// plugin never chosen staying unchosen.
+#[test]
+fn updating_a_marketplace_gathers_again_each_plugin_of_it_gathered_before() {
+    let (mixed, _dir, workspace, ledger, forges) = two_gathered();
+    write_files(
+        mixed.catalog.path(),
+        &[(
+            "plugins/formatter/skills/format/SKILL.md",
+            &skill("format", "Format the code, strictly"),
+        )],
+    );
+    commit(mixed.catalog.path());
+
+    let again = updated(&workspace, &ledger, &["acme-tools"], &forges);
+
+    assert_eq!(again.len(), 1, "one gather of the marketplace");
+    let Again::Listed(gathered) = &again[0].again else {
+        panic!("{:?}", again[0].again);
+    };
+    let chosen: Vec<&str> = gathered
+        .plugins
+        .iter()
+        .map(|plugin| plugin.entry.as_str())
+        .collect();
+    assert_eq!(chosen, ["deploy", "formatter"]);
+    let Took::Gathered(formatter) = took(gathered, "formatter") else {
+        panic!("{:?}", gathered.plugins);
+    };
+    assert_eq!(formatter.updated.len(), 1);
+    let Took::Gathered(deploy) = took(gathered, "deploy") else {
+        panic!("{:?}", gathered.plugins);
+    };
+    assert_eq!(
+        deploy.revision,
+        Some(mixed.pin.revision()),
+        "at its pin again"
+    );
+    assert_eq!(deploy.unchanged.len(), 1);
+    assert!(ledger
+        .sources()
+        .unwrap()
+        .iter()
+        .all(|source| source.entry.as_deref() != Some("review")));
+}
+
+/// A plugin named alone is gathered again through its marketplace, which
+/// says what it is now, and alone.
+#[test]
+fn a_plugin_named_alone_is_gathered_again_through_its_marketplace() {
+    let (_mixed, _dir, workspace, ledger, forges) = two_gathered();
+
+    let again = updated(&workspace, &ledger, &["acme-tools.formatter"], &forges);
+
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].source.name, name("acme-tools"));
+    let Again::Listed(gathered) = &again[0].again else {
+        panic!("{:?}", again[0].again);
+    };
+    let chosen: Vec<&str> = gathered
+        .plugins
+        .iter()
+        .map(|plugin| plugin.entry.as_str())
+        .collect();
+    assert_eq!(chosen, ["formatter"]);
+    assert_eq!(
+        sources::reached(
+            &ledger,
+            &sources::chosen(&ledger, &[String::from("acme-tools.formatter")]).unwrap()
+        )
+        .unwrap()
+        .iter()
+        .map(|source| source.name.to_string())
+        .collect::<Vec<_>>(),
+        ["acme-tools"]
+    );
+}
+
+/// A plugin the catalog no longer lists is said, and left as it was.
+#[test]
+fn a_plugin_the_catalog_no_longer_lists_is_said_and_left_as_it_was() {
+    let (mixed, _dir, workspace, ledger, forges) = two_gathered();
+    let text = fs::read_to_string(mixed.catalog.path().join(marketplace::CATALOG)).unwrap();
+    let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    value["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|plugin| plugin["name"] != "formatter");
+    write_files(
+        mixed.catalog.path(),
+        &[(marketplace::CATALOG, &value.to_string())],
+    );
+    commit(mixed.catalog.path());
+
+    let again = updated(&workspace, &ledger, &["acme-tools"], &forges);
+
+    let Again::Listed(gathered) = &again[0].again else {
+        panic!("{:?}", again[0].again);
+    };
+    let Took::NotGathered(why) = took(gathered, "formatter") else {
+        panic!("{:?}", gathered.plugins);
+    };
+    assert_eq!(why.code(), "marketplace_plugin_unlisted");
+    assert!(gathered.plugins[1].fails());
+    assert_eq!(gathered.plugins[1].name, Some(name("acme-tools.formatter")));
+    assert_eq!(shelved_by(&ledger, "acme-tools.formatter"), ["format"]);
+}
+
+/// The acceptance's removal: forgetting a marketplace forgets each plugin
+/// of it, their clones and shelf folders gone, its own clone too, and their
+/// rows.
+#[test]
+fn removing_a_marketplace_forgets_its_plugins_with_their_folders() {
+    let (_mixed, _dir, workspace, ledger, _forges) = two_gathered();
+    let sources_before = ledger.sources().unwrap();
+    let folders: Vec<std::path::PathBuf> = sources_before
+        .iter()
+        .flat_map(|source| {
+            [
+                workspace.cache_dir().join(&source.directory),
+                workspace.gathered_dir(Kind::Skill).join(&source.directory),
+            ]
+        })
+        .filter(|path| path.exists())
+        .collect();
+    assert_eq!(folders.len(), 4, "{folders:?}");
+
+    let planned = sources::removal(&workspace, &ledger, "acme-tools").unwrap();
+    let plugins: Vec<String> = planned
+        .plugins
+        .iter()
+        .map(|plugin| plugin.source.name.to_string())
+        .collect();
+    assert_eq!(plugins, ["acme-tools.deploy", "acme-tools.formatter"]);
+    assert_eq!(
+        ledger.sources().unwrap().len(),
+        3,
+        "a dry run removes nothing"
+    );
+
+    sources::remove(&workspace, &ledger, "acme-tools").unwrap();
+
+    assert!(ledger.sources().unwrap().is_empty());
+    assert!(ledger.gathered().unwrap().is_empty());
+    for folder in folders {
+        assert!(!folder.exists(), "{}", folder.display());
+    }
 }
