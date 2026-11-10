@@ -80,4 +80,17 @@ name: string,
  * or the remote's HEAD. Not part of what the source is: moving the
  * pin, or gathering it with none, gathers into the same source.
  */
-pin: string | null, };
+pin: string | null, 
+/**
+ * What the marketplace listing it is called, for a plugin gathered
+ * from one (D-13): the source a refresh or a removal of it goes
+ * through, as `gather sources` shows it. `None` for every other.
+ */
+parent: string | null, 
+/**
+ * What the plugin is called in its marketplace's catalog, for one
+ * gathered from a marketplace: what it is, as `--plugin` takes it,
+ * where its URL and its folder are only where the catalog says it is
+ * today. `None` for every other source.
+ */
+entry: string | null, };

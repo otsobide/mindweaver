@@ -1152,7 +1152,7 @@ fn the_token_gh_gives_is_handed_to_the_fetch_and_kept_nowhere() {
 /// `seconds` since the Unix epoch, as `gather sources` says a time: its day
 /// and minute in UTC. Counted a year and a month at a time, rather than by
 /// the reckoning the command uses, so the two are held to each other.
-fn utc(seconds: i64) -> String {
+pub(crate) fn utc(seconds: i64) -> String {
     let leap = |year: i64| (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let (mut days, into) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
     let mut year = 1970;

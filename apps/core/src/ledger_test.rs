@@ -24,9 +24,9 @@ const DRAWS: usize = 200;
 /// compile until it is listed here and its slug pinned below.
 fn every_source_kind() -> Vec<SourceKind> {
     let listed = |kind: SourceKind| match kind {
-        SourceKind::Git => kind,
+        SourceKind::Git | SourceKind::Marketplace => kind,
     };
-    vec![listed(SourceKind::Git)]
+    vec![listed(SourceKind::Git), listed(SourceKind::Marketplace)]
 }
 
 /// Every action, as [`every_source_kind`] lists the kinds.
@@ -79,7 +79,7 @@ fn keys(text: &str) -> Vec<String> {
 /// holds, never through its own serializer.
 fn source_as_json(source: &Source) -> String {
     format!(
-        r#"{{"kind":{},"url":{},"reference":{},"subdirectory":{},"revision":{},"directory":{},"name":{},"pin":{}}}"#,
+        r#"{{"kind":{},"url":{},"reference":{},"subdirectory":{},"revision":{},"directory":{},"name":{},"pin":{},"parent":{},"entry":{}}}"#,
         json(source.kind.slug()),
         json(source.url.as_str()),
         json(&source.reference),
@@ -88,6 +88,8 @@ fn source_as_json(source: &Source) -> String {
         json(&source.directory),
         json(source.name.as_str()),
         json(&source.pin.as_ref().map(|pin| pin.as_str())),
+        json(&source.parent.as_ref().map(|parent| parent.as_str())),
+        json(&source.entry),
     )
 }
 
@@ -163,6 +165,35 @@ fn every_source_kind_is_parsed_back_from_its_slug() {
 #[test]
 fn a_git_source_is_written_as_git() {
     assert_eq!(SourceKind::Git.slug(), "git");
+}
+
+/// The same for a marketplace (#103), the word `gather marketplace` is.
+#[test]
+fn a_marketplace_is_written_as_marketplace() {
+    assert_eq!(SourceKind::Marketplace.slug(), "marketplace");
+}
+
+/// A source no marketplace lists says so with nulls, and a plugin one
+/// lists says which by its name, and what it is in its catalog, never by
+/// the row ids either is.
+#[test]
+fn a_source_says_the_marketplace_listing_it_by_name_and_its_entry() {
+    let marketplace = SourceMother::marketplace(&UrlMother::clean());
+    let entry = random::kebab();
+    let plugin = SourceMother::listed_by(&marketplace, &entry, &UrlMother::clean());
+
+    let alone: Value = serde_json::from_str(&json(&SourceMother::random())).unwrap();
+    let listed: Value = serde_json::from_str(&json(&plugin)).unwrap();
+
+    assert_eq!(alone["parent"], Value::Null);
+    assert_eq!(alone["entry"], Value::Null);
+    assert_eq!(listed["parent"], Value::from(marketplace.name.as_str()));
+    assert_eq!(listed["entry"], Value::from(entry.as_str()));
+    assert!(!keys(&json(&plugin)).contains(&String::from("parent_id")));
+    assert_eq!(
+        serde_json::from_str::<Value>(&json(&marketplace)).unwrap()["kind"],
+        Value::from("marketplace")
+    );
 }
 
 #[test]
@@ -341,7 +372,9 @@ fn a_source_serializes_exactly_these_fields() {
             "revision",
             "directory",
             "name",
-            "pin"
+            "pin",
+            "parent",
+            "entry"
         ],
         "{source:?}"
     );

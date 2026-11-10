@@ -741,7 +741,9 @@ const EXPECTED: &str = r#"{
         "revision": "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3",
         "directory": "github.com-acme-skills",
         "name": "acme-skills",
-        "pin": null
+        "pin": null,
+        "parent": null,
+        "entry": null
       },
       "upstream_path": "skills/lint",
       "content_hash": "e10778d016e70f703740d34bf328e7b589e0ef16afffed0391c736747c534e19",
@@ -761,6 +763,8 @@ const EXPECTED: &str = r#"{
       "directory": "github.com-acme-skills",
       "name": "acme-skills",
       "pin": null,
+      "parent": null,
+      "entry": null,
       "origin": "https://github.com/acme/skills",
       "shelved": [
         {

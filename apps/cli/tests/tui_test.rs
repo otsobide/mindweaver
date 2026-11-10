@@ -5106,3 +5106,241 @@ fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
         app.mode
     );
 }
+
+// ---------------------------------------------------------------------------
+// Gathering from a Claude Code marketplace (#103)
+// ---------------------------------------------------------------------------
+
+/// What `mindweaver gather marketplace --list --json` prints for a catalog
+/// of four plugins, read by core as it reads one: two kept beside it, the
+/// second gathered already, one in a repository of its own pinned to a
+/// commit, and one from npm, which no gather takes.
+fn catalog_listed() -> String {
+    use mindweaver_core::marketplace::{Catalog, Listing};
+    use mindweaver_core::value::{Redacted, SourceName};
+
+    let pin = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c54f9c2a7e";
+    let mut catalog = Catalog::of(
+        &serde_json::json!({
+            "name": "acme-tools",
+            "plugins": [
+                {"name": "formatter", "source": "./plugins/formatter", "description": "Format the code"},
+                {"name": "review", "source": "./plugins/review", "description": "Read a change"},
+                {"name": "deploy", "source": {"source": "github", "repo": "acme/deploy", "sha": pin}, "description": "Ship the service"},
+                {"name": "from-npm", "source": {"source": "npm", "package": "@acme/x"}, "description": "A package"},
+            ],
+        }),
+        "https://github.com/acme/tools",
+    )
+    .unwrap();
+    catalog.entries[1].gathered = SourceName::parse("acme-tools.review");
+    let listing = Listing {
+        name: SourceName::parse("acme-tools").unwrap(),
+        url: Redacted::new("https://github.com/acme/tools"),
+        reference: None,
+        revision: Some(mindweaver_core::value::Revision::from(pin)),
+        catalog,
+    };
+    serde_json::json!({
+        "version": 2,
+        "data": listing,
+        "warnings": [],
+        "coded_warnings": [],
+    })
+    .to_string()
+}
+
+/// A runner standing in for every line, which notes each, and answers the
+/// listing of a marketplace with [`catalog_listed`] and every other line
+/// with a word of its own.
+fn listing_plugins(heard: &Arc<Mutex<Vec<Vec<String>>>>) -> Runner {
+    let heard = Arc::clone(heard);
+    Runner::new(move |words, _, _, _| {
+        heard.lock().unwrap().push(words.to_vec());
+        let listed = words.iter().any(|word| word == "--list");
+        Done {
+            command: words.join(" "),
+            stdout: if listed {
+                catalog_listed()
+            } else {
+                String::from("stood in\n")
+            },
+            stderr: Vec::new(),
+            error: None,
+            ok: true,
+        }
+    })
+}
+
+/// The acceptance's TUI case: a marketplace listed from the shelf's page,
+/// two of its plugins ticked, and the one line that gathers them, which
+/// the transcript keeps; a plugin no gather takes is never ticked.
+#[test]
+fn two_plugins_ticked_on_a_marketplace_listed_from_the_shelf_are_gathered_by_one_line() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(listing_plugins(&heard));
+
+    press_and_run(&mut app, KeyCode::Char('s'));
+    assert_eq!(press_key(&mut app, KeyCode::Char('m')), TuiStep::Stay);
+    assert!(matches!(app.mode, Mode::Marketplace(_)), "{:?}", app.mode);
+    type_text(&mut app, "acme/tools");
+    let listed = press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        listed,
+        Some(Task::ListMarketplace {
+            source: String::from("acme/tools"),
+            reference: None,
+        })
+    );
+    assert!(listed.unwrap().runs_apart(), "followed as a gather is");
+    let Mode::Plugins(screen) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(screen.entries().len(), 4);
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("The plugins acme-tools lists"), "{drawn}");
+    for row in [
+        "[ ]  formatter  ./plugins/formatter",
+        "[ ]  review     ./plugins/review     gathered as acme-tools.review",
+        "[ ]  deploy     github acme/deploy",
+        "     from-npm   npm @acme/x          not gathered",
+    ] {
+        assert!(drawn.contains(row), "{row}\n{drawn}");
+    }
+
+    // The first and the third ticked; the npm package refuses its tick.
+    press_key(&mut app, KeyCode::Char(' '));
+    press_key(&mut app, KeyCode::Down);
+    press_key(&mut app, KeyCode::Down);
+    press_key(&mut app, KeyCode::Char(' '));
+    press_key(&mut app, KeyCode::Down);
+    press_key(&mut app, KeyCode::Char(' '));
+    let Mode::Plugins(screen) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(screen.ticked, [true, false, true, false]);
+    assert_eq!(
+        screen.error.as_deref(),
+        Some("from-npm is not gathered: only a plugin kept in git is")
+    );
+    let gathered = press_and_run(&mut app, KeyCode::Enter).expect("enter gathers the ticked");
+
+    let line = [
+        "mindweaver",
+        "gather",
+        "marketplace",
+        "--plugin",
+        "formatter",
+        "--plugin",
+        "deploy",
+        "acme/tools",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(gathered.commands(), std::slice::from_ref(&line));
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ["mindweaver", "gather", "list"].map(String::from).to_vec(),
+            [
+                "mindweaver",
+                "gather",
+                "marketplace",
+                "--list",
+                "--json",
+                "acme/tools"
+            ]
+            .map(String::from)
+            .to_vec(),
+            line,
+        ]
+    );
+    let mindweaver_cli::GatherCommand::Marketplace {
+        source,
+        plugins,
+        all,
+        credential,
+        ..
+    } = gather_command(&gathered.commands()[0])
+    else {
+        panic!("{:?}", gathered.commands());
+    };
+    assert_eq!(source, "acme/tools");
+    assert_eq!(plugins, ["formatter", "deploy"]);
+    assert!(!all);
+    assert!(!credential.is_given(), "a task hands over no token");
+    assert!(matches!(app.mode, Mode::Reading(_)), "{:?}", app.mode);
+    let transcript = app.transcript();
+    assert!(
+        transcript.contains(
+            "$ mindweaver gather marketplace --plugin formatter --plugin deploy acme/tools\n"
+        ),
+        "{transcript}"
+    );
+}
+
+/// Enter with nothing ticked gathers nothing, and says how to tick.
+#[test]
+fn enter_with_no_plugin_ticked_gathers_nothing_and_says_how_to_tick_one() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(listing_plugins(&heard));
+    press_and_run(&mut app, KeyCode::Char('s'));
+    press_key(&mut app, KeyCode::Char('m'));
+    type_text(&mut app, "acme/tools");
+    press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+
+    let Mode::Plugins(screen) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        screen.error.as_deref(),
+        Some("tick the plugins to gather with space")
+    );
+    assert_eq!(heard.lock().unwrap().len(), 2, "nothing more was run");
+}
+
+/// On the sources screen, `m` on a marketplace, or on a plugin of one,
+/// opens the form holding the marketplace, gathered for real.
+#[test]
+fn m_on_a_marketplace_or_its_plugin_in_the_sources_screen_lists_that_marketplace() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let catalog = mindweaver_core::mother::MarketplaceMother::anthropic_skills();
+    let url = catalog.path().to_string_lossy().into_owned();
+    weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--plugin", "example-skills"],
+    )
+    .unwrap();
+    let mut app = tui_in(dir.path());
+
+    for down in [0, 1] {
+        press_key(&mut app, KeyCode::Char('S'));
+        for _ in 0..down {
+            press_key(&mut app, KeyCode::Down);
+        }
+        press_key(&mut app, KeyCode::Char('m'));
+
+        let Mode::Marketplace(form) = &app.mode else {
+            panic!("{:?}", app.mode);
+        };
+        assert_eq!(form.source.text(), url, "{down}");
+        assert_eq!(
+            form.task(),
+            Some(Task::ListMarketplace {
+                source: url.clone(),
+                reference: None,
+            })
+        );
+        press_key(&mut app, KeyCode::Esc);
+    }
+}

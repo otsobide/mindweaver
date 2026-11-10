@@ -141,8 +141,10 @@
       "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
       "source": {
         "directory": "home-you-src-acme-skills",
+        "entry": null,
         "kind": "git",
         "name": "src-acme-skills",
+        "parent": null,
         "pin": null,
         "reference": null,
         "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
@@ -167,8 +169,10 @@
       "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
       "source": {
         "directory": "home-you-src-acme-skills",
+        "entry": null,
         "kind": "git",
         "name": "src-acme-skills",
+        "parent": null,
         "pin": null,
         "reference": null,
         "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
@@ -193,8 +197,10 @@
       "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
       "source": {
         "directory": "home-you-src-team-rules",
+        "entry": null,
         "kind": "git",
         "name": "team-rules",
+        "parent": null,
         "pin": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
         "reference": null,
         "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
@@ -219,8 +225,10 @@
       "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
       "source": {
         "directory": "home-you-src-team-rules",
+        "entry": null,
         "kind": "git",
         "name": "team-rules",
+        "parent": null,
         "pin": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
         "reference": null,
         "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
@@ -234,6 +242,7 @@
   "sources": [
     {
       "directory": "home-you-src-acme-skills",
+      "entry": null,
       "gathered_at": 1792850400,
       "kind": "git",
       "licences": [
@@ -248,6 +257,7 @@
       ],
       "name": "src-acme-skills",
       "origin": "/home/you/src/acme-skills",
+      "parent": null,
       "pin": null,
       "reference": null,
       "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
@@ -262,6 +272,7 @@
     },
     {
       "directory": "home-you-src-team-rules",
+      "entry": null,
       "gathered_at": 1792850400,
       "kind": "git",
       "licences": [
@@ -272,6 +283,7 @@
       ],
       "name": "team-rules",
       "origin": "/home/you/src/team-rules",
+      "parent": null,
       "pin": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
       "reference": null,
       "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",

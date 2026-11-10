@@ -131,8 +131,8 @@ fn a_task_nobody_knows_is_refused_with_every_one_there_is() {
              `init_and_link`, `unlink`, `relink`, `load`, `load_here`, `unload`, \
              `unload_here`, `add`, `show`, `edit`, `save`, `edit_server`, `rename`, `remove`, \
              `validate`, `minds`, `marks`, `shelf`, `workspaces`, `search_skills`, \
-             `search_servers`, `import_server`, `gather`, `update_sources`, `rename_source`, \
-             `remove_source`, `export`, `backup`, `targets`, \
+             `search_servers`, `import_server`, `gather`, `list_marketplace`, `gather_plugins`, \
+             `update_sources`, `rename_source`, `remove_source`, `export`, `backup`, `targets`, \
              `settings`, `toggled`, `update`, `install`, `uninstall`, `uninstall_orphaned`, \
              `adopt`, `migrate`, `open_install`, `apply_install`, `refresh` at line 1 column 16",
         );

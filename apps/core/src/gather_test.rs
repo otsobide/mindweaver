@@ -1126,7 +1126,22 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
             "gathered_unhashed",
             "gathered_route_unusable",
             "gathered_unremoved",
+            "gathered_listed_missing",
         ]
+    );
+    let unlisted = Failure::Unlisted {
+        path: PathBuf::from("/w/.mindweaver/cache/s/plugins/deploy/skills/gone"),
+        route: String::from("./skills/gone"),
+    };
+    assert_eq!(unlisted.code(), "gathered_listed_missing");
+    assert_eq!(
+        unlisted.path(),
+        Path::new("/w/.mindweaver/cache/s/plugins/deploy/skills/gone")
+    );
+    assert_eq!(
+        unlisted.to_string(),
+        "./skills/gone: listed by its plugin's catalog entry as a skill, and holds no `SKILL.md` \
+         inside the plugin, so nothing of it is taken"
     );
 }
 
@@ -1310,6 +1325,14 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
         (
             GatherError::NotGatherable { kind: Kind::Mcp },
             "kind_not_gatherable",
+        ),
+        (
+            GatherError::PluginEmpty {
+                url: UrlMother::https(),
+                path: String::from("plugins/deploy"),
+                listed: false,
+            },
+            "gather_plugin_empty",
         ),
         (
             GatherError::Read {

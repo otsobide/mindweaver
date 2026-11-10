@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::progress::{Progress, Watch};
 use mindweaver_core::create;
 use mindweaver_core::finder::Hit;
+use mindweaver_core::marketplace::{Entry, Listing};
 use mindweaver_core::mcp_registry::Summary;
 use mindweaver_core::scan;
 use mindweaver_core::view::ShelfSource;
@@ -561,6 +562,11 @@ pub enum Mode {
     Searching(SearchForm),
     /// What a search of the skill directories found, one picked to take.
     Results(Results),
+    /// A Claude Code marketplace about to be listed: `m` on the shelf's
+    /// page or the sources screen.
+    Marketplace(MarketplaceForm),
+    /// What a marketplace's catalog lists, the plugins to gather ticked.
+    Plugins(PluginsScreen),
     /// What a search of the MCP Registry found, one picked to add.
     Servers(ServerResults),
     /// The install screen, embedded as it is.
@@ -810,6 +816,8 @@ impl App {
             Mode::Searching(form) => searching(form, key),
             Mode::Results(screen) => results(screen, key),
             Mode::Servers(screen) => servers(screen, key),
+            Mode::Marketplace(form) => marketplace(form, key),
+            Mode::Plugins(screen) => plugins(screen, key),
             Mode::Installing(screen) => self.installing(screen, key),
             Mode::Minds(screen) => self.in_minds(screen, key),
             Mode::Settings(form) => self.setting(form, key),
@@ -1276,8 +1284,10 @@ impl App {
 
     /// The sources screen's keys: `u` gathers the one picked again, `U`
     /// every one, each as `mindweaver gather update` does and followed as a
-    /// gather is, and `d` forgets the one picked once somebody says yes, as
-    /// `mindweaver gather remove --yes` does.
+    /// gather is, `d` forgets the one picked once somebody says yes, as
+    /// `mindweaver gather remove --yes` does, and `m` lists the plugins of a
+    /// Claude Code marketplace, the one picked or the one a plugin picked
+    /// is listed by, to tick the ones to gather.
     fn in_sources(&mut self, mut screen: SourcesScreen, key: KeyEvent) -> (Mode, Step) {
         let sources: &[ShelfSource] = self
             .workspace()
@@ -1302,6 +1312,13 @@ impl App {
             KeyCode::Char('U') => {
                 let task = Task::UpdateSources { names: Vec::new() };
                 return (Mode::Sources(screen), Step::Run(task));
+            }
+            KeyCode::Char('m') => {
+                let form = match picked.as_ref().and_then(|one| marketplace_of(one, sources)) {
+                    Some(listed) => MarketplaceForm::of(&listed.source),
+                    None => MarketplaceForm::default(),
+                };
+                return (Mode::Marketplace(form), Step::Stay);
             }
             KeyCode::Char('d') => {
                 if let Some(picked) = picked {
@@ -1824,6 +1841,7 @@ impl App {
             )
             | (
                 Task::Gather { .. }
+                | Task::GatherPlugins { .. }
                 | Task::ImportServer { yes: true, .. }
                 | Task::Export { .. }
                 | Task::Backup { .. }
@@ -1843,6 +1861,14 @@ impl App {
                 Ok(results) => self.mode = Mode::Results(results),
                 Err(error) => self.message = Some(Message::bad(error)),
             },
+            // The catalog the line printed, read back as the JSON it is,
+            // for the plugins to gather to be ticked.
+            (Task::ListMarketplace { source, reference }, None) => {
+                match PluginsScreen::of(source, reference.as_deref(), &dones) {
+                    Ok(screen) => self.mode = Mode::Plugins(screen),
+                    Err(error) => self.message = Some(Message::bad(error)),
+                }
+            }
             (Task::SearchServers { query }, None) => match ServerResults::of(query, &dones) {
                 Ok(results) => self.mode = Mode::Servers(results),
                 Err(error) => self.message = Some(Message::bad(error)),
@@ -1934,6 +1960,8 @@ impl App {
             Mode::Loading(form) => &mut form.error,
             Mode::Gathering(form) => &mut form.error,
             Mode::Searching(form) => &mut form.error,
+            Mode::Marketplace(form) => &mut form.error,
+            Mode::Plugins(screen) => &mut screen.error,
             Mode::Exporting(form) => &mut form.error,
             Mode::Backing(form) => &mut form.error,
             Mode::Settings(form) => &mut form.error,
@@ -2101,6 +2129,53 @@ fn searching(mut form: SearchForm, key: KeyEvent) -> (Mode, Step) {
     (Mode::Searching(form), Step::Stay)
 }
 
+/// The marketplace form's keys: typing on its two lines, and enter lists
+/// the catalog, the line running apart as a gather does.
+fn marketplace(mut form: MarketplaceForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    let count = MARKETPLACE_FIELDS.len();
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            return match form.task() {
+                Some(task) => (Mode::Marketplace(form), Step::Run(task)),
+                None => {
+                    form.error = Some(String::from("say which marketplace to list"));
+                    (Mode::Marketplace(form), Step::Stay)
+                }
+            };
+        }
+        KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % count,
+        KeyCode::BackTab | KeyCode::Up => form.field = (form.field + count - 1) % count,
+        _ => {
+            form.input_mut().press(key);
+        }
+    }
+    (Mode::Marketplace(form), Step::Stay)
+}
+
+/// The plugins' keys: `↑↓` picks one, space ticks it, enter gathers the
+/// ticked, and `esc` leaves. A plugin no gather takes is not ticked, and
+/// says why.
+fn plugins(mut screen: PluginsScreen, key: KeyEvent) -> (Mode, Step) {
+    screen.error = None;
+    let count = screen.entries().len();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => return (Mode::Browse, Step::Stay),
+        KeyCode::Up | KeyCode::Char('k') => screen.pick = screen.pick.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') if screen.pick + 1 < count => screen.pick += 1,
+        KeyCode::Char(' ') => screen.tick(),
+        KeyCode::Enter => match screen.task() {
+            Some(task) => return (Mode::Plugins(screen), Step::Run(task)),
+            None => {
+                screen.error = Some(String::from("tick the plugins to gather with space"));
+            }
+        },
+        _ => {}
+    }
+    (Mode::Plugins(screen), Step::Stay)
+}
+
 /// The results' keys: `↑↓` picks one, enter gathers it, `f` searches again,
 /// what was looked for already typed, and `esc` leaves.
 fn results(mut screen: Results, key: KeyEvent) -> (Mode, Step) {
@@ -2252,6 +2327,9 @@ fn reading(mut reader: Reader, key: KeyEvent) -> (Mode, Step) {
     match key.code {
         KeyCode::Char('f') if reader.searches => {
             return (Mode::Searching(SearchForm::default()), Step::Stay);
+        }
+        KeyCode::Char('m') if reader.searches => {
+            return (Mode::Marketplace(MarketplaceForm::default()), Step::Stay);
         }
         KeyCode::Char('r') if reader.searches => {
             return (
@@ -2699,6 +2777,163 @@ impl ServerResults {
             server: server.name.to_string(),
             version: Some(server.version.clone()),
             yes: false,
+        })
+    }
+}
+
+/// The source a marketplace is, among `sources`: `one` itself when it is a
+/// marketplace, or the one it is a plugin of.
+fn marketplace_of<'a>(one: &'a ShelfSource, sources: &'a [ShelfSource]) -> Option<&'a ShelfSource> {
+    match &one.source.parent {
+        Some(parent) => sources.iter().find(|each| each.source.name == *parent),
+        None => (one.source.kind == mindweaver_core::SourceKind::Marketplace).then_some(one),
+    }
+}
+
+/// The lines of the marketplace form, in order.
+pub const MARKETPLACE_FIELDS: [&str; 2] = ["marketplace", "ref"];
+
+/// A Claude Code marketplace about to be listed: what `m` opens on the
+/// shelf's page, empty, and on the sources screen, holding the marketplace
+/// picked.
+#[derive(Debug, Clone, Default)]
+pub struct MarketplaceForm {
+    /// Its repository, as `gather marketplace` takes it.
+    pub source: Input,
+    /// A branch or tag; empty for the repository's default.
+    pub reference: Input,
+    /// Which of [`MARKETPLACE_FIELDS`] the keyboard is on.
+    pub field: usize,
+    pub error: Option<String>,
+}
+
+impl MarketplaceForm {
+    /// The form holding the marketplace `source` was gathered from: its URL
+    /// and its branch, as the ledger keeps them.
+    fn of(source: &mindweaver_core::ledger::Source) -> Self {
+        Self {
+            source: Input::with(source.url.as_str()),
+            reference: Input::with(source.reference.as_deref().unwrap_or("")),
+            ..Self::default()
+        }
+    }
+
+    /// The input on line `field`.
+    pub fn input(&self, field: usize) -> &Input {
+        match field {
+            0 => &self.source,
+            _ => &self.reference,
+        }
+    }
+
+    fn input_mut(&mut self) -> &mut Input {
+        match self.field {
+            0 => &mut self.source,
+            _ => &mut self.reference,
+        }
+    }
+
+    /// What it would run, if it were submitted now: nothing with no
+    /// marketplace named.
+    pub fn task(&self) -> Option<Task> {
+        let source = self.source.text().trim();
+        if source.is_empty() {
+            return None;
+        }
+        let reference = Some(self.reference.text().trim())
+            .filter(|reference| !reference.is_empty())
+            .map(str::to_owned);
+        Some(Task::ListMarketplace {
+            source: source.to_owned(),
+            reference,
+        })
+    }
+}
+
+/// What a Claude Code marketplace's catalog lists, the plugins to gather
+/// ticked: the screen listing one opens once it is over.
+#[derive(Debug, Clone)]
+pub struct PluginsScreen {
+    /// The marketplace, as the line that listed it named it, and its
+    /// branch.
+    pub source: String,
+    pub reference: Option<String>,
+    /// What it lists, as core read it, by the names the envelope's `data`
+    /// gives them.
+    pub listing: Listing,
+    /// Whether each of its plugins is ticked, in the order it lists them.
+    pub ticked: Vec<bool>,
+    /// Which plugin is picked.
+    pub pick: usize,
+    /// What the listing said beside it, a line each: an entry that could
+    /// not be read, a `headersHelper` never run.
+    pub said: Vec<String>,
+    pub error: Option<String>,
+}
+
+impl PluginsScreen {
+    /// What the listing of `source` printed, read back: its catalog from
+    /// the JSON the line printed, and what it said on stderr; or why it
+    /// could not be read.
+    ///
+    /// The JSON rather than the table, since a table's columns are for
+    /// reading, and the envelope's names are a contract a test holds.
+    pub fn of(source: &str, reference: Option<&str>, dones: &[Done]) -> Result<Self, String> {
+        let unreadable = || String::from("the marketplace's listing could not be read");
+        let done = dones.last().ok_or_else(unreadable)?;
+        let envelope: serde_json::Value =
+            serde_json::from_str(&done.stdout).map_err(|_| unreadable())?;
+        let data = envelope.pointer("/data").cloned().ok_or_else(unreadable)?;
+        let listing: Listing = serde_json::from_value(data).map_err(|_| unreadable())?;
+        Ok(Self {
+            source: source.to_owned(),
+            reference: reference.map(str::to_owned),
+            ticked: vec![false; listing.catalog.entries.len()],
+            listing,
+            pick: 0,
+            said: done.stderr.clone(),
+            error: None,
+        })
+    }
+
+    /// Its plugins, in the order the catalog lists them.
+    pub fn entries(&self) -> &[Entry] {
+        &self.listing.catalog.entries
+    }
+
+    /// Tick the plugin picked, or untick it; one no gather takes is never
+    /// ticked, and says so.
+    fn tick(&mut self) {
+        let Some(entry) = self.listing.catalog.entries.get(self.pick) else {
+            return;
+        };
+        if entry.gatherable {
+            self.ticked[self.pick] = !self.ticked[self.pick];
+        } else {
+            self.error = Some(format!(
+                "{} is not gathered: only a plugin kept in git is",
+                entry.name
+            ));
+        }
+    }
+
+    /// The gather of the plugins ticked, in the order the catalog lists
+    /// them, by the line `gather marketplace --plugin` amounts to: nothing
+    /// with none ticked.
+    pub fn task(&self) -> Option<Task> {
+        let plugins: Vec<String> = self
+            .listing
+            .catalog
+            .entries
+            .iter()
+            .zip(&self.ticked)
+            .filter(|(_, ticked)| **ticked)
+            .map(|(entry, _)| entry.name.clone())
+            .collect();
+        (!plugins.is_empty()).then(|| Task::GatherPlugins {
+            source: self.source.clone(),
+            reference: self.reference.clone(),
+            plugins,
         })
     }
 }
@@ -3236,18 +3471,20 @@ impl Reader {
             ),
             (
                 "s",
-                "what is on the shelf; f there searches the skill directories, enter on a result gathers it; r searches the MCP Registry, enter on a server says what adding it writes, y there writes it",
+                "what is on the shelf; f there searches the skill directories, enter on a result gathers it; r searches the MCP Registry, enter on a server says what adding it writes, y there writes it; m lists a Claude Code marketplace's plugins, enter gathers those ticked",
                 &[
                     "mindweaver gather list",
                     "mindweaver gather search --json <query>",
                     "mindweaver gather git [--path <folder>] [--ref <branch>] <url>",
                     "mindweaver gather mcp search --json <query>",
                     "mindweaver gather mcp add [--version <version>] [--yes] <server>",
+                    "mindweaver gather marketplace --list --json [--ref <branch>] <source>",
+                    "mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>",
                 ],
             ),
             (
                 "S",
-                "the sources it is filled from: u gathers one again, U every one, d forgets one once you say yes",
+                "the sources it is filled from: u gathers one again, U every one, d forgets one once you say yes, m lists the marketplace picked",
                 &[
                     "mindweaver gather update <name>",
                     "mindweaver gather update --all",
