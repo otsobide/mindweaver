@@ -78,6 +78,37 @@ pub fn default_folder(kind: Kind) -> Option<&'static str> {
     }
 }
 
+/// A kind a gather takes, with the folder a gather of it looks in when none
+/// is named ([`default_folder`]): what a front end with a form for a
+/// gather offers, each kind by the word a task names it by, and the folder
+/// it leaves unsaid, or has somebody name when there is none.
+///
+/// Told by core rather than by a front end listing every kind it knows: an
+/// MCP server is gathered from nowhere yet ([`gatherable`]), and a front
+/// end offering it would offer a line that only says so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Gatherable {
+    pub kind: Kind,
+    /// The folder a gather of it looks in when none is named, `.` for the
+    /// whole repository; none when one has to be.
+    pub folder: Option<String>,
+}
+
+/// Every kind a gather takes, in report order, each with the folder a
+/// gather of it looks in unsaid.
+pub fn gatherables() -> Vec<Gatherable> {
+    Kind::ALL
+        .into_iter()
+        .filter(|kind| gatherable(*kind).is_ok())
+        .map(|kind| Gatherable {
+            kind,
+            folder: default_folder(kind).map(str::to_owned),
+        })
+        .collect()
+}
+
 /// The folder an older build harvested unless another was named, before a
 /// gather looked through the whole repository (#101): a source registered
 /// from it, at the URL and branch a gather naming no folder is of, is that

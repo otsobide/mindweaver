@@ -1116,7 +1116,8 @@ fn gather_list_as_json_holds_the_offers_the_text_lists() {
 }
 
 /// A source, as `gather sources --json` prints one: the ledger's row, its
-/// origin, how much of it the shelf holds of each kind, and when.
+/// origin, how much of it the shelf holds of each kind, when, and the
+/// licences what it holds there says.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Listed {
@@ -1125,6 +1126,14 @@ struct Listed {
     origin: String,
     shelved: Vec<KindCount>,
     gathered_at: Option<i64>,
+    licences: Vec<LicenceCount>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LicenceCount {
+    licence: String,
+    count: usize,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -1155,6 +1164,14 @@ fn gather_sources_as_json_holds_the_sources_the_text_lists() {
         }]
     );
     assert!(one.gathered_at.is_some());
+    // Said as `gather list` says it, of a skill declaring none.
+    assert_eq!(
+        one.licences,
+        [LicenceCount {
+            licence: String::from("unknown"),
+            count: 1
+        }]
+    );
     // The text lists it by the name `--from` takes, first.
     assert!(
         text.stdout.starts_with(&format!("{}  ", one.source.name)),
