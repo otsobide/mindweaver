@@ -55,6 +55,10 @@ pub use watch::{Progress, Watch};
 /// same source as no `--path`.
 pub const DEFAULT_SUBDIRECTORY: &str = ".";
 
+/// What a gather takes unless it is told another kind
+/// ([`Request::taking`]): skills, all a gather took before rules (#111).
+pub const DEFAULT_KIND: Kind = Kind::Skill;
+
 /// The folder a gather of `kind` looks in when none is named: the
 /// repository's root for skills, which are found wherever in it they are
 /// kept ([`LAYOUTS`]), and none for rules, whose folder is named (#111).
@@ -185,7 +189,7 @@ impl Request {
                 reference: None,
             },
             subdirectory: None,
-            kind: Kind::Skill,
+            kind: DEFAULT_KIND,
             watch: Watch::new(),
             remote: Arc::new(Gix),
             name: None,
