@@ -14,7 +14,8 @@ use mindweaver_core::create::Start;
 use mindweaver_core::doctor::Machine;
 use mindweaver_core::install::{self, Confirmed, Edits};
 use mindweaver_core::known;
-use mindweaver_core::ledger::{Action, InstallRecord, Outcome, Target};
+use mindweaver_core::ledger::{Action, InstallRecord, Outcome, Taken, Target};
+use mindweaver_core::licence::Licence;
 use mindweaver_core::lifecycle;
 use mindweaver_core::mcp::{Address, Given, Program};
 use mindweaver_core::mother::{McpMother, VariableNameMother};
@@ -160,7 +161,7 @@ fn fixture() -> Fixture {
         .source_for(SourceKind::Git, url, None, "skills")
         .unwrap();
     let revision = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3";
-    ledger.saw_source(source.id, Some(revision)).unwrap();
+    ledger.saw_source(source.id, Some(revision), None).unwrap();
     let shelf = format!(".mindweaver/skills/{}/lint", source.directory);
     common::write_files(
         &hub.join(&shelf),
@@ -169,11 +170,16 @@ fn fixture() -> Fixture {
     ledger
         .record(
             &source,
-            Kind::Skill,
-            "lint",
-            &shelf,
-            Some("Tidy it"),
-            Some(revision),
+            &Taken {
+                kind: Kind::Skill,
+                name: "lint".into(),
+                path: shelf.clone(),
+                summary: Some(String::from("Tidy it")),
+                revision: Some(revision.into()),
+                upstream_path: String::from("skills/lint"),
+                content_hash: Some(hash::tree(&hub.join(&shelf)).unwrap()),
+                licence: Licence::Unknown,
+            },
         )
         .unwrap();
     ledger
@@ -724,7 +730,13 @@ const EXPECTED: &str = r#"{
         "subdirectory": "skills",
         "revision": "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3",
         "directory": "github.com-acme-skills",
-        "name": "acme-skills"
+        "name": "acme-skills",
+        "pin": null
+      },
+      "upstream_path": "skills/lint",
+      "content_hash": "e10778d016e70f703740d34bf328e7b589e0ef16afffed0391c736747c534e19",
+      "licence": {
+        "from": "unknown"
       },
       "origin": "https://github.com/acme/skills"
     }
@@ -738,6 +750,7 @@ const EXPECTED: &str = r#"{
       "revision": "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3",
       "directory": "github.com-acme-skills",
       "name": "acme-skills",
+      "pin": null,
       "origin": "https://github.com/acme/skills"
     }
   ],

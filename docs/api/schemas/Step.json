@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Step",
-  "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no gather's shape but its stages: a run of\nanother command that reports steps, a backup's checking out, exporting,\ncommitting and pushing, says them in the same five fields with stages\nof its own.",
+  "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no one run's shape but its stages: a gather's\nand a backup's checking out, exporting, committing and pushing are\nsaid in the same five fields, a backup's with no count.",
   "type": "object",
   "properties": {
     "cancellable": {
-      "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf.",
+      "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf, and until a backup starts\npushing.",
       "type": "boolean"
     },
     "done": {
@@ -44,7 +44,7 @@
   ],
   "$defs": {
     "Stage": {
-      "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them.",
+      "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's, then a\nsearch's.",
       "oneOf": [
         {
           "description": "Reaching the source, before it has sent anything.",
@@ -62,7 +62,7 @@
           "const": "resolving"
         },
         {
-          "description": "Writing the fetched revision's files into the clone.",
+          "description": "Writing the fetched revision's files into the clone; for a backup,\nchecking the repository out, which counts nothing.",
           "type": "string",
           "const": "checking_out"
         },
@@ -75,6 +75,26 @@
           "description": "Putting what was read on the shelf.",
           "type": "string",
           "const": "placing"
+        },
+        {
+          "description": "A backup's export of the library into its check-out.",
+          "type": "string",
+          "const": "exporting"
+        },
+        {
+          "description": "A backup's commit of what it exported.",
+          "type": "string",
+          "const": "committing"
+        },
+        {
+          "description": "A backup's push of its commit, past which a cancel is too late.",
+          "type": "string",
+          "const": "pushing"
+        },
+        {
+          "description": "A search's asking a skill directory, counted by the finders that\nhave answered.",
+          "type": "string",
+          "const": "asking"
         }
       ]
     }

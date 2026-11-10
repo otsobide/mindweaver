@@ -61,6 +61,14 @@ fn every_own_error(url: &str, detail: &str) -> Vec<(GitError, &'static str)> {
             },
             "git_checkout_failed",
         ),
+        (
+            GitError::PinUnreachable {
+                url: url.to_owned(),
+                pin: crate::mother::PinMother::random(),
+                reference: Some(detail.to_owned()),
+            },
+            "git_pin_unreachable",
+        ),
         (GitError::Cancelled, "git_clone_cancelled"),
     ]
 }
@@ -80,6 +88,31 @@ fn each_git_error_of_its_own_gives_its_own_code() {
     for (error, code) in every_own_error("https://example.com/acme/skills.git", "refused") {
         assert_eq!(error.code(), code, "{error:?}");
     }
+}
+
+#[test]
+fn a_pin_no_branch_reaches_is_said_with_the_branch_it_was_looked_for_on() {
+    let pin = crate::mother::PinMother::random();
+    let unreachable = |reference: Option<&str>| GitError::PinUnreachable {
+        url: String::from("https://github.com/acme/skills"),
+        pin: pin.clone(),
+        reference: reference.map(str::to_owned),
+    };
+
+    assert_eq!(
+        unreachable(None).to_string(),
+        format!(
+            "https://github.com/acme/skills: has no commit {pin} that its default branch \
+             reaches, so nothing is gathered at it"
+        )
+    );
+    assert_eq!(
+        unreachable(Some("stable")).to_string(),
+        format!(
+            "https://github.com/acme/skills: has no commit {pin} that `stable` reaches, so \
+             nothing is gathered at it"
+        )
+    );
 }
 
 #[test]
@@ -173,7 +206,8 @@ fn a_fetch_that_failed_names_the_url_and_what_the_remote_said() {
 }
 
 /// What to do about it is the message's: a gather never prompts, so the
-/// person reading it is told where a credential is looked for instead.
+/// person reading it is told where a credential is looked for instead, and
+/// how to hand one over for the run.
 #[test]
 fn a_remote_that_asks_who_is_fetching_says_where_a_credential_is_looked_for() {
     let error = GitError::Credentials {
@@ -183,7 +217,8 @@ fn a_remote_that_asks_who_is_fetching_says_where_a_credential_is_looked_for() {
     assert_eq!(
         error.to_string(),
         "https://example.com/acme/private.git: needs credentials, and gathering never \
-         prompts for them: configure a git credential helper, or use ssh-agent for an ssh URL"
+         prompts for them: configure a git credential helper, use ssh-agent for an ssh URL, or \
+         hand it a token with --token-env or --gh"
     );
 }
 
@@ -542,6 +577,7 @@ fn a_response_keeps_only_the_headers_core_reads_named_in_lowercase() {
             ("ETag", "\"v1\""),
             ("Set-Cookie", "session=s3cret"),
             ("X-RateLimit-Remaining", "59"),
+            ("X-Request-Id", "4f9c2a7e"),
             ("Retry-After", " 120 "),
         ],
         Vec::new(),
@@ -556,10 +592,12 @@ fn a_response_keeps_only_the_headers_core_reads_named_in_lowercase() {
             ),
             (String::from("etag"), String::from("\"v1\"")),
             (String::from("retry-after"), String::from("120")),
+            (String::from("x-ratelimit-remaining"), String::from("59")),
         ])
     );
     assert_eq!(response.header("Content-TYPE"), Some("application/json"));
     assert_eq!(response.header("set-cookie"), None);
+    assert_eq!(response.header("x-request-id"), None);
 }
 
 #[test]

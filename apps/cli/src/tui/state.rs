@@ -12,8 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Arc;
 
+use crate::progress::{Progress, Watch};
 use mindweaver_core::create;
-use mindweaver_core::gather::{Progress, Watch};
+use mindweaver_core::finder::Hit;
 use mindweaver_core::scan;
 use mindweaver_core::{
     paths, Agent, Kind, Layout, MarkerFile, Reason, Share, State, DEFAULT_SUBDIRECTORY,
@@ -424,7 +425,8 @@ impl Running {
     }
 
     /// Ask it to stop. A gather stops before it places anything, and one
-    /// already placing finishes, as it would from the command line.
+    /// already placing finishes, as it would from the command line; a
+    /// backup stops before it pushes, and one already pushing finishes.
     pub fn cancel(&mut self) {
         self.watch.cancel();
         self.cancelling = true;
@@ -537,10 +539,18 @@ pub enum Mode {
     Linking(LinkForm),
     Loading(LoadForm),
     Gathering(GatherForm),
+    /// The library about to be exported into a folder: `x`.
+    Exporting(ExportForm),
+    /// The library about to be backed up to a git repository: `b`.
+    Backing(BackupForm),
     /// A yes or no before something that writes.
     Confirming(Confirm),
     /// A page of output: validate, show, the shelf, a report.
     Reading(Reader),
+    /// The skill directories about to be searched: `f` on the shelf's page.
+    Searching(SearchForm),
+    /// What a search of the skill directories found, one picked to take.
+    Results(Results),
     /// The install screen, embedded as it is.
     Installing(InstallScreen),
     /// Which minds the workspace manages, ticked, to change in one pass.
@@ -780,8 +790,12 @@ impl App {
             Mode::Linking(form) => self.linking(form, key),
             Mode::Loading(form) => self.loading(form, key),
             Mode::Gathering(form) => gathering(form, key),
+            Mode::Exporting(form) => exporting(form, key),
+            Mode::Backing(form) => backing(form, key),
             Mode::Confirming(confirm) => confirming(confirm, key),
             Mode::Reading(reader) => reading(reader, key),
+            Mode::Searching(form) => searching(form, key),
+            Mode::Results(screen) => results(screen, key),
             Mode::Installing(screen) => self.installing(screen, key),
             Mode::Minds(screen) => self.in_minds(screen, key),
             Mode::Settings(form) => self.setting(form, key),
@@ -828,8 +842,9 @@ impl App {
             _ => {}
         }
         // What only a workspace has: its registry, its shelf, its installs.
-        if let KeyCode::Char(key @ ('l' | 'u' | 'U' | 'M' | 'A' | 'g' | 's' | 'i' | 'm' | 'L')) =
-            key.code
+        if let KeyCode::Char(
+            key @ ('l' | 'u' | 'U' | 'M' | 'A' | 'g' | 's' | 'i' | 'm' | 'L' | 'x' | 'b'),
+        ) = key.code
         {
             return match self.scope() {
                 Scope::Workspace => self.in_workspace(key),
@@ -851,6 +866,10 @@ impl App {
             'M' => self.start_relinking(),
             'A' => self.start_adopting(),
             'g' => (Mode::Gathering(GatherForm::default()), Step::Stay),
+            // The workspace's own, wherever the cursor is: what is exported
+            // and backed up is the library, whichever row is lit.
+            'x' => (Mode::Exporting(ExportForm::default()), Step::Stay),
+            'b' => (Mode::Backing(BackupForm::default()), Step::Stay),
             's' => (Mode::Browse, Step::Run(Task::Shelf)),
             'm' => match self.workspace() {
                 Some(workspace) => (Mode::Minds(Minds::of(workspace)), Step::Stay),
@@ -1707,9 +1726,26 @@ impl App {
                 | Task::Minds { .. },
                 _,
             )
-            | (Task::Gather { .. } | Task::Settings { .. } | Task::Targets { .. }, None) => {
-                self.mode = Mode::Reading(Reader::of(&dones));
+            | (
+                Task::Gather { .. }
+                | Task::Export { .. }
+                | Task::Backup { .. }
+                | Task::Settings { .. }
+                | Task::Targets { .. },
+                None,
+            ) => {
+                let mut reader = Reader::of(&dones);
+                // The shelf's page offers a search of what is not on it yet.
+                reader.searches = *task == Task::Shelf;
+                self.mode = Mode::Reading(reader);
             }
+            // What the line printed, read back as the JSON it is, for a
+            // result to be picked from; the same words, a table's, as the
+            // command lays them out.
+            (Task::SearchSkills { query }, None) => match Results::of(query, &dones) {
+                Ok(results) => self.mode = Mode::Results(results),
+                Err(error) => self.message = Some(Message::bad(error)),
+            },
             (_, Some(error)) => {
                 // A form stays open with the reason in it, so a typo is fixed
                 // where it was made rather than typed out again.
@@ -1777,6 +1813,9 @@ impl App {
             Mode::Linking(form) => &mut form.error,
             Mode::Loading(form) => &mut form.error,
             Mode::Gathering(form) => &mut form.error,
+            Mode::Searching(form) => &mut form.error,
+            Mode::Exporting(form) => &mut form.error,
+            Mode::Backing(form) => &mut form.error,
             Mode::Settings(form) => &mut form.error,
             Mode::Targets(form) => &mut form.error,
             _ => return false,
@@ -1919,6 +1958,132 @@ fn gathering(mut form: GatherForm, key: KeyEvent) -> (Mode, Step) {
     (Mode::Gathering(form), Step::Stay)
 }
 
+/// The search form's keys: typing the query, and enter searches, the line
+/// running apart as a gather does, stopped by `esc` between two finders.
+fn searching(mut form: SearchForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            return match form.task() {
+                Some(task) => (Mode::Searching(form), Step::Run(task)),
+                None => {
+                    form.error = Some(String::from("say what to look for"));
+                    (Mode::Searching(form), Step::Stay)
+                }
+            };
+        }
+        _ => {
+            form.query.press(key);
+        }
+    }
+    (Mode::Searching(form), Step::Stay)
+}
+
+/// The results' keys: `↑↓` picks one, enter gathers it, `f` searches again,
+/// what was looked for already typed, and `esc` leaves.
+fn results(mut screen: Results, key: KeyEvent) -> (Mode, Step) {
+    let count = screen.hits.len();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => return (Mode::Browse, Step::Stay),
+        KeyCode::Up | KeyCode::Char('k') => screen.pick = screen.pick.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') if screen.pick + 1 < count => screen.pick += 1,
+        KeyCode::Char('f') => {
+            let form = SearchForm {
+                query: Input::with(&screen.query),
+                error: None,
+            };
+            return (Mode::Searching(form), Step::Stay);
+        }
+        KeyCode::Enter => {
+            if let Some(task) = screen.task() {
+                return (Mode::Results(screen), Step::Run(task));
+            }
+        }
+        _ => {}
+    }
+    (Mode::Results(screen), Step::Stay)
+}
+
+/// The export form's keys: typing on the folder's line, a space on a kind's
+/// or on the yes ticks it, and enter runs what it says, once asked about
+/// when it may take something away.
+fn exporting(mut form: ExportForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    let last = ExportForm::lines() - 1;
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            let task = match form.task() {
+                Ok(task) => task,
+                Err(missing) => {
+                    form.error = Some(missing.to_owned());
+                    return (Mode::Exporting(form), Step::Stay);
+                }
+            };
+            if !form.yes {
+                return (Mode::Exporting(form), Step::Run(task));
+            }
+            // Asked here, worded for what it is about, as a deletion is:
+            // `--yes` is what lets it delete.
+            let confirm = Confirm {
+                question: vec![
+                    format!(
+                        "Export into {}, changing or removing what an earlier export wrote there?",
+                        form.folder.text().trim()
+                    ),
+                    String::new(),
+                    String::from(
+                        "What the library no longer holds is deleted from the folder, and what \
+                         changed is written over, edits made there since included.",
+                    ),
+                ],
+                task,
+                also: None,
+                back: Box::new(Mode::Exporting(form)),
+            };
+            return (Mode::Confirming(confirm), Step::Stay);
+        }
+        KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % (last + 1),
+        KeyCode::BackTab | KeyCode::Up => form.field = (form.field + last) % (last + 1),
+        KeyCode::Char(' ') if form.field > 0 => form.tick(),
+        _ if form.field == 0 => {
+            form.folder.press(key);
+        }
+        _ => {}
+    }
+    (Mode::Exporting(form), Step::Stay)
+}
+
+/// The backup form's keys: typing on its four lines of text, a space on a
+/// kind's line ticks it, and enter runs it, apart, as a gather runs.
+fn backing(mut form: BackupForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    let count = BackupForm::lines();
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            return match form.task() {
+                Ok(task) => (Mode::Backing(form), Step::Run(task)),
+                Err(missing) => {
+                    form.error = Some(missing.to_owned());
+                    (Mode::Backing(form), Step::Stay)
+                }
+            };
+        }
+        KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % count,
+        KeyCode::BackTab | KeyCode::Up => form.field = (form.field + count - 1) % count,
+        _ => match form.input_mut() {
+            Some(input) => {
+                input.press(key);
+            }
+            None if key.code == KeyCode::Char(' ') => form.tick(),
+            None => {}
+        },
+    }
+    (Mode::Backing(form), Step::Stay)
+}
+
 fn confirming(confirm: Confirm, key: KeyEvent) -> (Mode, Step) {
     match key.code {
         // Back to where it was asked from while it runs, so a failure lands in
@@ -1936,6 +2101,9 @@ fn confirming(confirm: Confirm, key: KeyEvent) -> (Mode, Step) {
 fn reading(mut reader: Reader, key: KeyEvent) -> (Mode, Step) {
     let last = reader.lines.len().saturating_sub(1);
     match key.code {
+        KeyCode::Char('f') if reader.searches => {
+            return (Mode::Searching(SearchForm::default()), Step::Stay);
+        }
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => return (Mode::Browse, Step::Stay),
         KeyCode::Up | KeyCode::Char('k') => reader.scroll = reader.scroll.saturating_sub(1),
         KeyCode::Down | KeyCode::Char('j') => reader.scroll = (reader.scroll + 1).min(last),
@@ -2196,10 +2364,279 @@ impl GatherForm {
         let reference = Some(self.reference.text().trim())
             .filter(|reference| !reference.is_empty())
             .map(str::to_owned);
+        // Skills, the form having no field for the kind: rules are
+        // gathered from a command line, or a task the API is sent.
         Some(Task::Gather {
             url: url.to_owned(),
             folder: folder.to_owned(),
             reference,
+            kind: mindweaver_core::gather::DEFAULT_KIND,
+        })
+    }
+}
+
+/// The skill directories about to be searched for what `query` finds: what
+/// `f` opens on the shelf's page.
+#[derive(Debug, Clone, Default)]
+pub struct SearchForm {
+    pub query: Input,
+    pub error: Option<String>,
+}
+
+impl SearchForm {
+    /// What it would run, if it were submitted now: nothing with no query,
+    /// which no finder answers.
+    pub fn task(&self) -> Option<Task> {
+        let query = self.query.text().trim();
+        (!query.is_empty()).then(|| Task::SearchSkills {
+            query: query.to_owned(),
+        })
+    }
+}
+
+/// What a search of the skill directories found, one of it picked to take:
+/// the screen a search from the shelf opens once it is over.
+#[derive(Debug, Clone)]
+pub struct Results {
+    /// What was looked for.
+    pub query: String,
+    /// Each result, as core listed it, numbered from 1 on the screen as on
+    /// a command line.
+    pub hits: Vec<Hit>,
+    /// What the search said beside them, a line each: a finder skipped for
+    /// want of a token, one that failed, a result dropped.
+    pub said: Vec<String>,
+    /// Which result is picked.
+    pub pick: usize,
+}
+
+impl Results {
+    /// What the search for `query` printed, read back: its results from the
+    /// JSON the line printed, by the names the envelope's `data` gives them,
+    /// and what it said on stderr; or why it could not be read.
+    ///
+    /// The JSON rather than the table, since a table's columns are for
+    /// reading, and the envelope's names are a contract a test holds.
+    pub fn of(query: &str, dones: &[Done]) -> Result<Self, String> {
+        let unreadable = || String::from("the search's answer could not be read");
+        let done = dones.last().ok_or_else(unreadable)?;
+        let envelope: serde_json::Value =
+            serde_json::from_str(&done.stdout).map_err(|_| unreadable())?;
+        let hits = envelope
+            .pointer("/data/hits")
+            .cloned()
+            .ok_or_else(unreadable)?;
+        let hits: Vec<Hit> = serde_json::from_value(hits).map_err(|_| unreadable())?;
+        Ok(Results {
+            query: query.to_owned(),
+            hits,
+            said: done.stderr.clone(),
+            pick: 0,
+        })
+    }
+
+    /// The gather that takes the result picked: `mindweaver gather git` of its
+    /// repository, at the branch a finder named, from its folder there, as
+    /// `gather search --take` takes it, but by the line it amounts to, so
+    /// the transcript gathers the same again however the finders answer by
+    /// then.
+    pub fn task(&self) -> Option<Task> {
+        let hit = self.hits.get(self.pick)?;
+        Some(Task::Gather {
+            url: hit.repository.to_string(),
+            folder: hit.folder().to_owned(),
+            reference: hit.reference.clone(),
+            kind: Kind::Skill,
+        })
+    }
+}
+
+/// Every kind, in core's order, ticked: what the export and backup forms
+/// start from, which names no kind on the line, every kind being what
+/// naming none asks.
+fn every_kind() -> Vec<(Kind, bool)> {
+    Kind::ALL.into_iter().map(|kind| (kind, true)).collect()
+}
+
+/// The kinds a form's ticks ask for: none named when every one is ticked,
+/// which asks for every kind, and those ticked otherwise; refused with no
+/// kind ticked, which would be no export at all.
+fn kinds_ticked(kinds: &[(Kind, bool)]) -> Result<Vec<Kind>, &'static str> {
+    let ticked: Vec<Kind> = kinds
+        .iter()
+        .filter(|(_, ticked)| *ticked)
+        .map(|(kind, _)| *kind)
+        .collect();
+    match ticked.len() {
+        0 => Err("tick at least one kind"),
+        all if all == kinds.len() => Ok(Vec::new()),
+        _ => Ok(ticked),
+    }
+}
+
+/// The workspace's own about to be exported into a folder: what `x` opens.
+#[derive(Debug, Clone)]
+pub struct ExportForm {
+    /// The folder to write into, as `mindweaver export` takes it, from the
+    /// workspace's root.
+    pub folder: Input,
+    /// Every kind, in core's order, and whether it is ticked.
+    pub kinds: Vec<(Kind, bool)>,
+    /// Whether what an earlier export wrote there may be changed or
+    /// removed: `--yes`, asked about before it runs.
+    pub yes: bool,
+    /// Which line the keyboard is on: the folder, each kind, then the yes.
+    pub field: usize,
+    pub error: Option<String>,
+}
+
+impl Default for ExportForm {
+    fn default() -> Self {
+        Self {
+            folder: Input::default(),
+            kinds: every_kind(),
+            yes: false,
+            field: 0,
+            error: None,
+        }
+    }
+}
+
+impl ExportForm {
+    /// How many lines the keyboard moves over: the folder, a kind each,
+    /// and the yes.
+    pub fn lines() -> usize {
+        Kind::ALL.len() + 2
+    }
+
+    /// The line of the yes.
+    pub fn yes_field() -> usize {
+        Self::lines() - 1
+    }
+
+    /// Tick the kind, or the yes, the keyboard is on.
+    fn tick(&mut self) {
+        match self.field {
+            0 => {}
+            at if at == Self::yes_field() => self.yes = !self.yes,
+            at => {
+                if let Some((_, ticked)) = self.kinds.get_mut(at - 1) {
+                    *ticked = !*ticked;
+                }
+            }
+        }
+    }
+
+    /// What it would run, if it were submitted now, or what it still
+    /// lacks: a folder, and a kind.
+    pub fn task(&self) -> Result<Task, &'static str> {
+        let folder = self.folder.text().trim();
+        if folder.is_empty() {
+            return Err("a folder to export into is needed");
+        }
+        Ok(Task::Export {
+            folder: folder.to_owned(),
+            kinds: kinds_ticked(&self.kinds)?,
+            yes: self.yes,
+        })
+    }
+}
+
+/// The lines of the backup form that are typed, in order.
+pub const BACKUP_FIELDS: [&str; 4] = ["url", "branch", "message", "token env"];
+
+/// The workspace's own about to be backed up to a git repository: what `b`
+/// opens.
+#[derive(Debug, Clone)]
+pub struct BackupForm {
+    /// The repository, as `git` takes it: an https or ssh URL, or a path
+    /// from the workspace's root.
+    pub url: Input,
+    /// The branch to commit to; empty for the repository's own.
+    pub branch: Input,
+    /// What the commit says; empty for the command's own words.
+    pub message: Input,
+    /// The name of an environment variable holding a token, never a token;
+    /// empty to log in as `git` is configured to.
+    pub token_env: Input,
+    /// Every kind, in core's order, and whether it is ticked.
+    pub kinds: Vec<(Kind, bool)>,
+    /// Which line the keyboard is on: one of [`BACKUP_FIELDS`], then each
+    /// kind.
+    pub field: usize,
+    pub error: Option<String>,
+}
+
+impl Default for BackupForm {
+    fn default() -> Self {
+        Self {
+            url: Input::default(),
+            branch: Input::default(),
+            message: Input::default(),
+            token_env: Input::default(),
+            kinds: every_kind(),
+            field: 0,
+            error: None,
+        }
+    }
+}
+
+impl BackupForm {
+    /// How many lines the keyboard moves over.
+    pub fn lines() -> usize {
+        BACKUP_FIELDS.len() + Kind::ALL.len()
+    }
+
+    /// The line of [`BACKUP_FIELDS`] at `field`.
+    pub fn input(&self, field: usize) -> &Input {
+        match field {
+            0 => &self.url,
+            1 => &self.branch,
+            2 => &self.message,
+            _ => &self.token_env,
+        }
+    }
+
+    /// The line being typed on, when the keyboard is on one.
+    fn input_mut(&mut self) -> Option<&mut Input> {
+        match self.field {
+            0 => Some(&mut self.url),
+            1 => Some(&mut self.branch),
+            2 => Some(&mut self.message),
+            3 => Some(&mut self.token_env),
+            _ => None,
+        }
+    }
+
+    /// Tick the kind the keyboard is on.
+    fn tick(&mut self) {
+        if let Some((_, ticked)) = self
+            .field
+            .checked_sub(BACKUP_FIELDS.len())
+            .and_then(|at| self.kinds.get_mut(at))
+        {
+            *ticked = !*ticked;
+        }
+    }
+
+    /// What it would run, if it were submitted now, or what it still
+    /// lacks: a repository, and a kind.
+    pub fn task(&self) -> Result<Task, &'static str> {
+        let url = self.url.text().trim();
+        if url.is_empty() {
+            return Err("a repository URL is needed");
+        }
+        let given = |input: &Input| {
+            Some(input.text().trim())
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned)
+        };
+        Ok(Task::Backup {
+            url: url.to_owned(),
+            branch: given(&self.branch),
+            kinds: kinds_ticked(&self.kinds)?,
+            message: given(&self.message),
+            token_env: given(&self.token_env),
         })
     }
 }
@@ -2399,6 +2836,9 @@ pub struct Reader {
     pub lines: Vec<(Tone, String)>,
     /// The first line shown.
     pub scroll: usize,
+    /// Whether `f` on it searches the skill directories: the shelf's page,
+    /// where what is not on the shelf yet is looked for.
+    pub searches: bool,
 }
 
 impl Reader {
@@ -2429,12 +2869,13 @@ impl Reader {
             title,
             lines,
             scroll: 0,
+            searches: false,
         }
     }
 
     /// Every key, and the command it runs.
     pub fn help() -> Self {
-        let rows: [(&str, &str, &[&str]); 22] = [
+        let rows: [(&str, &str, &[&str]); 24] = [
             (
                 "a",
                 "add a skill or a rule",
@@ -2522,11 +2963,29 @@ impl Reader {
                 &["mindweaver gather git <url>"],
             ),
             (
+                "x",
+                "export the library into a folder, a workspace of its own",
+                &["mindweaver export [--kind <kind>]... [--yes] <folder>"],
+            ),
+            (
+                "b",
+                "back the library up to a git repository",
+                &["mindweaver backup [--branch <branch>] [--kind <kind>]... [--token-env <variable>] <url>"],
+            ),
+            (
                 "esc",
-                "while a gather runs: stop it, until it starts placing",
+                "while a gather or a backup runs: stop it, until it places or pushes",
                 &[],
             ),
-            ("s", "what is on the shelf", &["mindweaver gather list"]),
+            (
+                "s",
+                "what is on the shelf; f there searches the skill directories, enter on a result gathers it",
+                &[
+                    "mindweaver gather list",
+                    "mindweaver gather search --json <query>",
+                    "mindweaver gather git [--path <folder>] [--ref <branch>] <url>",
+                ],
+            ),
             (
                 "w",
                 "the workspaces this machine knows, the one in use marked",
@@ -2591,6 +3050,7 @@ impl Reader {
             title: String::from("keys"),
             lines,
             scroll: 0,
+            searches: false,
         }
     }
 }

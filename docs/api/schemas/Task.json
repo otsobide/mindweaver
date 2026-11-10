@@ -516,11 +516,33 @@
       ]
     },
     {
-      "description": "`mindweaver gather git [--path <folder>] [--ref <ref>] <url>`.",
+      "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "search_skills"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "query"
+      ]
+    },
+    {
+      "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
       "type": "object",
       "properties": {
         "folder": {
           "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind",
+          "default": "skill"
         },
         "reference": {
           "type": [
@@ -541,6 +563,78 @@
         "type",
         "url",
         "folder"
+      ]
+    },
+    {
+      "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Kind"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "export"
+        },
+        "yes": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "folder",
+        "kinds",
+        "yes"
+      ]
+    },
+    {
+      "description": "`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message\n<message>] [--token-env <variable>] <url>`: that export made into a\ncheck-out of the repository at `url`, committed and pushed, on\n`branch` or the repository's own, with `message` or the command's.\n\n`token_env` is the name of an environment variable of whatever runs\nthe line, the panel's server or the TUI, holding a token, never a\ntoken: a front end enters no credential, nor sends one (D-16), and\nthe command reads the variable for the one run. Without it, `git`\nlogs in as it is configured to. Followed as it goes and stopped\nwhen asked until it pushes ([`Followed::Backup`]).",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Kind"
+          }
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "const": "backup"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "url",
+        "kinds"
       ]
     },
     {

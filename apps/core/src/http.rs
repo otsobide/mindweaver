@@ -9,7 +9,9 @@
 //!   from `https` to anything else, and with no secret header sent on to
 //!   another site, as curl and browsers do.
 //! - **A status** other than a success is a failure ([`FetchError::Status`]),
-//!   with the URL asked, never the answer's body.
+//!   with the URL asked, never the answer's body, and a rate limit is one by
+//!   name ([`FetchError::RateLimited`]), with when it lets a request through
+//!   again when the answer says.
 //! - **An answer** to a request carrying no secret may be kept in the
 //!   workspace ([`Cache`]), and is then answered from there while it is
 //!   fresh, and asked again with what tells the server which one is kept
@@ -22,11 +24,13 @@
 //! what the cache could not do is a warning beside an answer
 //! ([`CacheError`]), never a reason to withhold it.
 //!
-//! Nothing here calls a catalog yet: the MCP Registry (#106) and the skill
-//! directories (#108) are the first to.
+//! The skill directories `gather search` asks are the first catalogs read
+//! through it ([`crate::finder`], #108), and the MCP Registry (#106) the
+//! next.
 
 mod cache;
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -316,15 +320,132 @@ fn next_page(
 }
 
 /// `response` when it is a success, and otherwise why `request` was not
-/// answered.
+/// answered: a rate limit by name, anything else by its status.
 fn answered(request: &HttpRequest, response: HttpResponse) -> Result<HttpResponse, FetchError> {
     if response.is_success() {
-        Ok(response)
+        return Ok(response);
+    }
+    let url = request.url().clone();
+    let status = response.status();
+    Err(match rate_limited(&response) {
+        Some(resets) => FetchError::RateLimited {
+            url,
+            status,
+            resets,
+        },
+        None => FetchError::Status { url, status },
+    })
+}
+
+/// Whether `response` is a rate limit, and when it lets a request through
+/// again, if it says.
+///
+/// A `429` is one by its status (RFC 6585), and a `403` when it says it is:
+/// no request left (`X-RateLimit-Remaining: 0`), or a wait asked for
+/// (`Retry-After`), which is how GitHub's API answers its limits, the first
+/// and the second. A `403` that says neither is a refusal like any other, a
+/// token without the right, and said as the status it is.
+///
+/// When it resets is read from `Retry-After` first, a wait in seconds or a
+/// date, then from `X-RateLimit-Reset`, seconds since the epoch, the order
+/// GitHub asks a caller to read them in. Said rather than waited for: a
+/// command that slept for an hour on a front end's behalf would look like
+/// one that hung, and retrying is a caller's to decide (D-14).
+fn rate_limited(response: &HttpResponse) -> Option<Option<Reset>> {
+    let none_left = response
+        .header("x-ratelimit-remaining")
+        .is_some_and(|left| left.trim() == "0");
+    let retry_after = response
+        .header("retry-after")
+        .map(str::trim)
+        .filter(|after| !after.is_empty());
+    let limited = response.status() == 429
+        || (response.status() == 403 && (none_left || retry_after.is_some()));
+    if !limited {
+        return None;
+    }
+    let after = retry_after.map(|after| match after.parse::<u64>() {
+        Ok(seconds) => Reset::After(seconds),
+        Err(_) => Reset::Said(printable(after)),
+    });
+    let at = || {
+        response
+            .header("x-ratelimit-reset")
+            .and_then(|at| at.trim().parse::<i64>().ok())
+            .map(Reset::At)
+    };
+    Some(after.or_else(at))
+}
+
+/// `text` with every control character a space, and trimmed: a header's
+/// value said in a message, which a terminal would otherwise act on.
+fn printable(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+/// When a rate limit lets a request through again, as its answer said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reset {
+    /// After this many seconds, as `Retry-After` counts them.
+    After(u64),
+    /// At this many seconds since the Unix epoch, as `X-RateLimit-Reset`
+    /// gives it, said as the UTC time it is.
+    At(i64),
+    /// At a date `Retry-After` gave as HTTP writes one, as it was written,
+    /// printable: said as what it says, rather than read into a time that
+    /// a date in another form would be said wrong as.
+    Said(String),
+}
+
+impl fmt::Display for Reset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Reset::After(1) => f.write_str("in 1 second"),
+            Reset::After(seconds) => write!(f, "in {seconds} seconds"),
+            Reset::At(at) => write!(f, "at {}", utc(*at)),
+            Reset::Said(said) => write!(f, "at {said}"),
+        }
+    }
+}
+
+/// `seconds` since the Unix epoch as the UTC time it is, as RFC 3339
+/// writes one: `2026-11-10T14:00:00Z`.
+///
+/// Worked out here, the days into a date by the civil calendar's own
+/// arithmetic (Howard Hinnant's `civil_from_days`), rather than through a
+/// crate of dates for the one time a message says.
+fn utc(seconds: i64) -> String {
+    let (days, of_day) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let of_era = shifted.rem_euclid(146_097);
+    let year_of_era = (of_era - of_era / 1_460 + of_era / 36_524 - of_era / 146_096) / 365;
+    let of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * of_year + 2) / 153;
+    let day = of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
     } else {
-        Err(FetchError::Status {
-            url: request.url().clone(),
-            status: response.status(),
-        })
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        of_day / 3_600,
+        of_day % 3_600 / 60,
+        of_day % 60
+    )
+}
+
+/// What a rate limit's message says of when it lets a request through.
+fn resetting(resets: &Option<Reset>) -> String {
+    match resets {
+        Some(resets) => format!(", and lets a request through again {resets}"),
+        None => String::from(", and does not say when it lets a request through again"),
     }
 }
 
@@ -436,6 +557,14 @@ pub enum FetchError {
     Http(#[from] HttpError),
     #[error("{url}: answered with status {status}")]
     Status { url: Redacted, status: u16 },
+    /// An answer saying the server takes no more requests for now: a `429`,
+    /// or a `403` that says so, and when that ends, when it says.
+    #[error("{url}: rate limited (status {status}){}", resetting(.resets))]
+    RateLimited {
+        url: Redacted,
+        status: u16,
+        resets: Option<Reset>,
+    },
     #[error("{url}: sent on more than {most} times, and not followed further")]
     Redirects { url: Redacted, most: usize },
     /// A redirect from `https` to plain `http` or another scheme: what a
@@ -454,6 +583,7 @@ pub enum FetchError {
 
 codes!(FetchError {
     Self::Status { .. } => "http_status_unsuccessful",
+    Self::RateLimited { .. } => "http_rate_limited",
     Self::Redirects { .. } => "http_redirects_exceeded",
     Self::Downgraded { .. } => "http_redirect_downgraded",
     Self::Json { .. } => "http_json_invalid",

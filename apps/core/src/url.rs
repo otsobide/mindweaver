@@ -365,6 +365,38 @@ pub fn is_path(url: &str) -> bool {
     !url.contains("://") && !over_ssh(url)
 }
 
+/// The host a token handed over for `url` is sent to: its host, in
+/// lowercase and without a login or a port, when `url` is reached over
+/// https, and `None` for anything else, which a token is never sent over.
+///
+/// https alone, because nothing on the way reads what it carries: over
+/// plain http the token would cross the network as it is, which `gix`
+/// refuses for any credential too, over ssh it is for nothing, since ssh
+/// logs in with keys of its own, and a path or a `file://` URL asks nobody
+/// for one. The host rather than the URL, because a token is the host's:
+/// `gh auth token` gives one a host at a time, and one given for a host is
+/// never sent to another that a redirect or `url.<base>.insteadOf` reaches.
+pub fn token_host(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let host_and_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let host = match host_and_port.strip_prefix('[') {
+        // An IPv6 host keeps its brackets, as a URL spells it.
+        Some(inside) => format!("[{}]", inside.split_once(']')?.0),
+        None => host_and_port
+            .split_once(':')
+            .map_or(host_and_port, |(host, _)| host)
+            .to_owned(),
+    }
+    .to_ascii_lowercase();
+    (!host.is_empty() && host != "[]").then_some(host)
+}
+
 /// Whether `authority`, a URL's text from its `://` to its first `/`, is a
 /// user and the start of a password a `/` cut short rather than a host: a
 /// `:` with something other than a port's digits after it.

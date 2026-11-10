@@ -313,13 +313,15 @@
           "token_file_unwritable",
           "token_file_unremoved",
           "token_env_unset",
+          "gh_missing",
+          "gh_unrun",
+          "gh_token_missing",
           "opens_screen",
           "opens_editor",
           "reads_stdin",
           "prints_shell_code",
           "show_unheld",
-          "serves_panel",
-          "backup_unwatched"
+          "serves_panel"
         ],
         "type": "string"
       },
@@ -513,6 +515,7 @@
           "backup_branch_invalid",
           "backup_workspace_unmade",
           "backup_scratch_failed",
+          "backup_cancelled",
           "artifact_read_failed",
           "front_matter_invalid",
           "name_empty",
@@ -662,6 +665,17 @@
           "export_mcp_unread",
           "export_read_failed",
           "export_write_failed",
+          "finder_answer_unreadable",
+          "finder_result_dropped",
+          "search_query_empty",
+          "finder_none_enabled",
+          "finder_not_enabled",
+          "finder_none_asked",
+          "finder_url_unnamed",
+          "finder_url_invalid",
+          "search_result_missing",
+          "search_cancelled",
+          "finder_unknown",
           "front_matter_missing",
           "front_matter_unterminated",
           "gathered_name_not_utf8",
@@ -669,15 +683,21 @@
           "gathered_name_clash",
           "gathered_link_outside",
           "gathered_root_unnamed",
+          "gathered_unhashed",
+          "gathered_route_unusable",
           "gather_cancelled",
           "credentials_in_url",
+          "gather_token_over_ssh",
+          "gather_token_not_https",
           "gather_no_such_folder",
           "gather_nothing_found",
+          "gather_folder_unnamed",
           "gather_path_outside",
           "gather_ref_twice",
           "gather_path_twice",
           "source_name_invalid",
           "source_name_taken",
+          "source_pin_invalid",
           "kind_not_gatherable",
           "gather_read_failed",
           "source_leftover",
@@ -688,12 +708,14 @@
           "git_fetch_failed",
           "git_credentials_needed",
           "git_checkout_failed",
+          "git_pin_unreachable",
           "git_clone_cancelled",
           "backup_git_unavailable",
           "backup_check_out_failed",
           "backup_credentials_needed",
           "backup_commit_failed",
           "backup_push_failed",
+          "backup_git_cancelled",
           "http_url_invalid",
           "http_url_credentialed",
           "http_header_invalid",
@@ -702,6 +724,7 @@
           "http_too_large",
           "http_fetch_failed",
           "http_status_unsuccessful",
+          "http_rate_limited",
           "http_redirects_exceeded",
           "http_redirect_downgraded",
           "http_json_invalid",
@@ -835,6 +858,7 @@
           "path_in_mindflayer",
           "switch_unlisted",
           "install_yes_unasked",
+          "token_variable_refused",
           "reapply_no_agent",
           "reapply_no_folder",
           "reapply_copy_failed",
@@ -2473,6 +2497,65 @@
         ],
         "type": "object"
       },
+      "Licence": {
+        "description": "Where a gathered artifact says what it is licensed under, and what it\nsays.\n\nTagged by `from`, beside what that place said, so a reader tells a\nlicence its author declared from a line read off a file:\n`{\"from\": \"manifest\", \"text\": \"MIT\"}`, `{\"from\": \"file\", \"file\":\n\"LICENSE.txt\", \"text\": \"Apache License\"}` or `{\"from\": \"unknown\"}`.",
+        "oneOf": [
+          {
+            "description": "The `license` its manifest declares, as written: a licence's name,\nor words pointing at a file it bundles, as the Agent Skills format\nhas it.",
+            "properties": {
+              "from": {
+                "const": "manifest",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A licence file in its folder, beside its manifest, which declares\nnone: the file's name, and its first line that holds anything, as\nwritten, when there is one to read ([`KEPT`] characters of it at\nmost).",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "from": {
+                "const": "file",
+                "type": "string"
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "from",
+              "file",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Neither: nothing it holds says.",
+            "properties": {
+              "from": {
+                "const": "unknown",
+                "type": "string"
+              }
+            },
+            "required": [
+              "from"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Listed": {
         "description": "One file or folder of an artifact.",
         "properties": {
@@ -3337,6 +3420,13 @@
             "description": "[`Source::origin`], which every artifact it supplied is installed\nfrom.",
             "type": "string"
           },
+          "pin": {
+            "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "reference": {
             "description": "The branch or tag asked for, or `None` for whatever the remote's HEAD\npoints at.",
             "type": [
@@ -3368,6 +3458,7 @@
           "revision",
           "directory",
           "name",
+          "pin",
           "origin"
         ],
         "type": "object"
@@ -3375,6 +3466,13 @@
       "Shelved": {
         "description": "One artifact gathered onto the shelf, with what `--from` takes for it.\n\nThe ledger's row with its origin beside it, as `gather list --json`\nprints an offer from the shelf: the same names, so a script reading\neither reads one shape. Beside the row rather than in it, since an offer\nflattens the row beside an origin of its own.",
         "properties": {
+          "content_hash": {
+            "description": "[`crate::hash::tree`] of what was put on the shelf, the recipe an\ninstall keeps of its copies: whether the shelf still holds what was\ngathered, and whether two gathers took the same thing.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "gathered_at": {
             "description": "When it was gathered, in seconds since the Unix epoch.",
             "format": "int64",
@@ -3382,6 +3480,17 @@
           },
           "kind": {
             "$ref": "#/components/schemas/Kind"
+          },
+          "licence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Licence"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The licence it says it is under, as it says it ([`Licence::of`])."
           },
           "name": {
             "type": "string"
@@ -3395,7 +3504,7 @@
             "type": "string"
           },
           "revision": {
-            "description": "The revision it was taken at.",
+            "description": "The commit it was taken at, as the fetch resolved it: the pin, when\nits source is pinned.",
             "type": [
               "string",
               "null"
@@ -3410,6 +3519,13 @@
               "string",
               "null"
             ]
+          },
+          "upstream_path": {
+            "description": "Its folder in its source, from the repository's root, `/`\nseparated: where an update looks for it again, and what an audit\nreads it at.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -3420,6 +3536,9 @@
           "revision",
           "gathered_at",
           "source",
+          "upstream_path",
+          "content_hash",
+          "licence",
           "origin"
         ],
         "type": "object"
@@ -3575,7 +3694,7 @@
         "type": "object"
       },
       "Source": {
-        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), which moved no version.",
+        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), and its `pin` after that (#99),\nneither of which moved a version.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
@@ -3587,6 +3706,13 @@
           "name": {
             "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
             "type": "string"
+          },
+          "pin": {
+            "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reference": {
             "description": "The branch or tag asked for, or `None` for whatever the remote's HEAD\npoints at.",
@@ -3618,7 +3744,8 @@
           "subdirectory",
           "revision",
           "directory",
-          "name"
+          "name",
+          "pin"
         ],
         "type": "object"
       },
@@ -3630,7 +3757,7 @@
         "type": "string"
       },
       "Stage": {
-        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them.",
+        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's, then a\nsearch's.",
         "oneOf": [
           {
             "const": "connecting",
@@ -3649,7 +3776,7 @@
           },
           {
             "const": "checking_out",
-            "description": "Writing the fetched revision's files into the clone.",
+            "description": "Writing the fetched revision's files into the clone; for a backup,\nchecking the repository out, which counts nothing.",
             "type": "string"
           },
           {
@@ -3660,6 +3787,26 @@
           {
             "const": "placing",
             "description": "Putting what was read on the shelf.",
+            "type": "string"
+          },
+          {
+            "const": "exporting",
+            "description": "A backup's export of the library into its check-out.",
+            "type": "string"
+          },
+          {
+            "const": "committing",
+            "description": "A backup's commit of what it exported.",
+            "type": "string"
+          },
+          {
+            "const": "pushing",
+            "description": "A backup's push of its commit, past which a cancel is too late.",
+            "type": "string"
+          },
+          {
+            "const": "asking",
+            "description": "A search's asking a skill directory, counted by the finders that\nhave answered.",
             "type": "string"
           }
         ]
@@ -3716,10 +3863,10 @@
         "type": "object"
       },
       "Step": {
-        "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no gather's shape but its stages: a run of\nanother command that reports steps, a backup's checking out, exporting,\ncommitting and pushing, says them in the same five fields with stages\nof its own.",
+        "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no one run's shape but its stages: a gather's\nand a backup's checking out, exporting, committing and pushing are\nsaid in the same five fields, a backup's with no count.",
         "properties": {
           "cancellable": {
-            "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf.",
+            "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf, and until a backup starts\npushing.",
             "type": "boolean"
           },
           "done": {
@@ -4448,10 +4595,31 @@
             "type": "object"
           },
           {
-            "description": "`mindweaver gather git [--path <folder>] [--ref <ref>] <url>`.",
+            "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "type": {
+                "const": "search_skills",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "query"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
             "properties": {
               "folder": {
                 "type": "string"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/Kind",
+                "default": "skill"
               },
               "reference": {
                 "type": [
@@ -4471,7 +4639,81 @@
               "type",
               "url",
               "folder",
-              "reference"
+              "reference",
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
+            "properties": {
+              "folder": {
+                "type": "string"
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "export",
+                "type": "string"
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "folder",
+              "kinds",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message\n<message>] [--token-env <variable>] <url>`: that export made into a\ncheck-out of the repository at `url`, committed and pushed, on\n`branch` or the repository's own, with `message` or the command's.\n\n`token_env` is the name of an environment variable of whatever runs\nthe line, the panel's server or the TUI, holding a token, never a\ntoken: a front end enters no credential, nor sends one (D-16), and\nthe command reads the variable for the one run. Without it, `git`\nlogs in as it is configured to. Followed as it goes and stopped\nwhen asked until it pushes ([`Followed::Backup`]).",
+            "properties": {
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "token_env": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "const": "backup",
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "url",
+              "branch",
+              "kinds",
+              "message",
+              "token_env"
             ],
             "type": "object"
           },
@@ -5304,10 +5546,32 @@
           },
           {
             "additionalProperties": false,
-            "description": "`mindweaver gather git [--path <folder>] [--ref <ref>] <url>`.",
+            "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "type": {
+                "const": "search_skills",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "query"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
             "properties": {
               "folder": {
                 "type": "string"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/Kind",
+                "default": "skill"
               },
               "reference": {
                 "type": [
@@ -5327,6 +5591,78 @@
               "type",
               "url",
               "folder"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
+            "properties": {
+              "folder": {
+                "type": "string"
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "export",
+                "type": "string"
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "folder",
+              "kinds",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message\n<message>] [--token-env <variable>] <url>`: that export made into a\ncheck-out of the repository at `url`, committed and pushed, on\n`branch` or the repository's own, with `message` or the command's.\n\n`token_env` is the name of an environment variable of whatever runs\nthe line, the panel's server or the TUI, holding a token, never a\ntoken: a front end enters no credential, nor sends one (D-16), and\nthe command reads the variable for the one run. Without it, `git`\nlogs in as it is configured to. Followed as it goes and stopped\nwhen asked until it pushes ([`Followed::Backup`]).",
+            "properties": {
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "token_env": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "const": "backup",
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "url",
+              "kinds"
             ],
             "type": "object"
           },

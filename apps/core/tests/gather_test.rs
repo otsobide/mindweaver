@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use common::{commit, repository, skill, url, workspace, write_files};
 use mindweaver_core::gather::{self, GatherError, Progress, Request, Warning, Watch};
 use mindweaver_core::ledger::{Action, Ledger, SourceKind};
-use mindweaver_core::value::SourceName;
+use mindweaver_core::mother::{LicenceMother, PinMother, SkillMother};
+use mindweaver_core::value::{Pin, SourceName};
+use mindweaver_core::{hash, install, AgentHomes, Licence};
 use mindweaver_core::{Kind, MindProject, ValidationIssue, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
 use tempfile::TempDir;
 
@@ -315,19 +317,39 @@ fn a_gather_that_finds_no_folder_leaves_the_revision_its_shelf_came_from() {
 }
 
 #[test]
-fn rules_cannot_be_gathered_yet_and_say_so() {
+fn mcp_servers_cannot_be_gathered_yet_and_say_so() {
     let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
 
-    let mut request = Request::git(url(&source));
-    request.kind = Kind::Rule;
+    let request = Request::git(url(&source)).taking(Kind::Mcp);
     let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
 
     assert!(
-        matches!(error, GatherError::NotGatherable { .. }),
+        matches!(error, GatherError::NotGatherable { kind: Kind::Mcp }),
         "{error}"
     );
+    assert!(ledger.sources().unwrap().is_empty());
+}
+
+/// Rules are gathered from the folder named, every markdown file in it
+/// one, so a gather of them naming none is refused, and logged as a gather
+/// that failed (#111).
+#[test]
+fn rules_are_gathered_only_from_a_folder_named() {
+    let source = repository(&[("rules/style.md", "# Style\n")]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let request = Request::git(url(&source)).taking(Kind::Rule);
+    let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
+
+    assert!(
+        matches!(error, GatherError::FolderUnnamed { kind: Kind::Rule }),
+        "{error}"
+    );
+    assert!(ledger.sources().unwrap().is_empty());
+    assert!(!workspace.gathered_dir(Kind::Rule).exists());
 }
 
 #[test]
@@ -674,7 +696,8 @@ fn a_url_with_a_token_in_it_is_refused_and_the_token_is_kept_nowhere() {
         error.to_string(),
         "https://example.com/acme/skills: a password, a token or, over http(s), a user name in \
          the URL is refused, because gathering stores and shows the URL: gather it without one, \
-         and configure a git credential helper that has it"
+         and hand the token over with --token-env or --gh, or configure a git credential helper \
+         that has it"
     );
     // Nothing was registered, and nothing was fetched into the cache.
     assert!(ledger
@@ -855,11 +878,13 @@ impl mindweaver_core::Remote for Forge {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &std::path::Path,
         watch: &Watch,
+        token: Option<&mindweaver_core::port::Token>,
     ) -> Result<mindweaver_core::port::Cloned, mindweaver_core::port::GitError> {
         self.asked.lock().unwrap().push(url.to_owned());
-        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, into, watch)
+        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, pin, into, watch, token)
     }
 
     fn scrub(&self, clone: &std::path::Path) -> Result<bool, mindweaver_core::port::GitError> {
@@ -1044,6 +1069,280 @@ fn a_cancelled_gather_leaves_its_source_called_what_it_was() {
     assert_eq!(ledger.sources().unwrap()[0].name, first.name);
 }
 
+/// The commit `repository` is at now, as a pin.
+fn head_of(repository: &TempDir) -> Pin {
+    let opened = gix::open_opts(repository.path(), gix::open::Options::isolated()).unwrap();
+    Pin::parse(&opened.head_id().unwrap().to_string()).unwrap()
+}
+
+/// What `deploy` says of itself on the shelf of `workspace`.
+fn shelved_deploy(workspace: &WeaverWorkspace, report: &gather::Report) -> String {
+    fs::read_to_string(
+        workspace
+            .gathered_dir(Kind::Skill)
+            .join(&report.directory)
+            .join("deploy/SKILL.md"),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_gather_at_a_pin_takes_that_commit_and_the_source_is_pinned_to_it() {
+    let first = skill("deploy", "Ship it, as it was");
+    let source = repository(&[("skills/deploy/SKILL.md", &first)]);
+    let pin = head_of(&source);
+    write_files(
+        source.path(),
+        &[("skills/deploy/SKILL.md", &skill("deploy", "Ship it, now"))],
+    );
+    commit(source.path());
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let report = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source)).pinned(Some(pin.as_str())),
+    )
+    .unwrap();
+
+    assert_eq!(report.pin.as_ref(), Some(&pin));
+    assert_eq!(report.revision, Some(pin.revision()));
+    assert_eq!(shelved_deploy(&workspace, &report), first);
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].pin.as_ref(), Some(&pin));
+    assert_eq!(sources[0].revision, Some(pin.revision()));
+    let gathered = ledger.gathered().unwrap();
+    assert_eq!(gathered[0].revision, Some(pin.revision()));
+    assert_eq!(gathered[0].summary.as_deref(), Some("Ship it, as it was"));
+}
+
+#[test]
+fn moving_the_pin_gathers_into_the_same_source_and_a_gather_with_none_follows_the_branch_again() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "First"))]);
+    let first = head_of(&source);
+    write_files(
+        source.path(),
+        &[("skills/deploy/SKILL.md", &skill("deploy", "Second"))],
+    );
+    commit(source.path());
+    let second = head_of(&source);
+    write_files(
+        source.path(),
+        &[("skills/deploy/SKILL.md", &skill("deploy", "Third"))],
+    );
+    commit(source.path());
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let at = |pin: Option<&Pin>| {
+        gather::gather(
+            &workspace,
+            &ledger,
+            &Request::git(url(&source)).pinned(pin.map(Pin::as_str)),
+        )
+        .unwrap()
+    };
+
+    let pinned = at(Some(&first));
+    let moved = at(Some(&second));
+
+    assert_eq!(moved.directory, pinned.directory);
+    assert_eq!(moved.name, pinned.name);
+    assert_eq!(moved.updated.len(), 1, "{moved:?}");
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 1, "one source, wherever its pin is");
+    assert_eq!(sources[0].pin.as_ref(), Some(&second));
+    assert_eq!(
+        ledger.gathered().unwrap()[0].summary.as_deref(),
+        Some("Second")
+    );
+
+    let followed = at(None);
+
+    assert_eq!(followed.directory, pinned.directory);
+    assert_eq!(followed.pin, None);
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].pin, None);
+    assert_eq!(sources[0].revision, Some(head_of(&source).revision()));
+    assert_eq!(
+        ledger.gathered().unwrap()[0].summary.as_deref(),
+        Some("Third")
+    );
+}
+
+#[test]
+fn a_pin_that_is_no_commit_in_full_is_refused_before_anything_is_registered_or_fetched() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    for (why, pin) in PinMother::not_pins() {
+        let refused = gather::gather(
+            &workspace,
+            &ledger,
+            &Request::git(url(&source)).pinned(Some(pin.as_str())),
+        )
+        .unwrap_err();
+
+        assert_eq!(refused.code(), "source_pin_invalid", "{why}: {refused}");
+    }
+    assert!(ledger.sources().unwrap().is_empty());
+    assert!(!workspace.cache_dir().exists());
+}
+
+#[test]
+fn a_pin_typed_with_a_credential_is_refused_as_one_and_never_repeated() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let token = format!("ghp_{}", "T0k3n".repeat(7));
+
+    let refused = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source)).pinned(Some(format!("https://me:{token}@github.com/acme/x"))),
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code(), "credentials_in_url");
+    assert!(!refused.to_string().contains(&token), "{refused}");
+    assert!(ledger.sources().unwrap().is_empty());
+}
+
+#[test]
+fn a_pin_the_repository_lacks_fails_the_gather_and_leaves_the_source_as_it_was() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let followed = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
+    let before = ledger.sources().unwrap();
+    let missing = PinMother::random();
+
+    let error = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source)).pinned(Some(missing.as_str())),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code(), "git_pin_unreachable", "{error}");
+    assert!(error.to_string().contains(missing.as_str()), "{error}");
+    assert_eq!(ledger.sources().unwrap(), before);
+    assert_eq!(before[0].pin, None);
+    assert_eq!(
+        shelved_deploy(&workspace, &followed),
+        skill("deploy", "Ship it")
+    );
+}
+
+#[test]
+fn each_artifact_is_recorded_with_its_folder_upstream_the_hash_of_its_shelf_copy_and_its_licence() {
+    let licensed = SkillMother::licence();
+    let source = repository(&[
+        (
+            "agents/declared/SKILL.md",
+            &SkillMother::licensed("declared", "Says so", &licensed),
+        ),
+        // The manifest wins over the file beside it.
+        ("agents/declared/LICENSE", "GNU GENERAL PUBLIC LICENSE\n"),
+        ("agents/filed/SKILL.md", &skill("filed", "Bundles one")),
+        (
+            "agents/filed/LICENSE.txt",
+            "\n                     Apache License\n               Version 2.0\n",
+        ),
+        ("agents/silent/SKILL.md", &skill("silent", "Says nothing")),
+        ("agents/silent/README.md", "MIT License\n"),
+        ("LICENSE", "MIT License\n"),
+    ]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    // Spelled with a `.`, which the upstream path is not.
+    let report = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source)).from_subdirectory("./agents"),
+    )
+    .unwrap();
+
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    let shelf = workspace.gathered_dir(Kind::Skill).join(&report.directory);
+    let gathered: Vec<(String, Option<String>, Option<Licence>)> = ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|artifact| {
+            assert_eq!(
+                artifact.content_hash,
+                Some(hash::tree(&shelf.join(artifact.name.as_str())).unwrap()),
+                "{}",
+                artifact.name
+            );
+            (
+                artifact.name.into_string(),
+                artifact.upstream_path,
+                artifact.licence,
+            )
+        })
+        .collect();
+    assert_eq!(
+        gathered,
+        [
+            (
+                String::from("declared"),
+                Some(String::from("agents/declared")),
+                Some(LicenceMother::manifest(&licensed)),
+            ),
+            (
+                String::from("filed"),
+                Some(String::from("agents/filed")),
+                Some(LicenceMother::file("LICENSE.txt", Some("Apache License"))),
+            ),
+            (
+                String::from("silent"),
+                Some(String::from("agents/silent")),
+                Some(Licence::Unknown),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn the_hash_a_gather_records_is_the_one_an_install_of_the_same_copy_records() {
+    let source = repository(&[
+        ("skills/deploy/SKILL.md", &skill("deploy", "Ship it")),
+        ("skills/deploy/scripts/run.sh", "echo ship\n"),
+    ]);
+    let (dir, mut workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
+    let (project, _) = MindProject::init(dir.path().join("collapse")).unwrap();
+    workspace.link(&project).unwrap();
+    let candidate =
+        install::offered(&workspace, &ledger, &project, Kind::Skill, "deploy", None).unwrap();
+
+    install::install(
+        &workspace,
+        &ledger,
+        &project,
+        &candidate,
+        &AgentHomes::default(),
+    )
+    .unwrap();
+
+    let installed = ledger
+        .installation("collapse", Kind::Skill, "deploy")
+        .unwrap()
+        .unwrap();
+    assert!(installed.content_hash.is_some());
+    assert_eq!(
+        ledger.gathered().unwrap()[0].content_hash,
+        installed.content_hash
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -1114,6 +1413,8 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         }],
         name: SourceName::parse("acme-skills").unwrap(),
         left_out: Vec::new(),
+        pin: None,
+        kind: Kind::Skill,
     };
 
     let serialized = serde_json::to_string(&report).unwrap();
@@ -1129,7 +1430,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
             r#""unchanged":[{"name":"review","directory":"review","summary":"About review","#,
             r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review","#,
             r#""route":"skills/review"}],"#,
-            r#""name":"acme-skills"}"#,
+            r#""name":"acme-skills","pin":null,"kind":"skill"}"#,
         )
     );
 }

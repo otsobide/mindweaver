@@ -20,12 +20,15 @@ use std::thread;
 use std::time::Duration;
 
 use credentials::{Shortfall, Shortfalls};
+use gix::credentials::helper::Action;
+use gix::credentials::protocol;
 use gix::progress::{self as gix_progress, tree};
+use gix::prompt;
 
 use crate::gather::{Progress, Watch};
-use crate::port::{Cloned, GitError, Remote};
+use crate::port::{Cloned, GitError, Remote, Token};
 use crate::url::redacted;
-use crate::value::Revision;
+use crate::value::{Pin, Revision};
 use crate::workspace::{replace_file, WorkspaceError};
 
 /// How often `gix`'s counts are read while it fetches: ten times a second,
@@ -43,10 +46,20 @@ impl Remote for Gix {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
-        clone(url, reference, into, watch)
+        let login = Login {
+            offered: credentials::Offered::for_url(token, url),
+            helpers: credentials::configured,
+            overrides: &[],
+        };
+        match pin {
+            None => clone(url, Wanted::Branch(reference), into, watch, &login),
+            Some(pin) => pinned(url, reference, pin, into, watch, &login),
+        }
     }
 
     fn scrub(&self, clone: &Path) -> Result<bool, GitError> {
@@ -54,75 +67,112 @@ impl Remote for Gix {
     }
 }
 
-/// Clone `url` into `into`, replacing whatever was there, telling `watch`
-/// what `gix` counts as it goes.
+/// How a clone logs in, and what it is configured with beside the
+/// machine's: the token a front end handed over, offered where it is asked
+/// for (`offered`); the credential helpers built for each connection from
+/// the repository it configures, which give the rest (`helpers`), handed in
+/// so that a test can stand in a cascade whose prompt panics and still
+/// clone over a real transport; and `overrides`, none but a test's, which
+/// turns protocol v2 off for a server to refuse a commit asked for by its
+/// id. One value, since every clone a fetch makes, the fallback of a pin's
+/// included, logs in the same way.
+struct Login<'a, H> {
+    offered: Option<credentials::Offered>,
+    helpers: fn(gix::Repository) -> H,
+    overrides: &'a [&'a str],
+}
+
+/// What a clone checks out: whatever a branch or tag is at, the remote's
+/// HEAD when none is named, or one commit, by its id.
+#[derive(Debug, Clone, Copy)]
+enum Wanted<'a> {
+    Branch(Option<&'a str>),
+    Commit(&'a Pin),
+}
+
+/// Clone `url` at `pin` into `into`: the commit alone, by its id, where the
+/// server hands one out so, as GitHub, GitLab and git's own do over
+/// protocol v2; otherwise everything `reference` reaches, the remote's HEAD
+/// when none is named, the pin checked out of it once it is found there
+/// ([`reaching`]).
+///
+/// The commit alone first, since it is one commit's files where the other
+/// way is a branch's whole history. Only a fetch the server turned down
+/// is tried the other way: a credential nobody has, a cancel, or a URL or
+/// a folder that will not do is the same failure whichever is fetched.
+fn pinned<H>(
+    url: &str,
+    reference: Option<&str>,
+    pin: &Pin,
+    into: &Path,
+    watch: &Watch,
+    login: &Login<'_, H>,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
+    match clone(url, Wanted::Commit(pin), into, watch, login) {
+        Err(GitError::Fetch { .. }) => reaching(url, reference, pin, into, watch, login),
+        cloned => cloned,
+    }
+}
+
+/// Clone `url` into `into`, at what is `wanted`, replacing whatever was
+/// there, telling `watch` what `gix` counts as it goes, and logging in as
+/// `login` says.
 ///
 /// A fetch into the existing clone is the obvious optimisation and is
 /// deliberately not done: the clone is shallow, so re-cloning costs about what
 /// a fetch would, and it is one code path rather than three (clone, fetch,
 /// reconcile a checkout that someone may have edited). Gathering is not
 /// something anybody runs in a loop.
-fn clone(
+fn clone<H>(
     url: &str,
-    reference: Option<&str>,
+    wanted: Wanted<'_>,
     into: &Path,
     watch: &Watch,
-) -> Result<Cloned, GitError> {
+    login: &Login<'_, H>,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
     // Before the clone already there is removed, which a cancel should not
     // cost.
     if watch.is_cancelled() {
         return Err(GitError::Cancelled);
     }
-    if into.exists() {
-        std::fs::remove_dir_all(into).map_err(|source| GitError::Cache {
-            path: into.to_path_buf(),
-            source,
-        })?;
-    }
-    if let Some(parent) = into.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| GitError::Cache {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+    emptied(into)?;
 
     let shortfalls = Shortfalls::default();
-    let mut prepare = gix::prepare_clone(url, into)
-        .map_err(|error| GitError::Url {
-            url: redacted(url).into_owned(),
-            detail: said(error),
-        })?
+    let mut prepare = prepared(url, into, &shortfalls, login)?
         // Depth 1: the history is not what is being gathered, the files are.
         .with_shallow(gix::remote::fetch::Shallow::DepthAtRemote(
             NonZeroU32::new(1).expect("1 is not zero"),
-        ))
-        // Every connection `gix` lets the clone configure, not only the
-        // first: a shallow clone connects once to find the branch and again
-        // to fetch it, and either one may be asked for a credential. The one
-        // it does not is a retry made when the remote has a branch named
-        // `HEAD`, which asks the way `gix` does by default, prompt included;
-        // docs/architecture.md keeps it among the open questions.
-        .configure_connection({
-            let shortfalls = shortfalls.clone();
-            move |connection| {
-                let repository = connection.remote().repo().clone();
-                connection.set_credentials(credentials::never_prompting(
-                    credentials::configured(repository),
-                    shortfalls.clone(),
-                ));
-                Ok(())
-            }
-        });
+        ));
 
-    if let Some(reference) = reference {
-        prepare = prepare
-            .with_ref_name(Some(reference))
-            .map_err(|error| GitError::Reference {
-                // Redacted as every URL this error says is: a URL typed
-                // where a branch goes is still somebody's credential.
-                reference: redacted(reference).into_owned(),
-                detail: said(error),
-            })?;
+    match wanted {
+        Wanted::Branch(None) => {}
+        Wanted::Branch(Some(reference)) => {
+            prepare =
+                prepare
+                    .with_ref_name(Some(reference))
+                    .map_err(|error| GitError::Reference {
+                        // Redacted as every URL this error says is: a URL typed
+                        // where a branch goes is still somebody's credential.
+                        reference: redacted(reference).into_owned(),
+                        detail: said(error),
+                    })?;
+        }
+        // Fetched alone, and checked out with HEAD detached at it.
+        Wanted::Commit(pin) => {
+            prepare =
+                prepare
+                    .with_revision(Some(pin.as_str()))
+                    .map_err(|error| GitError::Reference {
+                        reference: pin.to_string(),
+                        detail: said(error),
+                    })?;
+        }
     }
 
     // The watch's own flag, so a cancel stops `gix` where it checks, between
@@ -180,6 +230,230 @@ fn clone(
             .ok()
             .map(|id| Revision::from(id.to_string())),
     })
+}
+
+/// Clone everything `reference` reaches from `url` into `into`, the
+/// remote's HEAD when none is named, and check `pin` out of it, once it is
+/// found to be among it: a pin on a server that hands out no commit by its
+/// id ([`pinned`]).
+///
+/// Its whole history rather than a shallow clone, since that is what tells
+/// the pin is a commit the branch reaches: a server that will not hand a
+/// commit out by its id hands out only what its branches and tags are at,
+/// and the pin is most often older. A pin none of it holds is refused
+/// ([`GitError::PinUnreachable`]), and the clone made to look is removed,
+/// as a fetch that fails leaves nothing.
+fn reaching<H>(
+    url: &str,
+    reference: Option<&str>,
+    pin: &Pin,
+    into: &Path,
+    watch: &Watch,
+    login: &Login<'_, H>,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
+    if watch.is_cancelled() {
+        return Err(GitError::Cancelled);
+    }
+    emptied(into)?;
+    let shortfalls = Shortfalls::default();
+    let mut prepare = prepared(url, into, &shortfalls, login)?;
+    if let Some(reference) = reference {
+        prepare = prepare
+            .with_ref_name(Some(reference))
+            .map_err(|error| GitError::Reference {
+                reference: redacted(reference).into_owned(),
+                detail: said(error),
+            })?;
+    }
+    let interrupt = watch.flag();
+    let (repository, _) = counted(watch, |progress| {
+        prepare.fetch_only(progress, interrupt).map_err(|error| {
+            if interrupt.load(Ordering::Relaxed) {
+                GitError::Cancelled
+            } else {
+                fetch_failed(url, shortfalls.last(), &error)
+            }
+        })
+    })?;
+
+    let checked_out = checked_out_at(&repository, url, reference, pin, watch);
+    if checked_out.is_err() || interrupt.load(Ordering::Relaxed) {
+        drop(repository);
+        let _ = std::fs::remove_dir_all(into);
+        checked_out?;
+        return Err(GitError::Cancelled);
+    }
+    scrub(into)?;
+    Ok(Cloned {
+        root: repository
+            .workdir()
+            .map_or_else(|| into.to_path_buf(), Path::to_path_buf),
+        revision: Some(pin.revision()),
+    })
+}
+
+/// Check `pin` out of `repository`, a clone of `url` at `reference` with
+/// its history, once the commit `reference` is at is found to reach it:
+/// HEAD detached at the pin, as a clone `gix` makes at a commit leaves it,
+/// and its files written into the clone's empty working tree.
+fn checked_out_at(
+    repository: &gix::Repository,
+    url: &str,
+    reference: Option<&str>,
+    pin: &Pin,
+    watch: &Watch,
+) -> Result<(), GitError> {
+    let failed = |detail: &dyn Display| GitError::Checkout {
+        url: redacted(url).into_owned(),
+        detail: said(detail),
+    };
+    let unreachable = || GitError::PinUnreachable {
+        url: redacted(url).into_owned(),
+        pin: pin.clone(),
+        reference: reference.map(|reference| redacted(reference).into_owned()),
+    };
+    let wanted = gix::ObjectId::from_hex(pin.as_bytes()).map_err(|error| failed(&error))?;
+    // A repository with no commit reaches none.
+    let Ok(tip) = repository.head_commit() else {
+        return Err(unreachable());
+    };
+    let mut reached = false;
+    for commit in repository
+        .rev_walk([tip.id])
+        .all()
+        .map_err(|error| failed(&error))?
+    {
+        if commit.map_err(|error| failed(&error))?.id == wanted {
+            reached = true;
+            break;
+        }
+    }
+    if !reached {
+        return Err(unreachable());
+    }
+
+    repository
+        .edit_reference(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Update {
+                log: gix::refs::transaction::LogChange {
+                    mode: gix::refs::transaction::RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: "checkout: the commit a source is pinned to".into(),
+                },
+                expected: gix::refs::transaction::PreviousValue::Any,
+                new: gix::refs::Target::Object(wanted),
+            },
+            name: "HEAD".try_into().map_err(|error| failed(&error))?,
+            deref: false,
+        })
+        .map_err(|error| failed(&error))?;
+    let tree = repository
+        .find_commit(wanted)
+        .map_err(|error| failed(&error))?
+        .tree_id()
+        .map_err(|error| failed(&error))?;
+    let mut index = repository
+        .index_from_tree(&tree)
+        .map_err(|error| failed(&error))?;
+    let mut options = repository
+        .checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)
+        .map_err(|error| failed(&error))?;
+    options.destination_is_initially_empty = true;
+    let objects = repository
+        .objects
+        .clone()
+        .into_arc()
+        .map_err(|error| failed(&error))?;
+    let workdir = repository
+        .workdir()
+        .ok_or_else(|| failed(&"the clone has no working tree"))?
+        .to_path_buf();
+
+    watch.report(Progress::CheckingOut {
+        done: 0,
+        total: None,
+    });
+    let interrupt = watch.flag();
+    counted(watch, |mut progress| {
+        let files = progress.add_child_with_id(
+            "checkout".to_owned(),
+            gix::clone::checkout::main_worktree::ProgressId::CheckoutFiles.into(),
+        );
+        let bytes = progress.add_child_with_id(
+            "writing".to_owned(),
+            gix::clone::checkout::main_worktree::ProgressId::BytesWritten.into(),
+        );
+        files.init(Some(index.entries().len()), gix::progress::count("files"));
+        bytes.init(None, gix::progress::bytes());
+        gix::worktree::state::checkout(
+            &mut index, &workdir, objects, &files, &bytes, interrupt, options,
+        )
+        .map_err(|error| failed(&error))
+    })?;
+    index
+        .write(Default::default())
+        .map_err(|error| failed(&error))
+}
+
+/// Remove whatever is at `into`, and make the folders it goes in, for a
+/// clone to be made there.
+fn emptied(into: &Path) -> Result<(), GitError> {
+    if into.exists() {
+        std::fs::remove_dir_all(into).map_err(|source| GitError::Cache {
+            path: into.to_path_buf(),
+            source,
+        })?;
+    }
+    if let Some(parent) = into.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| GitError::Cache {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+/// A clone of `url` into `into` made ready to fetch, never prompting for a
+/// credential, logging in as `login` says, what is missing noted in
+/// `shortfalls`, and given `login`'s overrides beside the machine's
+/// configuration.
+fn prepared<H>(
+    url: &str,
+    into: &Path,
+    shortfalls: &Shortfalls,
+    login: &Login<'_, H>,
+) -> Result<gix::clone::PrepareFetch, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
+    Ok(gix::prepare_clone(url, into)
+        .map_err(|error| GitError::Url {
+            url: redacted(url).into_owned(),
+            detail: said(error),
+        })?
+        .with_in_memory_config_overrides(login.overrides.iter().copied())
+        // Every connection `gix` lets the clone configure, not only the
+        // first: a shallow clone connects once to find the branch and again
+        // to fetch it, and either one may be asked for a credential. The one
+        // it does not is a retry made when the remote has a branch named
+        // `HEAD`, which asks the way `gix` does by default, prompt included;
+        // docs/architecture.md keeps it among the open questions.
+        .configure_connection({
+            let shortfalls = shortfalls.clone();
+            let offered = login.offered.clone();
+            let helpers = login.helpers;
+            move |connection| {
+                let repository = connection.remote().repo().clone();
+                connection.set_credentials(credentials::never_prompting(
+                    credentials::offering(offered.clone(), helpers(repository)),
+                    shortfalls.clone(),
+                ));
+                Ok(())
+            }
+        }))
 }
 
 /// Run `work` with a progress tree of its own, telling `watch` what `gix`

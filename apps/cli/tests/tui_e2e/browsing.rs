@@ -178,7 +178,10 @@ fn s_shows_the_shelf_as_gather_list_says_it_each_source_by_its_name() {
         .given("~/Projects", "mindweaver gather git ../src/acme-skills");
     let listed = scenario.run("~/Projects", "mindweaver gather list");
     // Its source by its name, which `--from` takes.
-    assert_eq!(listed.stdout, "lint  src-acme-skills  Lint the code\n");
+    assert_eq!(
+        listed.stdout,
+        "lint  src-acme-skills  unknown  Lint the code\n"
+    );
     let mut terminal = scenario.open("~/Projects", "mindweaver");
     terminal.shows("1 on the shelf");
 

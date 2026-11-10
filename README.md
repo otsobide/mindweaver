@@ -106,6 +106,12 @@ files.
 
 ![The library's skills, each with the projects that hold a copy and its state there](docs/images/library.png)
 
+Below them, the library can be exported into a folder, or backed up to a
+git repository, the one thing in a workspace no gather brings back. A
+backup shows each step as it goes, and can be stopped until it pushes; a
+token is never typed into the panel, only the name of the variable that
+holds one.
+
 Each one opens on a page of its own: what its front matter declares, its
 body rendered, every file it carries, what `validate` says of it and where
 it is installed.
@@ -286,7 +292,7 @@ guide](docs/api.md) walks through it with curl.
 ## From the terminal
 
 Everything the panel does is a command, and so is everything it does not do
-yet, such as gathering and backing up:
+yet, such as gathering:
 
 ```bash
 cd ~/Projects/blog && mind init          # make a repository a project
@@ -309,6 +315,14 @@ taken from wherever it keeps them, where `gh skill` and `npx skills` look
 rest); `acme/skills@v2` and the address of a folder on GitHub or GitLab name
 a branch and a folder too, and `--dry-run` says what would be taken without
 taking it.
+
+`mindweaver gather search pdf` looks for skills before you gather them, and
+`--take 2` gathers the second it lists. It asks GitHub's code search, with
+a token you hand over for the search (`--token-env`, `--gh`), and only the
+skill directories your workspace's `weaver.toml` lists in `finders`:
+skills.sh and claude-plugins.dev are best-effort, read from APIs nobody
+documents, which can change under it, so none is asked until you list it,
+having read its terms.
 
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`

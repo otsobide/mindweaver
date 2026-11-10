@@ -1166,6 +1166,7 @@ fn gathering_in_the_tui_is_weaver_gather_git() {
             url: url.clone(),
             folder: String::from(mindweaver_core::DEFAULT_SUBDIRECTORY),
             reference: None,
+            kind: Kind::Skill,
         })
     );
     let Mode::Reading(reader) = &app.mode else {
@@ -1194,7 +1195,7 @@ fn a_gather_runs_apart_with_its_progress_drawn_until_it_is_over() {
     // Back at once, with the gather still going and the screen drawing it.
     assert!(app.running.is_some());
     settle_until(&mut app, |app| {
-        reported(app) == Some(Progress::Harvesting { done: 0, total: 3 })
+        reported(app) == Some(Progress::Gather(Gather::Harvesting { done: 0, total: 3 }))
     });
     let drawn = tui_drawn(&app);
     assert!(
@@ -1207,7 +1208,7 @@ fn a_gather_runs_apart_with_its_progress_drawn_until_it_is_over() {
 
     go.send(()).unwrap();
     settle_until(&mut app, |app| {
-        reported(app) == Some(Progress::Harvesting { done: 1, total: 3 })
+        reported(app) == Some(Progress::Gather(Gather::Harvesting { done: 1, total: 3 }))
     });
     assert!(tui_drawn(&app).contains("reading folders 1/3"));
 
@@ -1262,7 +1263,10 @@ fn a_gather_already_placing_says_a_cancel_is_too_late_and_finishes() {
     let mut app = tui_in(dir.path());
     let (go, gate) = mpsc::channel();
     app.runner = Some(placing_gather(gate));
-    start_gather(&mut app, Progress::Placing { done: 0, total: 3 });
+    start_gather(
+        &mut app,
+        Progress::Gather(Gather::Placing { done: 0, total: 3 }),
+    );
     let drawn = tui_drawn(&app);
     assert!(drawn.contains("placing on the shelf 0/3"), "{drawn}");
     // No key offered that would change nothing.
@@ -1916,6 +1920,7 @@ fn every_task_the_tui_runs_is_a_line_the_binaries_accept() {
             url: String::from("https://example.com/skills.git"),
             folder: String::from("agents"),
             reference: Some(String::from("-weird")),
+            kind: Kind::Skill,
         },
         Task::Add {
             holder: Holder::Project(String::from("alpha")),
@@ -3030,7 +3035,7 @@ fn slow_gather(go: mpsc::Receiver<()>) -> Runner {
         let go = go.lock().unwrap();
         let command = tui::state::shell(words);
         for done in 0..=3 {
-            watch.report(Progress::Harvesting { done, total: 3 });
+            watch.report(Progress::Gather(Gather::Harvesting { done, total: 3 }));
             loop {
                 if watch.is_cancelled() {
                     return Done::failed(command, "cancelled, with nothing put on the shelf");
@@ -3059,10 +3064,10 @@ fn placing_gather(go: mpsc::Receiver<()>) -> Runner {
     let go = Mutex::new(go);
     Runner::new(move |words, _, _, watch| {
         let go = go.lock().unwrap();
-        watch.report(Progress::Placing { done: 0, total: 3 });
+        watch.report(Progress::Gather(Gather::Placing { done: 0, total: 3 }));
         // A test that has gone is not waited for.
         let _ = go.recv();
-        watch.report(Progress::Placing { done: 3, total: 3 });
+        watch.report(Progress::Gather(Gather::Placing { done: 3, total: 3 }));
         Done {
             command: tui::state::shell(words),
             stdout: String::from("3 skills: 3 added\n"),
@@ -3076,7 +3081,10 @@ fn placing_gather(go: mpsc::Receiver<()>) -> Runner {
 /// Ask for the slow gather from the gather form, and let it get as far as
 /// reading its first folder.
 fn start_slow_gather(app: &mut App) {
-    start_gather(app, Progress::Harvesting { done: 0, total: 3 });
+    start_gather(
+        app,
+        Progress::Gather(Gather::Harvesting { done: 0, total: 3 }),
+    );
 }
 
 /// Ask for a gather from the gather form, and let it get as far as `step`.
@@ -4110,4 +4118,635 @@ fn a_projects_rows_show_its_mcp_servers_installed_and_somebodys() {
     ] {
         assert!(drawn.contains(row), "{row}\n{drawn}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Exporting and backing up the library
+// ---------------------------------------------------------------------------
+
+/// A workspace whose library holds the skill `deploy`.
+fn library_with_a_skill() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    weaver(dir.path(), &["add", "skill", "deploy", "Ship it"]).unwrap();
+    dir
+}
+
+#[test]
+fn x_exports_the_library_into_a_folder_as_weaver_export_does() {
+    let dir = library_with_a_skill();
+    let elsewhere = TempDir::new().unwrap();
+    let folder = elsewhere.path().join("backup");
+    let typed = folder.to_str().unwrap().to_owned();
+    let mut app = tui_in(dir.path());
+
+    press_key(&mut app, KeyCode::Char('x'));
+    type_text(&mut app, &typed);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("Export the library into a folder"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains(&format!("mindweaver export {typed}")),
+        "{drawn}"
+    );
+    let task = press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        task,
+        Some(Task::Export {
+            folder: typed.clone(),
+            kinds: Vec::new(),
+            yes: false,
+        })
+    );
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(
+        reader
+            .lines
+            .iter()
+            .any(|(_, line)| line.contains("added  skill  deploy")),
+        "{:?}",
+        reader.lines
+    );
+    assert!(folder
+        .join(".mindweaver/library/skills/deploy/SKILL.md")
+        .is_file());
+    assert!(app
+        .transcript()
+        .contains(&format!("$ mindweaver export {typed}\n")));
+}
+
+#[test]
+fn the_export_form_names_the_kinds_ticked_and_asks_before_it_may_take_away() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    press_key(&mut app, KeyCode::Char('x'));
+    type_text(&mut app, "/srv/backup");
+
+    // Down to `skills` and unticked: the others are named, and only they.
+    press_key(&mut app, KeyCode::Tab);
+    press_key(&mut app, KeyCode::Char(' '));
+    assert!(tui_drawn(&app).contains("mindweaver export --kind rules --kind mcp /srv/backup"));
+    // Down past `rules` and `mcp` to the yes, ticked.
+    for _ in 0..3 {
+        press_key(&mut app, KeyCode::Tab);
+    }
+    press_key(&mut app, KeyCode::Char(' '));
+    assert!(tui_drawn(&app).contains("mindweaver export --kind rules --kind mcp --yes /srv/backup"));
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    let Mode::Confirming(confirm) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        confirm.task,
+        Task::Export {
+            folder: String::from("/srv/backup"),
+            kinds: vec![Kind::Rule, Kind::Mcp],
+            yes: true,
+        }
+    );
+    assert!(confirm.question[0].contains("/srv/backup"), "{confirm:?}");
+
+    // No, and back in the form as it was left.
+    press_key(&mut app, KeyCode::Char('n'));
+    let Mode::Exporting(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(form.yes);
+}
+
+#[test]
+fn the_export_form_wants_a_folder_and_a_kind() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    press_key(&mut app, KeyCode::Char('x'));
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    let Mode::Exporting(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some("a folder to export into is needed")
+    );
+
+    type_text(&mut app, "/srv/backup");
+    for _ in 0..3 {
+        press_key(&mut app, KeyCode::Tab);
+        press_key(&mut app, KeyCode::Char(' '));
+    }
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    let Mode::Exporting(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.error.as_deref(), Some("tick at least one kind"));
+}
+
+#[test]
+fn b_backs_the_library_up_from_a_form_that_names_a_token_by_its_variable() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+
+    press_key(&mut app, KeyCode::Char('b'));
+    type_text(&mut app, "https://github.com/you/library.git");
+    press_key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "library");
+    press_key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "- weekly");
+    press_key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "GITHUB_TOKEN");
+    // Down to `rules`, unticked.
+    press_key(&mut app, KeyCode::Tab);
+    press_key(&mut app, KeyCode::Tab);
+    press_key(&mut app, KeyCode::Char(' '));
+
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("Back the library up to a git repository"),
+        "{drawn}"
+    );
+    // The line it runs, as far as the box has room for.
+    assert!(
+        drawn.contains("runs         mindweaver backup --branch library --kind skills --kind mcp"),
+        "{drawn}"
+    );
+    let TuiStep::Run(task) = press_key(&mut app, KeyCode::Enter) else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        task,
+        Task::Backup {
+            url: String::from("https://github.com/you/library.git"),
+            branch: Some(String::from("library")),
+            kinds: vec![Kind::Skill, Kind::Mcp],
+            message: Some(String::from("- weekly")),
+            token_env: Some(String::from("GITHUB_TOKEN")),
+        }
+    );
+    assert!(task.runs_apart());
+}
+
+#[test]
+fn the_backup_form_wants_a_repository() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    press_key(&mut app, KeyCode::Char('b'));
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+
+    let Mode::Backing(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.error.as_deref(), Some("a repository URL is needed"));
+}
+
+/// The repository the slow backup is asked for, which it never reaches.
+const SLOWLY: &str = "https://example.com/library.git";
+
+/// A stand-in for `mindweaver backup` that takes as long as the test
+/// wants: it says it checks out and exports, and goes on to commit and push
+/// only when `go` says so. A cancel before then stops it, as one stops a
+/// real backup before it pushes; one after is too late.
+fn slow_backup(go: mpsc::Receiver<()>) -> Runner {
+    let go = Mutex::new(go);
+    Runner::new(move |words, _, _, watch| {
+        let go = go.lock().unwrap();
+        let command = tui::state::shell(words);
+        watch.report(Progress::Backup(Backup::CheckingOut));
+        watch.report(Progress::Backup(Backup::Exporting));
+        loop {
+            if watch.is_cancelled() {
+                return Done::failed(
+                    command,
+                    "the backup was cancelled before anything was pushed: the repository is as it was",
+                );
+            }
+            match go.recv_timeout(Duration::from_millis(5)) {
+                // A test that has gone is not waited for.
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        }
+        watch.report(Progress::Backup(Backup::Committing));
+        watch.report(Progress::Backup(Backup::Pushing));
+        // Past the last check: it finishes whatever is asked.
+        let _ = go.recv();
+        Done {
+            command,
+            stdout: String::from("pushed 0123abc to main\n"),
+            stderr: Vec::new(),
+            error: None,
+            ok: true,
+        }
+    })
+}
+
+/// Ask for the slow backup from the backup form, and let it get as far as
+/// `step`.
+fn start_backup(app: &mut App, step: Backup) {
+    press_key(app, KeyCode::Char('b'));
+    type_text(app, SLOWLY);
+    let TuiStep::Run(task) = press_key(app, KeyCode::Enter) else {
+        panic!("{:?}", app.mode);
+    };
+    tui::step(app, task);
+    settle_until(app, |app| reported(app) == Some(Progress::Backup(step)));
+}
+
+#[test]
+fn a_backup_runs_apart_with_its_steps_drawn_and_esc_stops_it_before_it_pushes() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    let (_go, gate) = mpsc::channel();
+    app.runner = Some(slow_backup(gate));
+    start_backup(&mut app, Backup::Exporting);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains(&format!("mindweaver backup {SLOWLY}")),
+        "{drawn}"
+    );
+    assert!(drawn.contains("exporting the library"), "{drawn}");
+    assert!(drawn.contains("esc cancels"), "{drawn}");
+
+    assert_eq!(press_key(&mut app, KeyCode::Esc), TuiStep::Stay);
+
+    assert!(tui_drawn(&app).contains("cancelling, before anything is pushed"));
+    settle_until(&mut app, |app| app.running.is_none());
+    // Back in the form it was started from, with why it stopped.
+    let Mode::Backing(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some("the backup was cancelled before anything was pushed: the repository is as it was")
+    );
+    assert!(app
+        .transcript()
+        .contains(&format!("$ mindweaver backup {SLOWLY}\nerror: ")));
+}
+
+#[test]
+fn a_backup_already_pushing_says_a_cancel_is_too_late_and_finishes() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    let (go, gate) = mpsc::channel();
+    app.runner = Some(slow_backup(gate));
+    start_backup(&mut app, Backup::Exporting);
+    go.send(()).unwrap();
+    settle_until(&mut app, |app| {
+        reported(app) == Some(Progress::Backup(Backup::Pushing))
+    });
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("pushing"), "{drawn}");
+    assert!(!drawn.contains("esc cancels"), "{drawn}");
+    assert!(drawn.contains("too late to cancel: pushing"), "{drawn}");
+
+    assert_eq!(press_key(&mut app, KeyCode::Esc), TuiStep::Stay);
+
+    let drawn = tui_drawn(&app);
+    assert!(!drawn.contains("cancelling"), "{drawn}");
+    go.send(()).unwrap();
+    settle_until(&mut app, |app| app.running.is_none());
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(reader.lines[0].1, "pushed 0123abc to main");
+}
+
+#[test]
+fn x_and_b_on_a_project_on_its_own_say_they_are_a_workspace_s() {
+    let dir = TempDir::new().unwrap();
+    mind(dir.path(), &["init"]).unwrap();
+    let mut app = mind_tui_in(dir.path());
+
+    for key in ['x', 'b'] {
+        assert_eq!(press_key(&mut app, KeyCode::Char(key)), TuiStep::Stay);
+
+        assert!(matches!(app.mode, Mode::Browse), "{key}: {:?}", app.mode);
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|message| message.text.contains("that is a workspace's")),
+            "{key}: {:?}",
+            app.message
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Searching the skill directories from the shelf (#108)
+// ---------------------------------------------------------------------------
+
+/// What `mindweaver gather search --json` prints for two results, the second
+/// at a folder's address on a branch, with GitHub skipped for want of a
+/// token, as the TUI, which hands none over, always has it.
+fn found_twice() -> String {
+    serde_json::json!({
+        "version": 2,
+        "data": {
+            "hits": [
+                {
+                    "name": "commit-style",
+                    "repository": "https://github.com/beta/house-rules",
+                    "path": null,
+                    "reference": null,
+                    "installs": 56,
+                    "stars": null,
+                    "finders": ["skills.sh"],
+                },
+                {
+                    "name": "slides",
+                    "repository": "https://github.com/beta/decks",
+                    "path": "skills/slides",
+                    "reference": "main",
+                    "installs": null,
+                    "stars": 7,
+                    "finders": ["claude-plugins.dev"],
+                },
+            ],
+            "asked": ["skills.sh", "claude-plugins.dev"],
+            "skipped": ["github"],
+            "failures": [],
+        },
+        "warnings": [],
+        "coded_warnings": [],
+    })
+    .to_string()
+}
+
+/// The hint the line says of GitHub, skipped.
+const SKIPPED: &str =
+    "hint: github was not asked, since its search needs a token: --token-env or --gh hands one over";
+
+/// A runner standing in for every line, which notes each, and answers the
+/// search with `found` and every other line with a word of its own.
+fn searching(found: String, heard: &Arc<Mutex<Vec<Vec<String>>>>) -> Runner {
+    let heard = Arc::clone(heard);
+    Runner::new(move |words, _, _, _| {
+        heard.lock().unwrap().push(words.to_vec());
+        let searched = words.get(..4).is_some_and(|head| {
+            head == ["mindweaver", "gather", "search", "--json"].map(String::from)
+        });
+        let stdout = if searched {
+            found.clone()
+        } else {
+            String::from("stood in\n")
+        };
+        Done {
+            command: words.join(" "),
+            stdout,
+            stderr: if searched {
+                vec![String::from(SKIPPED)]
+            } else {
+                Vec::new()
+            },
+            error: None,
+            ok: true,
+        }
+    })
+}
+
+/// The shelf's page, then `f`, the query typed and enter: the search run
+/// apart to its end.
+fn search_from_the_shelf(app: &mut App, query: &str) -> Option<Task> {
+    press_and_run(app, KeyCode::Char('s'));
+    assert!(
+        matches!(&app.mode, Mode::Reading(reader) if reader.searches),
+        "{:?}",
+        app.mode
+    );
+    assert_eq!(press_key(app, KeyCode::Char('f')), TuiStep::Stay);
+    type_text(app, query);
+    press_and_run(app, KeyCode::Enter)
+}
+
+/// The acceptance's TUI case: a result found is taken by the gather of its
+/// repository and its folder, the line `gather search --take` amounts to,
+/// which the transcript keeps so it gathers the same again.
+#[test]
+fn a_result_found_from_the_shelf_is_taken_by_the_gather_line_of_its_folder() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(searching(found_twice(), &heard));
+
+    let searched = search_from_the_shelf(&mut app, "decks");
+
+    assert_eq!(
+        searched,
+        Some(Task::SearchSkills {
+            query: String::from("decks")
+        })
+    );
+    let Mode::Results(results) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(results.hits.len(), 2);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("What the skill directories found for `decks`"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains(
+            "1  commit-style  https://github.com/beta/house-rules  .              56 installs  skills.sh"
+        ),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains(
+            "2  slides        https://github.com/beta/decks#main   skills/slides  7 stars      claude-plugins.dev"
+        ),
+        "{drawn}"
+    );
+    assert!(drawn.contains(SKIPPED), "{drawn}");
+
+    assert_eq!(press_key(&mut app, KeyCode::Down), TuiStep::Stay);
+    let take = press_and_run(&mut app, KeyCode::Enter).expect("enter takes the result picked");
+
+    let line = [
+        "mindweaver",
+        "gather",
+        "git",
+        "--path",
+        "skills/slides",
+        "--ref",
+        "main",
+        "https://github.com/beta/decks",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(take.commands(), std::slice::from_ref(&line));
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ["mindweaver", "gather", "list"].map(String::from).to_vec(),
+            ["mindweaver", "gather", "search", "--json", "decks"]
+                .map(String::from)
+                .to_vec(),
+            line,
+        ]
+    );
+    // The search changes nothing, so the transcript keeps the gather alone.
+    let transcript = app.transcript();
+    assert!(
+        transcript.starts_with(
+            "$ mindweaver gather git --path skills/slides --ref main https://github.com/beta/decks\n"
+        ),
+        "{transcript}"
+    );
+    assert!(!transcript.contains("gather search"), "{transcript}");
+}
+
+/// A result no finder named a folder for is gathered from the root of its
+/// repository: the line leaves the folder out, as a gather of the whole
+/// repository is typed.
+#[test]
+fn a_result_with_no_folder_is_taken_by_the_gather_of_its_whole_repository() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(searching(found_twice(), &heard));
+    search_from_the_shelf(&mut app, "style");
+
+    let take = press_and_run(&mut app, KeyCode::Enter).unwrap();
+
+    assert_eq!(
+        take.commands(),
+        [[
+            "mindweaver",
+            "gather",
+            "git",
+            "https://github.com/beta/house-rules"
+        ]
+        .map(String::from)
+        .to_vec()]
+    );
+}
+
+/// The search runs apart, as a gather does, so the screen draws which finder
+/// it is asking and `esc` stops it before the next.
+#[test]
+fn a_search_runs_apart_saying_which_finder_it_asks() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let (go, gate) = mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    app.runner = Some(Runner::new(move |words, _, _, watch| {
+        if words.get(2).map(String::as_str) == Some("search") {
+            watch.report(Progress::Search(
+                mindweaver_core::finder::Progress::Asking {
+                    finder: mindweaver_core::finder::Finder::SkillsSh,
+                    done: 0,
+                    total: 2,
+                },
+            ));
+            let _ = gate.lock().unwrap().recv();
+        }
+        Done {
+            command: words.join(" "),
+            stdout: found_twice(),
+            stderr: Vec::new(),
+            error: None,
+            ok: true,
+        }
+    }));
+    press_and_run(&mut app, KeyCode::Char('s'));
+    press_key(&mut app, KeyCode::Char('f'));
+    type_text(&mut app, "pdf");
+    let TuiStep::Run(task) = press_key(&mut app, KeyCode::Enter) else {
+        panic!("{:?}", app.mode);
+    };
+
+    tui::step(&mut app, task);
+    settle_until(&mut app, |app| reported(app).is_some());
+
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("mindweaver gather search --json pdf"),
+        "{drawn}"
+    );
+    assert!(drawn.contains("asking skills.sh 0/2"), "{drawn}");
+    assert!(drawn.contains("esc cancels"), "{drawn}");
+    go.send(()).unwrap();
+    settle_until(&mut app, |app| app.running.is_none());
+    assert!(matches!(app.mode, Mode::Results(_)), "{:?}", app.mode);
+}
+
+/// A search that asks nothing, every finder enabled needing a token the TUI
+/// does not hand over, keeps the form open with why, as the line says it.
+#[test]
+fn a_search_that_asks_nothing_keeps_the_form_open_saying_why() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+
+    // The real line, in a workspace that lists no finder: GitHub alone, and
+    // no token, so no service is asked.
+    search_from_the_shelf(&mut app, "pdf");
+
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some(
+            "nothing was searched: github needs a token, handed over with --token-env or --gh, \
+             and no finder that needs none is enabled"
+        )
+    );
+}
+
+#[test]
+fn a_search_finding_nothing_says_so_and_offers_another() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let nothing = serde_json::json!({
+        "version": 2,
+        "data": {"hits": [], "asked": ["skills.sh"], "skipped": [], "failures": []},
+        "warnings": [],
+        "coded_warnings": [],
+    });
+    app.runner = Some(searching(nothing.to_string(), &heard));
+    search_from_the_shelf(&mut app, "nothing-like-it");
+
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("no finder found a skill for `nothing-like-it`"),
+        "{drawn}"
+    );
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+
+    assert_eq!(press_key(&mut app, KeyCode::Char('f')), TuiStep::Stay);
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.query.text(), "nothing-like-it");
+}
+
+/// `f` searches from the shelf's page alone: on any other page it is no key.
+#[test]
+fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    press_and_run(&mut app, KeyCode::Char('w'));
+
+    assert_eq!(press_key(&mut app, KeyCode::Char('f')), TuiStep::Stay);
+
+    assert!(
+        matches!(&app.mode, Mode::Reading(reader) if !reader.searches),
+        "{:?}",
+        app.mode
+    );
 }

@@ -959,8 +959,12 @@
   ],
   "shelf": [
     {
+      "content_hash": "afc2caf4001af9543ac50ba8111941c6e375f9a9189dfe7759f35e87a506829c",
       "gathered_at": 1792850400,
       "kind": "skill",
+      "licence": {
+        "from": "unknown"
+      },
       "name": "format",
       "origin": "https://github.com/acme/skills",
       "path": ".mindweaver/skills/github.com-acme-skills/format",
@@ -969,16 +973,22 @@
         "directory": "github.com-acme-skills",
         "kind": "git",
         "name": "acme-skills",
+        "pin": null,
         "reference": null,
         "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
         "subdirectory": "skills",
         "url": "https://github.com/acme/skills"
       },
-      "summary": "Format the code the way the team does"
+      "summary": "Format the code the way the team does",
+      "upstream_path": "skills/format"
     },
     {
+      "content_hash": "e3727e8cb75e5871317c884879a0785cc533f97f7c7e153913e8fe8d0d8d37ed",
       "gathered_at": 1792850400,
       "kind": "skill",
+      "licence": {
+        "from": "unknown"
+      },
       "name": "triage",
       "origin": "https://github.com/acme/skills",
       "path": ".mindweaver/skills/github.com-acme-skills/triage",
@@ -987,12 +997,14 @@
         "directory": "github.com-acme-skills",
         "kind": "git",
         "name": "acme-skills",
+        "pin": null,
         "reference": null,
         "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
         "subdirectory": "skills",
         "url": "https://github.com/acme/skills"
       },
-      "summary": "Sort new issues by what they need"
+      "summary": "Sort new issues by what they need",
+      "upstream_path": "skills/triage"
     }
   ],
   "sources": [
@@ -1001,6 +1013,7 @@
       "kind": "git",
       "name": "acme-skills",
       "origin": "https://github.com/acme/skills",
+      "pin": null,
       "reference": null,
       "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
       "subdirectory": "skills",

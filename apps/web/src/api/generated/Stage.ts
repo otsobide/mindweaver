@@ -2,6 +2,7 @@
 
 /**
  * What a run under way is doing, as one word: each step of a gather, in
- * the order it takes them.
+ * the order it takes them, then a backup's that are not a gather's, then a
+ * search's.
  */
-export type Stage = "connecting" | "receiving" | "resolving" | "checking_out" | "harvesting" | "placing";
+export type Stage = "connecting" | "receiving" | "resolving" | "checking_out" | "harvesting" | "placing" | "exporting" | "committing" | "pushing" | "asking";

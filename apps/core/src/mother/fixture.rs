@@ -21,7 +21,7 @@ use crate::exclude::ExcludeFile;
 use crate::gather::{self, Request};
 use crate::kind::Kind;
 use crate::ledger::Ledger;
-use crate::mother::artifact::SkillMother;
+use crate::mother::artifact::{RuleMother, SkillMother};
 use crate::mother::random;
 use crate::mother::value::ProjectIdMother;
 use crate::names::Names;
@@ -348,6 +348,40 @@ impl GitRepositoryMother {
         ])
     }
 
+    /// A repository keeping a rule at each of `routes` in `folder`, a route
+    /// from its root, `.` for the root itself (#111): `<route>.md` each, a
+    /// rule about the route's last segment, beside the `README.md` and the
+    /// `LICENSE` a collection of rules documents itself with, at the top of
+    /// `folder`, and a `CHANGELOG.md` at the repository's root, which a
+    /// gather of the whole repository would take as one more.
+    pub fn with_rules_in(folder: &str, routes: &[&str]) -> TempDir {
+        let mut files: Vec<(String, String)> = routes
+            .iter()
+            .map(|route| {
+                let topic = route.rsplit('/').next().unwrap_or(route);
+                (format!("{folder}/{route}.md"), RuleMother::create(topic))
+            })
+            .collect();
+        files.push((
+            format!("{folder}/README.md"),
+            String::from("# Rules\n\nWhat this collection is for.\n"),
+        ));
+        files.push((format!("{folder}/LICENSE"), Self::LICENCE.to_owned()));
+        files.push((
+            String::from("CHANGELOG.md"),
+            String::from("# Changelog\n\n- Every rule, first.\n"),
+        ));
+        let borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+        Self::create(&borrowed)
+    }
+
+    /// What the `LICENSE` of [`with_rules_in`](Self::with_rules_in) holds:
+    /// its first line is what a gather says every rule there is under.
+    pub const LICENCE: &str = "MIT License\n\nCopyright (c) the authors\n";
+
     /// The URL a gather is handed for a repository on the disk: its path, for
     /// the local transport.
     pub fn url(repository: &TempDir) -> String {
@@ -473,5 +507,26 @@ impl ShelfMother {
         )
         .expect("gather the skills");
         (dir, workspace, ledger)
+    }
+
+    /// Gather a rule for each of `routes` onto the shelf of `workspace`,
+    /// from the `rules` folder of one repository
+    /// ([`GitRepositoryMother::with_rules_in`]), which is gone once the
+    /// gather took what it holds: what the gather said, the source's name,
+    /// which `--from` takes, among it.
+    pub fn rules_into(
+        workspace: &WeaverWorkspace,
+        ledger: &Ledger,
+        routes: &[&str],
+    ) -> gather::Report {
+        let source = GitRepositoryMother::with_rules_in("rules", routes);
+        gather::gather(
+            workspace,
+            ledger,
+            &Request::git(GitRepositoryMother::url(&source))
+                .from_subdirectory("rules")
+                .taking(Kind::Rule),
+        )
+        .expect("gather the rules")
     }
 }

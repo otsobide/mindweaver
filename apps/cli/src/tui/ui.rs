@@ -16,15 +16,16 @@ use ratatui::Frame;
 
 use super::minds::{self, Minds};
 use super::state::{
-    AddField, AddForm, App, Confirm, Focus, GatherForm, Input, Item, LinkForm, LoadForm, Member,
-    Mode, Reader, RenameForm, Running, Scope, SettingsForm, TargetsForm, Task, Tone, View,
-    Workspace, GATHER_FIELDS,
+    AddField, AddForm, App, BackupForm, Confirm, ExportForm, Focus, GatherForm, Input, Item,
+    LinkForm, LoadForm, Member, Mode, Reader, RenameForm, Results, Running, Scope, SearchForm,
+    SettingsForm, TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS,
 };
 use crate::commands::project::worth_linking;
+use crate::commands::search::rows;
 use crate::install::ui::{centred, pane, selected};
 use crate::progress::said;
-use crate::render::{plural, printable};
-use crate::task::MindsChange;
+use crate::render::{plural, printable, table};
+use crate::task::{followed, Followed, MindsChange};
 
 /// How wide a form's labels are, so the values line up.
 const LABEL: u16 = 13;
@@ -45,8 +46,12 @@ pub fn draw(app: &App, frame: &mut Frame) {
             Mode::Linking(form) => linking(app, form, frame, area),
             Mode::Loading(form) => loading(app, form, frame, area),
             Mode::Gathering(form) => gathering(form, frame, area),
+            Mode::Exporting(form) => exporting(form, frame, area),
+            Mode::Backing(form) => backing(form, frame, area),
             Mode::Confirming(confirm) => confirming(confirm, frame, area),
             Mode::Reading(reader) => reading(reader, frame, area),
+            Mode::Searching(form) => searching(form, frame, area),
+            Mode::Results(screen) => results(screen, frame, area),
             Mode::Minds(screen) => minds_screen(app, screen, frame, area),
             Mode::Settings(form) => setting(app, form, frame, area),
             Mode::Targets(form) => targeting(app, form, frame, area),
@@ -654,7 +659,7 @@ fn footer(app: &App, frame: &mut Frame, area: Rect) {
             "q quit  ? keys  enter show  e edit  r rename  d delete  a add  ← back  v validate"
         }
         (Focus::Projects, Scope::Workspace) => {
-            "q quit  ? keys  → open  a add  u update  m minds  l link  U unlink  v validate  g gather  L load  s shelf  i install  t agents  T targets  w workspaces"
+            "q quit  ? keys  → open  a add  u update  m minds  l link  U unlink  v validate  g gather  L load  s shelf  i install  t agents  T targets  w workspaces  x export  b backup"
         }
         (Focus::Projects, Scope::Project) => {
             "q quit  ? keys  → open  a add  v validate  l link it to the workspace above  L load  t agents  T targets  w workspaces"
@@ -1078,6 +1083,96 @@ fn gathering(form: &GatherForm, frame: &mut Frame, area: Rect) {
     keys(frame, rows[6], "enter gather   tab next   esc cancel");
 }
 
+/// The export form: the folder, a tick for each kind, the yes that lets it
+/// change or remove what an earlier export wrote, and what it would run.
+fn exporting(form: &ExportForm, frame: &mut Frame, area: Rect) {
+    let count = ExportForm::lines();
+    let height = u16::try_from(count).unwrap_or(5) + 6;
+    let inner = popup(frame, area, "Export the library into a folder", 84, height);
+    let rows = lines(inner, count + 4);
+
+    input(frame, rows[0], "folder", &form.folder, form.field == 0);
+    for (at, (kind, ticked)) in form.kinds.iter().enumerate() {
+        kind_line(frame, rows[at + 1], *kind, *ticked, form.field == at + 1);
+    }
+    let yes = ExportForm::yes_field();
+    let line = Line::from(vec![
+        label("replace", form.field == yes),
+        tick(form.yes),
+        Span::styled(
+            "  change or remove what an earlier export wrote there, asked first",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), rows[yes]);
+    runs(frame, rows[count + 1], form.task().ok().as_ref());
+    error(frame, rows[count + 2], form.error.as_deref());
+    keys(
+        frame,
+        rows[count + 3],
+        "enter export   tab next   space tick   esc cancel",
+    );
+}
+
+/// The backup form: the repository, a branch, a message and the variable
+/// a token is read from, a tick for each kind, and what it would run.
+fn backing(form: &BackupForm, frame: &mut Frame, area: Rect) {
+    let count = BackupForm::lines();
+    let height = u16::try_from(count).unwrap_or(7) + 7;
+    let inner = popup(
+        frame,
+        area,
+        "Back the library up to a git repository",
+        84,
+        height,
+    );
+    let rows = lines(inner, count + 5);
+
+    for (index, name) in BACKUP_FIELDS.iter().enumerate() {
+        input(
+            frame,
+            rows[index],
+            name,
+            form.input(index),
+            form.field == index,
+        );
+    }
+    let typed = BACKUP_FIELDS.len();
+    for (at, (kind, ticked)) in form.kinds.iter().enumerate() {
+        kind_line(
+            frame,
+            rows[typed + at],
+            *kind,
+            *ticked,
+            form.field == typed + at,
+        );
+    }
+    // What `token env` takes, under the rest, rather than in a key line too
+    // long to fit: a variable's name, which is all a form is ever given.
+    let hint = Line::from(vec![
+        Span::raw(" ".repeat(usize::from(LABEL))),
+        Span::styled(
+            "token env: a variable's name, never a token; empty logs in as git does",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(hint), rows[count]);
+    runs(frame, rows[count + 1], form.task().ok().as_ref());
+    error(frame, rows[count + 2], form.error.as_deref());
+    keys(
+        frame,
+        rows[count + 4],
+        "enter back up   tab next   space tick   esc cancel",
+    );
+}
+
+/// One kind's line of a form, ticked or not: the kinds an export or a
+/// backup takes.
+fn kind_line(frame: &mut Frame, area: Rect, kind: Kind, ticked: bool, focused: bool) {
+    let line = Line::from(vec![label(kind.folder(), focused), tick(ticked)]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
 fn confirming(confirm: &Confirm, frame: &mut Frame, area: Rect) {
     const WIDTH: u16 = 76;
 
@@ -1154,11 +1249,16 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|(tone_of, text)| Line::from(Span::styled(clean(text), tone(*tone_of))))
         .collect();
+    let keys = if reader.searches {
+        " ↑↓ scroll   f search the skill directories   esc close "
+    } else {
+        " ↑↓ scroll   esc close "
+    };
     let block = Block::bordered()
         .border_type(BorderType::Thick)
         .border_style(Style::default().fg(Color::Cyan))
         .title(format!(" {} ", printable(&reader.title)))
-        .title_bottom(Line::from(" ↑↓ scroll   esc close ").right_aligned());
+        .title_bottom(Line::from(keys).right_aligned());
     let scroll = u16::try_from(reader.scroll).unwrap_or(u16::MAX);
     frame.render_widget(
         Paragraph::new(lines)
@@ -1167,6 +1267,105 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
             .scroll((scroll, 0)),
         box_,
     );
+}
+
+/// The search form: what to look for, which finders it asks, and the line
+/// it runs.
+fn searching(form: &SearchForm, frame: &mut Frame, area: Rect) {
+    let inner = popup(frame, area, "Search the skill directories", 78, 7);
+    let rows = lines(inner, 5);
+    input(frame, rows[0], "query", &form.query, true);
+    let hint = Line::from(vec![
+        Span::raw(" ".repeat(usize::from(LABEL))),
+        Span::styled(
+            "asks the finders weaver.toml enables; github needs a token",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(hint), rows[1]);
+    runs(frame, rows[2], form.task().as_ref());
+    error(frame, rows[3], form.error.as_deref());
+    keys(frame, rows[4], "enter search   esc cancel");
+}
+
+/// What a search found, over everything below the header: each result as
+/// the command lays it out, the one picked lit, what the search said under
+/// them, and the line enter runs.
+fn results(screen: &Results, frame: &mut Frame, area: Rect) {
+    let below = 1.min(area.height);
+    let box_ = Rect {
+        y: area.y + below,
+        height: area.height - below,
+        ..area
+    };
+    frame.render_widget(Clear, box_);
+    let block = Block::bordered()
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(format!(
+            " What the skill directories found for `{}` ",
+            printable(&screen.query)
+        ))
+        .title_bottom(
+            Line::from(" ↑↓ pick   enter gather it   f search again   esc close ").right_aligned(),
+        );
+    let inner = block.inner(box_);
+    frame.render_widget(block, box_);
+
+    // What the search said gets a strip of its own, as what a scan missed
+    // does, so a finder that failed is read beside what the others found.
+    // Sized without `clamp`, which panics on a screen too short for its
+    // floor.
+    let said = u16::try_from(screen.said.len())
+        .unwrap_or(u16::MAX)
+        .min(inner.height / 3);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(said),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let lines: Vec<Line> = screen
+        .said
+        .iter()
+        .map(|line| {
+            let style = if line.starts_with("hint:") {
+                dim()
+            } else {
+                warn()
+            };
+            Line::from(Span::styled(printable(line), style))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), parts[1]);
+    runs(frame, parts[2], screen.task().as_ref());
+
+    if screen.hits.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!(
+                    "no finder found a skill for `{}`; f searches for something else",
+                    printable(&screen.query)
+                ),
+                dim(),
+            ))
+            .wrap(Wrap { trim: true }),
+            parts[0],
+        );
+        return;
+    }
+    let items: Vec<ListItem> = table(&rows(&screen.hits))
+        .lines()
+        .map(|row| ListItem::new(Line::from(row.to_owned())))
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(screen.pick));
+    let list = List::new(items)
+        .highlight_style(selected(true))
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, parts[0], &mut state);
 }
 
 /// Where the screen looked for what could be linked, as its texts name it:
@@ -1420,15 +1619,15 @@ fn watching(running: &Running, frame: &mut Frame, area: Rect) {
     let step = running
         .progress
         .map_or_else(|| String::from("starting"), said);
+    let (late, cancelling) = stops_short_of(&running.task);
     let (stop, style) = match running.progress {
-        // Past the gather's last check, where `esc` changes nothing: said, so
+        // Past the run's last check, where `esc` changes nothing: said, so
         // that neither the key nor a cancel already asked for promises a stop
-        // the gather will not make. Loud only for whoever asked for one.
-        Some(progress) if !progress.cancellable() => (
-            "too late to cancel: placing",
-            if running.cancelling { warn() } else { dim() },
-        ),
-        _ if running.cancelling => ("cancelling, before anything is placed", warn()),
+        // the run will not make. Loud only for whoever asked for one.
+        Some(progress) if !progress.cancellable() => {
+            (late, if running.cancelling { warn() } else { dim() })
+        }
+        _ if running.cancelling => (cancelling, warn()),
         _ => ("esc cancels", dim()),
     };
     let longest = [command.chars().count(), step.chars().count(), stop.len()]
@@ -1450,6 +1649,28 @@ fn watching(running: &Running, frame: &mut Frame, area: Rect) {
         Line::from(Span::styled(stop, style)),
     ];
     frame.render_widget(Paragraph::new(text).block(block), box_);
+}
+
+/// What a run says once a cancel is too late, and while one asked in time
+/// is honoured: a gather stops short of placing, a backup of pushing. By
+/// what the task's lines are, as the one list says ([`followed`]).
+fn stops_short_of(task: &Task) -> (&'static str, &'static str) {
+    match task.commands().iter().find_map(|line| followed(line)) {
+        Some(Followed::Backup) => (
+            "too late to cancel: pushing",
+            "cancelling, before anything is pushed",
+        ),
+        // Every step of a search takes a cancel, so the first of these is
+        // never said.
+        Some(Followed::Search) => (
+            "too late to cancel",
+            "cancelling, once the finder being asked answers",
+        ),
+        Some(Followed::Gather) | None => (
+            "too late to cancel: placing",
+            "cancelling, before anything is placed",
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------

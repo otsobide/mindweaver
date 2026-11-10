@@ -168,7 +168,13 @@ crate::described::words! {
 }
 
 /// Where something that can be installed would be copied from.
+///
+/// The shelf's variant is the largest by far, since what the ledger keeps of
+/// a gathered artifact grew with where it came from and its licence (#99),
+/// and is left unboxed: offers are listed a few hundred at most, and a box
+/// would be undone at every match on one.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Offer {
     /// Gathered from a source onto the shelf.
     Shelf(Gathered),

@@ -600,3 +600,85 @@ fn a_server_naming_what_no_line_can_say_is_refused_before_a_line_is_built() {
         assert!(admitted(&workspace, &task).is_ok(), "{task:?}");
     }
 }
+
+fn export(folder: &str) -> Task {
+    Task::Export {
+        folder: folder.to_owned(),
+        kinds: vec![Kind::Skill],
+        yes: false,
+    }
+}
+
+fn backup(url: &str, token_env: Option<&str>) -> Task {
+    Task::Backup {
+        url: url.to_owned(),
+        branch: Some(String::from("library")),
+        kinds: Vec::new(),
+        message: Some(String::from("--yes")),
+        token_env: token_env.map(str::to_owned),
+    }
+}
+
+#[test]
+fn an_export_writes_into_a_folder_named_as_a_folder_to_link_is() {
+    let (dir, workspace) = fixture();
+    let folder = text(&dir.path().join("backup"));
+
+    assert_eq!(
+        admitted(&workspace, &export(&folder)).unwrap(),
+        export(&folder)
+    );
+    assert_eq!(
+        lines(&workspace, &export(&folder)),
+        [format!("mindweaver export --kind skills {folder}")]
+    );
+    let inside = text(&workspace.root().join(".mindweaver").join("library"));
+    for (folder, refused) in [
+        ("backup", "path_relative"),
+        ("../backup", "path_relative"),
+        ("file:///srv/backup", "path_url"),
+        (inside.as_str(), "path_in_mindflayer"),
+    ] {
+        assert_eq!(
+            code(admitted(&workspace, &export(folder))),
+            refused,
+            "{folder}"
+        );
+    }
+}
+
+#[test]
+fn a_backup_s_repository_is_held_as_a_gather_s_source_and_its_token_named_by_its_variable() {
+    let (dir, workspace) = fixture();
+    let bare = text(&dir.path().join("library.git"));
+    for url in [
+        "https://github.com/you/library.git",
+        "git@github.com:you/library.git",
+        bare.as_str(),
+    ] {
+        let task = backup(url, Some("GITHUB_TOKEN"));
+
+        assert_eq!(admitted(&workspace, &task).unwrap(), task, "{url}");
+    }
+    assert_eq!(
+        lines(&workspace, &backup(&bare, Some("GITHUB_TOKEN"))),
+        [format!(
+            "mindweaver backup --branch library --message=--yes --token-env GITHUB_TOKEN {bare}"
+        )]
+    );
+    let clone = text(&workspace.root().join(".mindweaver").join("cache").join("x"));
+    for (task, refused) in [
+        (backup("../library.git", None), "path_relative"),
+        (backup(&clone, None), "path_in_mindflayer"),
+        (
+            backup("https://github.com/you/library.git", Some("HOME")),
+            "token_variable_refused",
+        ),
+        (
+            backup("https://github.com/you/library.git", Some("-GITHUB_TOKEN")),
+            "token_variable_refused",
+        ),
+    ] {
+        assert_eq!(code(admitted(&workspace, &task)), refused, "{task:?}");
+    }
+}

@@ -5,14 +5,16 @@ use std::collections::BTreeSet;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, Parser};
 
+use mindweaver_core::DEFAULT_SUBDIRECTORY;
+
 use super::*;
 use crate::tui::minds::{Minds, Row, Standing};
-use crate::{Cli, WeaverCli};
+use crate::{Cli, Credential, WeaverCli};
 
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 36] = [
+const TAGS: [&str; 39] = [
     "init_workspace",
     "init_project",
     "link",
@@ -36,7 +38,10 @@ const TAGS: [&str; 36] = [
     "marks",
     "shelf",
     "workspaces",
+    "search_skills",
     "gather",
+    "export",
+    "backup",
     "targets",
     "settings",
     "toggled",
@@ -121,15 +126,54 @@ fn every(value: &str) -> Vec<Task> {
         },
         Task::Shelf,
         Task::Workspaces,
+        Task::SearchSkills { query: owned() },
         Task::Gather {
             url: owned(),
             folder: owned(),
             reference: Some(owned()),
+            kind: Kind::Skill,
         },
         Task::Gather {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
+            kind: Kind::Skill,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: owned(),
+            reference: None,
+            kind: Kind::Rule,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: String::from(DEFAULT_SUBDIRECTORY),
+            reference: Some(owned()),
+            kind: Kind::Rule,
+        },
+        Task::Export {
+            folder: owned(),
+            kinds: Vec::new(),
+            yes: false,
+        },
+        Task::Export {
+            folder: owned(),
+            kinds: vec![Kind::Skill, Kind::Mcp],
+            yes: true,
+        },
+        Task::Backup {
+            url: owned(),
+            branch: Some(owned()),
+            kinds: vec![Kind::Rule],
+            message: Some(owned()),
+            token_env: Some(owned()),
+        },
+        Task::Backup {
+            url: owned(),
+            branch: None,
+            kinds: Vec::new(),
+            message: None,
+            token_env: None,
         },
         Task::Install {
             projects: vec![owned(), String::from("plain")],
@@ -875,6 +919,141 @@ fn a_task_sent_with_a_field_it_does_not_have_is_refused() {
     }
 }
 
+/// A gather task says its kind as `--kind` does, and leaves out only the
+/// kind a gather takes unsaid and the folder a gather of its kind looks in
+/// unsaid: rules from the whole repository say `--path .`, which core asks
+/// of them (#111).
+#[test]
+fn a_gather_task_says_its_kind_and_the_folder_a_gather_of_rules_is_told() {
+    let gather = |folder: &str, kind: Kind| Task::Gather {
+        url: String::from("acme/rules"),
+        folder: folder.to_owned(),
+        reference: None,
+        kind,
+    };
+    let line = |words: &[&str]| -> Vec<Vec<String>> {
+        vec![words.iter().map(|word| (*word).to_owned()).collect()]
+    };
+
+    assert_eq!(
+        gather(".", Kind::Skill).commands(),
+        line(&["mindweaver", "gather", "git", "acme/rules"])
+    );
+    assert_eq!(
+        gather("rules", Kind::Rule).commands(),
+        line(&[
+            "mindweaver",
+            "gather",
+            "git",
+            "--kind",
+            "rules",
+            "--path",
+            "rules",
+            "acme/rules"
+        ])
+    );
+    assert_eq!(
+        gather(".", Kind::Rule).commands(),
+        line(&[
+            "mindweaver",
+            "gather",
+            "git",
+            "--kind",
+            "rules",
+            "--path",
+            ".",
+            "acme/rules"
+        ])
+    );
+}
+
+/// A gather task sent before it carried a kind, or leaving it out, gathers
+/// skills, as the command does without `--kind`.
+#[test]
+fn a_gather_task_that_names_no_kind_gathers_skills() {
+    let sent = r#"{"type": "gather", "url": "acme/skills", "folder": ".", "reference": null}"#;
+
+    let task: Task = serde_json::from_str(sent).unwrap();
+
+    assert!(
+        matches!(
+            &task,
+            Task::Gather {
+                kind: Kind::Skill,
+                ..
+            }
+        ),
+        "{task:?}"
+    );
+    let rules: Task = serde_json::from_str(
+        r#"{"type": "gather", "url": "acme/rules", "folder": "rules", "reference": null,
+            "kind": "rule"}"#,
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            &rules,
+            Task::Gather {
+                kind: Kind::Rule,
+                ..
+            }
+        ),
+        "{rules:?}"
+    );
+}
+
+/// The panel enters no credential (D-16): a gather it sends names the
+/// repository, the folder and the branch, and a token beside them, by
+/// whatever name, is a field the task does not have.
+#[test]
+fn a_gather_task_carries_no_token_by_any_name() {
+    for field in ["token", "token_env", "gh", "credential"] {
+        let json = format!(
+            r#"{{"type": "gather", "url": "acme/private", "folder": ".", "reference": null,
+                "{field}": "GITHUB_TOKEN"}}"#
+        );
+
+        let error = serde_json::from_str::<Task>(&json).unwrap_err();
+
+        assert!(error.to_string().contains(field), "{json}: {error}");
+    }
+}
+
+/// Nor do the lines a gather task is spelled as hand one over, whatever a
+/// browser fills its values with: each reaches the line as a value, never
+/// as `--token-env` or `--gh`, so no line of it is refused for one.
+#[test]
+fn a_gather_task_s_lines_hand_over_no_token_whatever_its_values() {
+    for value in ["--gh", "--token-env=HOME", "--token-env", "-gh"] {
+        for task in [
+            Task::Gather {
+                url: value.to_owned(),
+                folder: String::from(DEFAULT_SUBDIRECTORY),
+                reference: None,
+                kind: Kind::Skill,
+            },
+            Task::Gather {
+                url: String::from("acme/private"),
+                folder: value.to_owned(),
+                reference: Some(value.to_owned()),
+                kind: Kind::Rule,
+            },
+        ] {
+            for words in task.commands() {
+                let parsed = WeaverCli::try_parse_from(&words)
+                    .unwrap_or_else(|error| panic!("{words:?}: {error}"));
+                let Some(WeaverCommand::Gather(GatherCommand::Git { credential, .. })) =
+                    parsed.command
+                else {
+                    panic!("{words:?} is no gather");
+                };
+                assert_eq!(credential, Credential::default(), "{words:?}");
+            }
+            assert_eq!(task.refusal(), None, "{task:?}");
+        }
+    }
+}
+
 #[test]
 fn a_task_holding_a_word_no_command_line_takes_is_refused() {
     let error = serde_json::from_str::<Task>(
@@ -1406,14 +1585,6 @@ fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_or_shows() {
         ),
         ("mindweaver activate", Refusal::Shell),
         ("mind weaver activate --shell fish work", Refusal::Shell),
-        (
-            "mindweaver backup https://example.com/library.git",
-            Refusal::Sends,
-        ),
-        (
-            "mind weaver backup ../library.git --kind skills --token-env TOKEN",
-            Refusal::Sends,
-        ),
         ("mind show deploy", Refusal::Unheld),
         ("mind -C alpha show --json rule:style", Refusal::Unheld),
         ("mindweaver show -p alpha deploy", Refusal::Unheld),
@@ -1464,10 +1635,20 @@ fn without_the_ui_feature_there_is_no_ui_command() {
 fn a_front_end_with_no_terminal_runs_everything_else() {
     for said in [
         "mindweaver gather list",
+        // The network, each finder asked in turn, and stopped between two
+        // of them; with `--take`, a gather besides (#108).
+        "mindweaver gather search pdf",
+        "mindweaver gather search --json --finder skills.sh pdf",
+        "mindweaver gather search --take 2 pdf",
         // The network, followed as it goes and stopped when asked, and
         // never a prompt (#112).
         "mindweaver gather git https://example.com/skills.git",
         "mind weaver gather git --path tools --ref v2 /srv/git/skills",
+        // The network too, followed and stopped until it pushes, and
+        // never a prompt from git: refused until it reported its steps.
+        "mindweaver backup https://example.com/library.git",
+        "mind weaver backup ../library.git --kind skills --token-env TOKEN",
+        "mindweaver export --kind rules --yes ../backup",
         "mindweaver install -p alpha deploy",
         "mindweaver install --all-projects deploy",
         // Half an install, which opens no screen: the command refuses it
@@ -1507,21 +1688,39 @@ fn a_task_is_refused_for_the_first_of_its_lines_that_is() {
     }
 }
 
-/// A gather is followed as it goes and stopped when asked, whichever
-/// binary spells it and whatever it is told; nothing else is, a gather's
-/// list among it.
+/// A gather, a backup and a search are followed as they go and stopped
+/// when asked, whichever binary spells them and whatever they are told; a
+/// search that takes a result is a gather; nothing else is, a gather's list
+/// and an export among it.
 #[test]
-fn a_front_end_follows_a_gather_and_nothing_else() {
+fn a_front_end_follows_a_gather_a_backup_and_a_search_and_nothing_else() {
     for said in [
         "mindweaver gather git https://example.com/skills.git",
         "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
         "mind weaver gather git git@example.com:acme/skills.git",
         "mind -C alpha weaver gather git file:///srv/git/skills",
+        "mindweaver gather search --take 1 pdf",
+        "mind weaver gather search --gh --take 3 -- -odd",
     ] {
         assert_eq!(followed(&line(said)), Some(Followed::Gather), "{said}");
     }
     for said in [
+        "mindweaver backup https://example.com/library.git",
+        "mindweaver -W /home/you/work backup --branch library --kind skills /srv/git/library.git",
+        "mind weaver backup --token-env GITHUB_TOKEN -m saved git@example.com:you/library.git",
+    ] {
+        assert_eq!(followed(&line(said)), Some(Followed::Backup), "{said}");
+    }
+    for said in [
+        "mindweaver gather search pdf",
+        "mindweaver gather search --json --finder skills.sh --finder github pdf",
+        "mind weaver gather search --token-env GITHUB_TOKEN pdf",
+    ] {
+        assert_eq!(followed(&line(said)), Some(Followed::Search), "{said}");
+    }
+    for said in [
         "mindweaver gather list",
+        "mindweaver export ../backup",
         "mindweaver link alpha",
         "mind install deploy",
         "mindweaver",
@@ -1539,7 +1738,10 @@ fn a_front_end_follows_a_gather_and_nothing_else() {
 fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
     let values = VALUES.into_iter().filter(|value| !value.is_empty());
     for task in values.flat_map(every) {
-        let expected = matches!(task, Task::Gather { .. });
+        let expected = matches!(
+            task,
+            Task::Gather { .. } | Task::Backup { .. } | Task::SearchSkills { .. }
+        );
 
         assert_eq!(task.runs_apart(), expected, "{task:?}");
     }
@@ -1606,7 +1808,6 @@ fn a_refusal_says_why_by_a_code_of_its_own() {
         Refusal::Shell,
         Refusal::Unheld,
         Refusal::Panel,
-        Refusal::Sends,
     ]
     .iter()
     .map(Refusal::code)
@@ -1723,6 +1924,9 @@ fn a_task_is_asked_about_for_each_of_its_lines_that_takes_something_away() {
                 vec![(0, Caution::Uninstalls)]
             }
             Task::Update { force: true, .. } => vec![(0, Caution::Forces)],
+            // What an earlier export wrote and the library no longer holds
+            // is deleted from the folder.
+            Task::Export { yes: true, .. } => vec![(0, Caution::Removes)],
             Task::Unlink { .. } => vec![(0, Caution::Unlinks)],
             Task::Unload { .. } | Task::UnloadHere { .. } => vec![(0, Caution::Unloads)],
             // `mind -C <path> init`, `mindweaver link` and `mindweaver unlink`.
@@ -1870,7 +2074,12 @@ fn drawn(count: usize) -> Vec<String> {
             random::text(random::between(1, 20))
         );
         let special = value.is_empty() || value == "." || value == DEFAULT_SUBDIRECTORY;
-        if !special && !value.contains("://") {
+        // A URL's credentials are left out of the line shown, so a value
+        // reading as one is no value this test can hold to its words: one
+        // holding `://`, and one starting `//`, which a name's `skill:`
+        // makes `skill://`, a URL whose user is whatever comes before an
+        // `@` (it was drawn once, as `//XЖ@0@...`).
+        if !special && !value.contains("://") && !value.starts_with("//") {
             values.push(value);
         }
     }
@@ -1917,19 +2126,29 @@ fn a_line_holding_values_drawn_at_random_is_shown_as_the_words_it_runs() {
     }
 }
 
-/// The tasks that carry a URL to a line: a gather's address, and an
-/// install's origin, which names a source by its address.
+/// The tasks that carry a URL to a line: a gather's address, a backup's
+/// repository, and an install's origin, which names a source by its
+/// address.
 fn carrying(url: &str) -> Vec<Task> {
     vec![
+        Task::Backup {
+            url: url.to_owned(),
+            branch: Some(String::from("library")),
+            kinds: vec![Kind::Skill],
+            message: None,
+            token_env: Some(String::from("GITHUB_TOKEN")),
+        },
         Task::Gather {
             url: url.to_owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
+            kind: Kind::Skill,
         },
         Task::Gather {
             url: url.to_owned(),
             folder: String::from("rules"),
             reference: Some(String::from("main")),
+            kind: Kind::Rule,
         },
         Task::Install {
             projects: vec![String::from("alpha")],
@@ -2122,4 +2341,94 @@ fn a_servers_add_and_edit_are_its_options_words_each_secret_a_variables_name() {
     );
     assert_eq!(added.refusal(), None);
     assert_eq!(edited.refusal(), None);
+}
+
+/// An export names each kind asked for by its folder's word, and none for
+/// every kind, and says `--yes` only when told; the folder is a value
+/// wherever it starts.
+#[test]
+fn an_export_is_the_line_the_cli_takes_and_told_yes_only_when_asked() {
+    for (task, said) in [
+        (
+            Task::Export {
+                folder: String::from("/home/you/backup"),
+                kinds: Vec::new(),
+                yes: false,
+            },
+            "mindweaver export /home/you/backup",
+        ),
+        (
+            Task::Export {
+                folder: String::from("/home/you/backup"),
+                kinds: vec![Kind::Skill, Kind::Mcp],
+                yes: true,
+            },
+            "mindweaver export --kind skills --kind mcp --yes /home/you/backup",
+        ),
+        (
+            Task::Export {
+                folder: String::from("-odd"),
+                kinds: vec![Kind::Rule],
+                yes: false,
+            },
+            "mindweaver export --kind rules -- -odd",
+        ),
+    ] {
+        assert_eq!(task.commands(), [words_of(said)], "{task:?}");
+        assert!(task.writes(), "{task:?}");
+    }
+}
+
+/// A backup says each option only when it has something to say, the
+/// variable a token is read from by its name, and the repository last.
+#[test]
+fn a_backup_is_the_line_the_cli_takes_naming_a_token_by_its_variable() {
+    for (task, said) in [
+        (
+            Task::Backup {
+                url: String::from("https://github.com/you/library.git"),
+                branch: None,
+                kinds: Vec::new(),
+                message: None,
+                token_env: None,
+            },
+            "mindweaver backup https://github.com/you/library.git",
+        ),
+        (
+            Task::Backup {
+                url: String::from("git@github.com:you/library.git"),
+                branch: Some(String::from("library")),
+                kinds: vec![Kind::Skill, Kind::Rule],
+                message: Some(String::from("- weekly")),
+                token_env: Some(String::from("GITHUB_TOKEN")),
+            },
+            "mindweaver backup --branch library --kind skills --kind rules \
+             '--message=- weekly' --token-env GITHUB_TOKEN git@github.com:you/library.git",
+        ),
+    ] {
+        assert_eq!(task.commands(), [words_of(said)], "{task:?}");
+        assert!(task.writes() && task.runs_apart(), "{task:?}");
+        assert!(task.cautions().is_empty(), "{task:?}");
+    }
+}
+
+/// The TUI's search reads what the line prints back as JSON, and hands no
+/// token over, nor the name of a variable holding one (D-16).
+#[test]
+fn a_search_of_the_skill_directories_is_its_json_line_with_no_token() {
+    let task = Task::SearchSkills {
+        query: String::from("pdf forms"),
+    };
+
+    let mut expected = line("mindweaver gather search --json");
+    expected.push(String::from("pdf forms"));
+    assert_eq!(task.commands(), vec![expected]);
+    assert_eq!(
+        task.describe(),
+        "mindweaver gather search --json 'pdf forms'"
+    );
+    assert!(!task.writes());
+    assert!(task.runs_apart());
+    assert_eq!(task.refusal(), None);
+    assert!(task.cautions().is_empty());
 }

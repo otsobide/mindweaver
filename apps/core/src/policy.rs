@@ -23,7 +23,11 @@
 //! - **A gather's source is an address or such a folder** ([`source`]): an
 //!   address is the gather's to judge, as one typed at a terminal is, and a
 //!   folder on this machine, as a path or a `file://` URL, is held as a
-//!   folder to link is.
+//!   folder to link is. A backup's repository is held the same way.
+//! - **A token is named by the variable that holds it, and only one named
+//!   for a token** ([`token_variable`]): never the token, which a request
+//!   never carries (D-16), and never a variable of another kind, whose
+//!   value a backup would send to whatever server the request names.
 //! - **A workspace to switch to is named by its path as a list of core's
 //!   spells it** ([`switched`]): one of the workspaces this machine knows,
 //!   or the one the front end was launched on ([`crate::known::switchable`]),
@@ -49,7 +53,7 @@ use crate::mcp::Given;
 use crate::names::Names;
 use crate::paths;
 use crate::resolve::Reason;
-use crate::value::Redacted;
+use crate::value::{Redacted, VariableName};
 use crate::workspace::{Loaded, Member, WeaverWorkspace, WorkspaceError};
 
 /// Why a value a request holds is not one it may name.
@@ -86,6 +90,11 @@ pub enum PolicyError {
         name: String,
         from: Option<Redacted>,
     },
+    /// A variable a backup would read its token from that is no
+    /// variable's name a shell can set, or one not named for a token
+    /// ([`token_variable`]).
+    #[error("`{given}` is not a variable a backup reads a token from: name one holding a token, as a shell names it (letters, digits and underscores, not starting with a digit), ending in `{TOKEN_SUFFIX}`, as `GITHUB_TOKEN` does")]
+    TokenVariable { given: String },
     /// A server's options a line cannot say as given, a name beside a
     /// value that holds `=`, refused by `add`'s own check, and by its code
     /// ([`sayable`]).
@@ -105,6 +114,7 @@ codes!(PolicyError {
     Self::InWeaverDir { .. } => "path_in_mindflayer",
     Self::Unlisted { .. } => "switch_unlisted",
     Self::YesUnasked { .. } => "install_yes_unasked",
+    Self::TokenVariable { .. } => "token_variable_refused",
 } carried {
     Self::Server(error) => error,
     Self::Workspace(error) => error,
@@ -227,6 +237,33 @@ pub fn source(given: &str) -> Result<(), PolicyError> {
 
 /// What a `file://` URL starts with, its path after it.
 const FILE: &str = "file://";
+
+/// What the name of a variable a request may have a backup read its token
+/// from ends with ([`token_variable`]).
+pub const TOKEN_SUFFIX: &str = "TOKEN";
+
+/// `given`, as the name of the environment variable a request may have a
+/// backup read its token from (`--token-env`): one a shell can set, by the
+/// rule an MCP server's secret is named by ([`VariableName::is_portable`]),
+/// and one named for a token, ending in [`TOKEN_SUFFIX`] (`GITHUB_TOKEN`,
+/// `GH_TOKEN`).
+///
+/// The name, never the token: a front end enters no credential, nor sends
+/// one (D-16), and the command reads the variable from the environment of
+/// whatever runs the line, for the one run. Held to a token's name, which
+/// a command typed at a terminal is not, since what the variable holds is
+/// sent as a password to whatever server the request's URL names: a
+/// request naming `HOME`, or another service's key, would have a backup
+/// send it there, and a request is a stranger's until shown otherwise.
+pub fn token_variable(given: &str) -> Result<(), PolicyError> {
+    if VariableName::from(given).is_portable() && given.ends_with(TOKEN_SUFFIX) {
+        Ok(())
+    } else {
+        Err(PolicyError::TokenVariable {
+            given: given.to_owned(),
+        })
+    }
+}
 
 /// The entry of `workspace`'s registry spelled `entry`, as a snapshot lists
 /// it, with where it points and the project there, or why there is none.

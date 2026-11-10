@@ -205,7 +205,7 @@ fn gather_list_names_where_each_skill_came_from() {
 
     // By the name `--from` takes, which the listing is for.
     assert!(outcome.ok);
-    assert_eq!(outcome.stdout, "deploy  acme  Ship it\n");
+    assert_eq!(outcome.stdout, "deploy  acme  unknown  Ship it\n");
 }
 
 #[test]
@@ -352,8 +352,15 @@ fn a_watched_gather_reports_its_steps_and_prints_what_an_unwatched_one_does() {
     .unwrap();
 
     let seen = seen.lock().unwrap();
-    assert_eq!(seen.first(), Some(&Progress::Connecting), "{seen:?}");
-    assert_eq!(seen.last(), Some(&Progress::Placing { done: 1, total: 1 }));
+    assert_eq!(
+        seen.first(),
+        Some(&Progress::Gather(Gather::Connecting)),
+        "{seen:?}"
+    );
+    assert_eq!(
+        seen.last(),
+        Some(&Progress::Gather(Gather::Placing { done: 1, total: 1 }))
+    );
     // The progress is the front end's to show; the report is the command's.
     assert_eq!(
         outcome,
@@ -478,7 +485,7 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
     // Listing reads, so it rewrites nothing, and it shows nothing it should
     // not, the URL its JSON holds included.
     let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
-    assert_eq!(listed.stdout, "deploy  acme  Ship it\n");
+    assert_eq!(listed.stdout, "deploy  acme  unknown  Ship it\n");
     assert!(listed.stderr.is_empty(), "{:?}", listed.stderr);
     let json = weaver(dir.path(), &["gather", "list", "--json"]).unwrap();
     assert!(
@@ -498,8 +505,8 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
         gathered.stderr,
         [
             "note: https://example.com/acme/skills: the user name, password or token an older \
-             Mindweaver stored in this URL is taken out; gathering it again needs a git \
-             credential helper that has it",
+             Mindweaver stored in this URL is taken out; gathering it again needs it from --token-env, --gh or a git \
+             credential helper",
             "note: 1 action log entry: the user name, password or token an older Mindweaver \
              stored in a URL in it is taken out",
         ]
@@ -510,7 +517,8 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
     let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
     assert!(
         listed.stdout.lines().any(|line| {
-            line.split_whitespace().collect::<Vec<_>>() == ["deploy", "acme", "Ship", "it"]
+            line.split_whitespace().collect::<Vec<_>>()
+                == ["deploy", "acme", "unknown", "Ship", "it"]
         }),
         "{}",
         listed.stdout
@@ -554,8 +562,8 @@ fn the_first_command_that_writes_after_the_step_says_which_sources_are_one_now()
              `acme-skills` (git@github.com:acme/skills.git), so the two are one source now, and \
              the shelf keeps what `acme-skills` gathered",
             "note: https://github.com/acme/private: the user name, password or token an older \
-             Mindweaver stored in this URL is taken out; gathering it again needs a git \
-             credential helper that has it",
+             Mindweaver stored in this URL is taken out; gathering it again needs it from --token-env, --gh or a git \
+             credential helper",
             "note: 2 action log entries: the user names, passwords or tokens an older \
              Mindweaver stored in URLs in them are taken out",
         ]
@@ -617,7 +625,8 @@ fn a_url_with_a_token_in_it_is_refused_and_nothing_kept_or_said_repeats_the_toke
         failure.error.to_string(),
         "https://example.com/acme/skills: a password, a token or, over http(s), a user name in \
          the URL is refused, because gathering stores and shows the URL: gather it without one, \
-         and configure a git credential helper that has it"
+         and hand the token over with --token-env or --gh, or configure a git credential helper \
+         that has it"
     );
     assert!(failure.warnings.is_empty(), "{:?}", failure.warnings);
     assert!(!kept_by(dir.path()).contains("ghp_t0ken"));

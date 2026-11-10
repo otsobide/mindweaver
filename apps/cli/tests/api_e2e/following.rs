@@ -123,7 +123,45 @@ fn a_gather_is_told_step_by_step_until_what_it_found_is_on_the_shelf() {
     scenario
         .run("~/Projects", "mindweaver gather list")
         .succeeds()
-        .prints("pdf  src-acme-skills  Read PDFs\n");
+        .prints("pdf  src-acme-skills  unknown  Read PDFs\n");
+}
+
+/// A gather task that says it takes rules runs the line `--kind rules`
+/// is, naming the folder they are gathered from, and puts them on the
+/// shelf by their routes (#111).
+#[test]
+fn a_gather_of_rules_runs_with_its_kind_and_its_folder_and_shelves_them() {
+    let scenario = Scenario::projects(&["api"]);
+    scenario.source(
+        "~/src/acme-rules",
+        &[
+            (
+                "rules/git/commits.md",
+                "# Commit one coherent step at a time\n",
+            ),
+            ("rules/README.md", "# Our rules\n"),
+        ],
+    );
+    let served = scenario.serve("~/Projects");
+    let gather = json!({"type": "gather", "url": "/home/you/src/acme-rules",
+                        "folder": "rules", "reference": null, "kind": "rule"});
+    let lines = json!([
+        "mindweaver -W /home/you/Projects gather git --kind rules --path rules \
+         /home/you/src/acme-rules"
+    ]);
+
+    served
+        .post("/tasks/preview", gather.clone())
+        .answers(json!({"lines": lines, "confirm": [], "cancellable": true}));
+    served
+        .post("/tasks", gather)
+        .is(200)
+        .answers_at("/outcome/ok", json!(true));
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints("git/commits  src-acme-rules  unknown  Commit one coherent step at a time\n");
 }
 
 #[test]
@@ -189,4 +227,57 @@ fn a_switch_is_told_to_every_stream_with_how_many_have_been_taken() {
             Some(&json!({"type": "switched", "switches": 1}))
         );
     }
+}
+
+/// A backup from the API is previewed as a run that takes a cancel, and
+/// told step by step as it goes, in the words a terminal draws each in,
+/// each cancellable until it pushes, until its commit is on the branch.
+#[test]
+fn a_backup_is_told_step_by_step_until_its_commit_is_on_the_branch() {
+    let scenario = linking(&["api"]);
+    scenario.remote("~/backups/library.git");
+    let served = scenario.serve("~/Projects");
+    let mut stream = served.events();
+    stream.opened();
+    let backup = json!({"type": "backup", "url": "/home/you/backups/library.git",
+                        "branch": null, "kinds": [], "message": null, "token_env": null});
+    let lines = json!(["mindweaver -W /home/you/Projects backup /home/you/backups/library.git"]);
+
+    served
+        .post("/tasks/preview", backup.clone())
+        .answers(json!({"lines": lines, "confirm": [], "cancellable": true}));
+    served
+        .post("/tasks", backup)
+        .is(200)
+        .answers_at("/outcome/ok", json!(true));
+
+    let told: Vec<Value> = stream
+        .until(is("command_finished"))
+        .into_iter()
+        .filter(|event| event["type"] != "changed")
+        .collect();
+    let step = |stage: &str, said: &str, cancellable: bool| {
+        json!({"type": "progress", "run": 1, "progress": {
+            "stage": stage, "done": null, "total": null,
+            "said": said, "cancellable": cancellable,
+        }})
+    };
+    assert_eq!(
+        told,
+        [
+            json!({"type": "command_started", "run": 1, "lines": lines, "cancellable": true}),
+            step("checking_out", "checking the repository out", true),
+            step("exporting", "exporting the library", true),
+            step("committing", "committing", true),
+            step("pushing", "pushing", false),
+            json!({"type": "command_finished", "run": 1, "lines": lines}),
+        ]
+    );
+    assert_eq!(
+        scenario.files_on("~/backups/library.git", "main"),
+        [
+            ".mindweaver/library/skills/review/SKILL.md",
+            ".mindweaver/weaver.toml",
+        ]
+    );
 }

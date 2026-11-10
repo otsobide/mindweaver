@@ -77,6 +77,21 @@ fn every_text_a_hash_mother_calls_no_hash_is_refused_for_its_own_reason() {
 }
 
 #[test]
+fn every_text_a_pin_mother_calls_no_pin_is_refused_for_its_own_reason() {
+    let not = PinMother::not_pins();
+    let reasons: BTreeSet<&str> = not.iter().map(|(why, _)| *why).collect();
+
+    assert_eq!(reasons.len(), not.len(), "a reason named twice");
+    for (why, text) in not {
+        assert!(crate::value::Pin::parse(&text).is_none(), "{why}");
+    }
+    for _ in 0..DRAWS {
+        let pin = PinMother::random();
+        assert_eq!(crate::value::Pin::parse(&pin), Some(pin.clone()), "{pin}");
+    }
+}
+
+#[test]
 fn every_text_an_id_mother_calls_no_id_is_refused() {
     for (why, text) in ProjectIdMother::not_ids() {
         assert!(crate::value::ProjectId::parse(&text).is_none(), "{why}");
@@ -522,6 +537,64 @@ fn a_mindflayer_mother_makes_a_workspace_under_the_old_names() {
     assert_eq!(
         workspace.ledger_path(),
         dir.path().join(".mindflayer/mindflayer.db")
+    );
+}
+
+/// Each rule where its route says in the folder named, by a name a rule
+/// can have, beside the README and the licence a gather leaves out, and a
+/// changelog outside the folder.
+#[test]
+fn a_git_repository_mother_keeps_rules_by_their_routes_in_the_folder_it_is_told() {
+    let routes = [
+        random::kebab(),
+        format!("{}/{}", random::kebab(), random::kebab()),
+    ];
+    let borrowed: Vec<&str> = routes.iter().map(String::as_str).collect();
+
+    let repository = GitRepositoryMother::with_rules_in("rules", &borrowed);
+
+    assert!(gix::open(repository.path()).unwrap().head_id().is_ok());
+    for route in &routes {
+        assert!(
+            repository
+                .path()
+                .join(format!("rules/{route}.md"))
+                .is_file(),
+            "{route}"
+        );
+        assert!(
+            crate::install::is_installable_name(Kind::Rule, route),
+            "{route}"
+        );
+    }
+    assert!(repository.path().join("rules/README.md").is_file());
+    assert_eq!(
+        fs::read_to_string(repository.path().join("rules/LICENSE")).unwrap(),
+        GitRepositoryMother::LICENCE
+    );
+    assert!(repository.path().join("CHANGELOG.md").is_file());
+}
+
+#[test]
+fn a_shelf_mother_gathers_every_rule_it_is_given_into_a_workspace() {
+    let (_dir, workspace) = WorkspaceMother::empty();
+    let ledger = workspace.ledger().unwrap();
+
+    let report = ShelfMother::rules_into(&workspace, &ledger, &["git/commits", "tone"]);
+
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    let gathered: Vec<(Kind, String)> = ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|gathered| (gathered.kind, gathered.name.into_string()))
+        .collect();
+    assert_eq!(
+        gathered,
+        [
+            (Kind::Rule, String::from("git/commits")),
+            (Kind::Rule, String::from("tone"))
+        ]
     );
 }
 

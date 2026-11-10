@@ -516,8 +516,9 @@ project, an error's fields. Those join `value` as a rule is found for them,
 the same way.
 
 **Ports.** `port` holds what core needs of the world beyond its files, each
-a trait in core's own words: a `Remote` fetches a source into the cache and
-scrubs a clone of what a credential left in it, an `Http` asks a catalog for
+a trait in core's own words: a `Remote` fetches a source into the cache,
+offering a token a front end handed over for the run (`port::Token`) to the
+host it is for, and scrubs a clone of what a credential left in it, an `Http` asks a catalog for
 one `GET` and hands back whatever it answered (an `HttpRequest`, an
 `HttpResponse` holding only the headers core reads, and an `HttpError`, all
 the port's own), a `LedgerStore` keeps a
@@ -1531,9 +1532,10 @@ refused by `mindweaver init` before anything is made
 there by names of its own, so an artifact somebody wrote among them could go
 with the next gather; and a rules folder holding the cache would read every
 markdown file in every clone as one of the workspace's rules. The rules shelf
-is reserved too, though nothing gathers rules yet, rather than matched on the
-kind as `gather` is: scrubbing a source already deletes its folder from every
-kind's shelf, and a kind made gatherable later has to find its shelf free. The
+is reserved as the skills shelf is, which a gather of rules fills (#111),
+and so is every kind's, rather than matched on whether a gather takes the
+kind: scrubbing a source deletes its folder from every kind's shelf, and a
+kind made gatherable later has to find its shelf free. The
 comparison ignores ASCII case, since on macOS and Windows `.Mindweaver/Skills`
 is the shelf.
 
@@ -2549,6 +2551,18 @@ type derives `Serialize` from the start:
   neither `ENVELOPE_VERSION` nor `view::FORMAT`. Every `origin` holds what
   it held, which an install records ([everything is namespaced by its
   source](#everything-is-namespaced-by-its-source)).
+- **Kept by #99**: the commit a source is pinned to, as `pin` on a
+  `ledger::Source`, a `value::Pin` written as its digits, `null` while it
+  follows its branch, and on a gather's `Report`; and of each artifact
+  gathered, as `upstream_path`, `content_hash` and `licence` on `Gathered`,
+  and so on each shelf row of the snapshot and of `gather list --json`,
+  `null` each for a row from before them. A `licence::Licence` is derived,
+  tagged by `from` inside the object beside what that place said
+  (`{"from": "manifest", "text"}`, `{"from": "file", "file", "text"}`,
+  `{"from": "unknown"}`), each variant renamed to its word in snake_case:
+  where a licence was read is a word of core's, and no word a command line
+  takes. Names added, which move neither `ENVELOPE_VERSION` nor
+  `view::FORMAT`.
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3074,6 +3088,7 @@ the workspace and belonging to no project yet.
   cache/<source>/            the clone
   cache/http/                what catalogs answered over HTTP
   skills/<source>/<name>/    what was taken out of it
+  rules/<source>/<route>.md  what was taken out of it, of rules (#111)
   tmp/gather-<run>/          a dry run's clone and copies, while it runs
 ```
 
@@ -3220,7 +3235,108 @@ was registered from it. Gathered again naming no folder, it is the same source
 (`gather::known`, `OLDER_DEFAULT_SUBDIRECTORY`), moved to `.`
 (`LedgerStore::set_source_folder`), and moved back if the gather is cancelled:
 a second source of one repository would offer every skill under one origin,
-which `--from` cannot tell apart ([open questions](#open-questions)).
+which `--from` cannot tell apart ([open questions](#open-questions)). Only a
+gather of skills is taken for such a one, which is all an older build
+gathered.
+
+### Where a repository keeps its rules
+
+A rule is a loose markdown file at any depth, so a gather of rules (#111,
+`gather git --kind rules`, `Request::taking`) had to decide what a rule's
+name is relative to, which was the open question "Gathering rules". It is
+the folder the gather looks in, by the rule `Catalog`'s walk names a
+project's rules by (`catalog::route`): every file ending in `.md`, in any
+case, under that folder is a rule named by its route from there without
+its extension, `rules/git/commits.md` gathered from `rules` being
+`git/commits`. The same rule rather than one of the gather's own, so a
+rule on the shelf is called what it would be in a project's own `rules`
+folder, and discovery reads the shelf's rules back under the names the
+gather gave them (`Catalog::discover_gathered`), as `validate` reads them.
+What a gather finds of a kind is one of two ways (`gather::Finding`): the
+folders holding a manifest where a layout looks, for skills, and the files
+of an extension at any depth, for rules.
+
+That folder is named. `gather::default_folder` gives the one a gather of a
+kind looks in when nothing names one, the root for skills and none for
+rules, and a gather of rules naming none, by `--path` or in a folder's
+address on a forge, is refused before anything is registered or fetched
+(`gather_folder_unnamed`). Every markdown file under the folder is a rule,
+so a whole repository read as rules would take whatever documents it, a
+changelog and a guide for contributors among them, and name each rule
+after the folder its collection is kept in (`rules/git/commits`). Looking
+where repositories of rules keep them, as `LAYOUTS` does for skills, was
+the other way, and is rejected: rule collections agree on no layout,
+where the tools skills are written for agree on one, and a walk guessing
+one would take the wrong folder's files as quietly as the whole
+repository's. `--path .`
+names the root, for a repository whose rules are all it holds. A task
+spells the line the same way: it leaves out a folder only when it is the
+kind's `default_folder`, so a task of rules from the root says `--path .`.
+
+A `README` and a licence (`LICENSE` or `LICENCE`, as `licence::Licence`
+reads one) directly in that folder document it rather than being rules,
+with any extension and in any case, and are passed over without a word,
+as `node_modules` is: passing them over is what a gather of rules does,
+and nothing for whoever gathered to fix. Only there: one further down is a
+rule like the rest, as it would be in a project's own folder. The licence
+is what every rule there says it is under (`Licence::of`, handed the folder
+looked in rather than the rule's shelf copy), since a rule's front matter
+declares none and a rule has no folder of its own to bundle one in, as a
+skill has; a licence elsewhere in the repository is not read, as it is not
+for a skill. Hidden files and folders are passed over and so is
+`node_modules`, which a project's walk need not pass over and a repository
+can hold; a link to a folder is not gone into, as discovery goes into none,
+since a loop of them would never end and no rule needs one; a link to a
+file is read only when it leads inside the clone (`gathered_link_outside`),
+as a skill's manifest is, since the report quotes what it holds.
+
+A route that is no name a rule can have (`install::is_installable_name`,
+`artifact::name_issues`: lowercase words joined by single hyphens, a
+segment at a time) is not taken, and is said by where it is in the source,
+with what is wrong with it in `validate`'s words (`gathered_route_unusable`).
+Not taken where a skill declaring a name that breaks the rules is taken and
+said: a skill's folder keeps the name its source gave it whatever it
+declares, and fixing what it declares is somebody's edit, while a rule's
+name is its file's route, which is where the shelf files it, the marker of
+its section in a project's `AGENTS.md` and the file Claude reads it from.
+One that is no name is a rule no install could ever file, as `gather list`
+would then say every time it listed it. What else is wrong with a rule it
+takes, nothing to say or front matter that does not read, is a warning, as
+it is for a skill.
+
+The shelf files each rule by its route from the folder looked in, as the
+source spells its file (`.mindweaver/rules/<source>/git/commits.md`), the
+same per-source folder a source of skills has in the skills shelf, so a
+source of either kind is scrubbed, refreshed and removed alike. A file is
+put there whole through a temporary beside it and a rename, never written
+through a link at its place, and left alone, down to its time, when it
+holds the same bytes already (`copy::replace_file`), so a second gather
+says what moved; a dry run compares the clone's bytes with the shelf's
+(`copy::compared_file`). Each is recorded as a skill is ([what is kept of
+each artifact gathered](#what-is-kept-of-each-artifact-gathered)): its
+route in the repository, `rules/git/commits.md`, a hash by the recipe a
+rule's install keeps of its copy, `hash::bytes` of the file rather than
+`hash::tree`, and its licence. Two rules of one source called the same
+would be one row of the ledger's, and are a failure each
+(`gathered_name_clash`), which only the case of an extension can make,
+`style.md` beside `style.MD`, since a name in capitals is no rule's.
+
+A gather of rules is a source like any other, found by its URL, branch
+and folder, so `rules` and the root of one repository, gathered for rules
+and for skills, are two sources, each called by a name of its own; one
+folder gathered for both is one source, offering both kinds, which the
+ledger keeps apart by kind. The ledger lists what was gathered by kind in
+report order (`LedgerStore::gathered`), skills before rules, where its
+query sorts the column by the alphabet's. A rule on the shelf installs as
+the library's do ([installing rules](#installing-rules)), named by `--from`
+when another place offers its route.
+
+A gather task carries the kind (`Task::Gather`'s `kind`, skills when a task
+leaves it out, as one sent before it could), so a script driving the API
+gathers rules as `--kind rules` does, followed and stopped as any gather
+is. The TUI's gather form has no field for it and gathers skills, and the
+panel sends no gather of its own: a kind a form offers is the form's
+change to make, and the command and the task already take it.
 
 ### What was typed for a source
 
@@ -3266,6 +3382,92 @@ taken and on what is wrong, so a script can ask first. The panel refuses it as
 it refuses every gather (`Refusal::Unwatched`), and the TUI's gather form has
 no key for it.
 
+### A source pinned to a commit
+
+`gather git --pin` takes one commit rather than whatever the branch is at
+(#99), so what a source supplies stays what somebody read and chose until
+they choose again. The pin is a value held to a rule (`value::Pin`): a
+commit in full, 40 hexadecimal digits, kept in lowercase, refused otherwise
+before anything is registered or fetched (`source_pin_invalid`). A commit
+shortened, a branch or a tag would be resolved by the server to whatever it
+names on the day, which is what a pin exists to rule out, and a short one is
+ambiguous in a large enough repository besides. A pin is refused as a
+credential is when one is typed there, as the branch and the folder are.
+
+It sits beside the branch rather than in the source's identity, in the
+`pin` column schema 7 made for it: gathered again with another pin, or with
+none, a repository at a branch from a folder is the same source, so what was
+installed from it keeps its origin and an update finds its offer. The pin is
+written with the revision once the shelf has changed (`saw_source`), so a
+source is pinned exactly while its shelf holds what a pin took: a gather that
+fails or is cancelled leaves it pinned as it was, and one with no `--pin`
+unpins it, since `gather git` says in full what to take and there is no
+other command that gathers a source again. The report says `, pinned` after
+the revision, and `gather list` gives a pinned source's commit a column of
+its own, beside the name `--from` takes rather than in it.
+
+The `Remote` port takes the pin beside the branch (`Remote::fetch`), and an
+adapter hands back the pin as the revision or `GitError::PinUnreachable`
+(`git_pin_unreachable`). The gix adapter asks for the commit alone,
+`PrepareFetch::with_revision`, shallow, HEAD detached at it, which GitHub,
+GitLab and git's own server over protocol v2 hand out for any object they
+hold. A server that refuses an object it does not advertise, as git over
+protocol v1 without `uploadpack.allowAnySHA1InWant` does, fails that fetch,
+and only that kind of failure (`GitError::Fetch`) is tried the other way: the
+branch, or the remote's HEAD, cloned with its whole history, the pin looked
+for among the commits it reaches, HEAD detached at it and its tree checked
+out (`adapter::gix::reaching`). The whole history because that is what tells
+whether the branch reaches the pin, and the pin is most often older than the
+tip a shallow clone holds. A credential nobody has or a cancel fails the same
+whichever way is tried, so neither is tried twice. Taken by itself, the pin
+is not held to the branch it was asked with, which only the fallback can see
+([open questions](#open-questions)). The adapter's test turns protocol v2
+off for git's own server to see the fallback taken, through configuration it
+hands the clone beside the machine's, which nothing but that test passes.
+
+### What is kept of each artifact gathered
+
+An artifact on the shelf kept its name, its path there, its summary and the
+commit it was taken at. An audit asks more of it, and an update will (#99):
+where in the repository it was, whether the shelf still holds what was taken,
+and the licence it said it was under. So each row keeps, from schema 8 on:
+
+- `upstream_path`, its folder's route from the repository's root, `/`
+  separated, `.` for a skill that is the whole repository: the route
+  #101's harvest finds it by (`Harvested::route`), which `--dry-run`
+  prints, so the two never disagree.
+- `content_hash`, `hash::tree` of its copy on the shelf, the one recipe an
+  install keeps of what it writes, over the copy rather than the clone's
+  folder: the shelf's copy leaves out what every install's copy leaves out
+  (a skill's own `.claude-plugin`, the clone's `.git`) and holds no link,
+  which the recipe refuses, so an install of an untouched shelf copy
+  records the hash the gather did. A copy that cannot be read back is
+  recorded with none and said (`gathered_unhashed`), as an install records
+  one.
+- Its licence, as it says it (`licence::Licence`): its manifest's `license`,
+  as written, else the first line that holds anything of a licence file
+  directly in its folder (`LICENSE` or `LICENCE`, in any case, alone or
+  followed by an extension or a `-`, the first by name), read up to 4 KiB and
+  kept to 200 characters, with the file's name, else `unknown`, which is said
+  rather than left out. Nothing is matched against SPDX or judged: which
+  licences a workspace takes is somebody's policy, and a name guessed out of
+  a file's words would be a fact nobody wrote. The repository's own licence,
+  which a forge's API says, is out of #99's scope; a gather asks no API.
+
+The commit it was taken at is the `revision` the row kept already, which
+the fetch resolves, the pin itself when its source is pinned. A row a build
+from before schema 8 wrote keeps none of the three until its source is
+gathered again: each is read off what a gather fetched and placed, which no
+SQL can read, and the three are filled in together or not at all. The
+ledger is told of each artifact as one record (`ledger::Taken`), rather than
+more arguments to `record`, and hands the three back as options on
+`Gathered`, which `gather list --json` and the snapshot's shelf carry as
+`upstream_path`, `content_hash` and `licence`, and the source's `pin`,
+added names that move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
+`gather list` shows the licence in a column that, like the kind's and the
+pin's, is there only once something listed has one, so a listing of what
+loaded workspaces offer reads as it did.
+
 ### The clone is kept, and re-made
 
 The clone stays under `cache/` so a gather can be looked at afterwards, and
@@ -3293,7 +3495,13 @@ reading](#strict-when-writing-lenient-when-reading)).
 A gather is the network, so it can take long enough that somebody wants to
 know how it is going, and to change their mind. A `gather::Request` carries a
 `Watch`: a callback the gather tells each `Progress` to, and a flag that
-cancels it. Both are core's own types. `gix` has a progress tree and an
+cancels it. Both are core's own types. The watch is one for every run a
+front end follows, `follow::Watch`, generic over the step it is told
+(`gather::Watch` the one told a gather's `Progress`, `backup::Watch` the
+one told a backup's), so a front end that follows more than one kind of run holds one
+flag and one sink, and hands each run the watch that relays to it
+(`Watch::relaying`): the CLI's is told either step (`progress::Progress`),
+whichever line runs. `gix` has a progress tree and an
 interrupt flag of its own, and handing those to the front ends would tie each
 of them, the server that streams progress ([a run under
 way](#a-run-under-way-followed-and-stopped)) included, to gix's version and
@@ -3348,7 +3556,9 @@ apart](#a-gather-runs-apart)). The panel's backend reports each step to the
 server, which streams it, and hands the server's cancel to the watch ([a run
 under way](#a-run-under-way-followed-and-stopped)). Which lines a front end
 follows so is one list, `task::Followed`, read off the parsed command as a
-refusal is, `gather git` its one entry so far.
+refusal is: `gather git`, and `backup`
+([exporting and backing up the
+library](#exporting-and-backing-up-the-library)).
 
 ### Why `gix` rather than running `git`
 
@@ -3357,30 +3567,92 @@ PATH, and core keeps doing its own I/O rather than supervising a process. The
 cost is that authentication for private repositories is ours to solve rather
 than inherited whole from `git`.
 
-Half of it is solved: a fetch **never prompts** for a credential. When a server
-asks who is fetching, `gix`'s own answer runs the credential helpers git config
-names and, when none of them has a credential, asks a person: an askpass
-program, then the terminal. The TUI owns the terminal while a gather runs, so
-that prompt is drawn over, its keys raced for, and the server that comes next
-has no terminal at all. So every connection `gix` lets a clone configure is
-given a credentials callback (`gather::credentials`) that runs the same helper
-cascade with the prompt and askpass turned off. A credential no helper has is
-`GitError::Credentials`: the URL without its credentials, and the two ways to
-provide one, a git credential helper or, for an ssh URL, ssh-agent. Over ssh,
-`gix` runs the system `ssh`, which authenticates with keys of its own and asks
-the helpers only for a user name, so a login ssh refuses is reported the same
-way. Whether a fetch went over ssh is read from the URL `gix` connected to, not
-the one typed: git config's `url.<base>.insteadOf` can turn a typed https URL
-into an ssh one, or the reverse. What ssh itself asks on the terminal is
-outside the callback's reach, and so is the one connection `gix` opens without
-letting the clone configure it; both are [open questions](#open-questions).
+One half of it is that a fetch **never prompts** for a credential. When a
+server asks who is fetching, `gix`'s own answer runs the credential helpers
+git config names and, when none of them has a credential, asks a person: an
+askpass program, then the terminal. The TUI owns the terminal while a gather
+runs, so that prompt is drawn over, its keys raced for, and the server has no
+terminal at all. So every connection `gix` lets a clone configure is given a
+credentials callback (`adapter/gix/credentials.rs`) that runs the same helper
+cascade with the prompt and askpass turned off. A credential nothing has is
+`GitError::Credentials`: the URL without its credentials, and the ways to
+provide one, a git credential helper, ssh-agent for an ssh URL, or a token
+handed over with `--token-env` or `--gh`. Over ssh, `gix` runs the system
+`ssh`, which authenticates with keys of its own and asks the helpers only for
+a user name, so a login ssh refuses is reported the same way. Whether a fetch
+went over ssh is read from the URL `gix` connected to, not the one typed: git
+config's `url.<base>.insteadOf` can turn a typed https URL into an ssh one, or
+the reverse. What ssh itself asks on the terminal is outside the callback's
+reach, and so is the one connection `gix` opens without letting the clone
+configure it; both are [open questions](#open-questions).
 
 The callback is set on the connection rather than asked for through git
 config (`gitoxide.credentials.terminalPrompt=false`), which would also stop
 the prompt: the guarantee then lives in code a test reaches, not in a string
-among the user's own settings, and the credential a front end supplies needs
-the callback to arrive through anyway. That other half is
-[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)'s.
+among the user's own settings, and the credential a front end supplies
+arrives through it.
+
+That is the other half,
+[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)'s,
+carried out by #110: a **token the front end hands over** for one run. A
+gather's request carries it (`gather::Request::token`, the `port::Token` a
+backup takes, with no `Display` and a `Debug` of `Token(..)`), and the
+`Remote` is handed it with each fetch, as an `Upstream` is. The callback
+answers with it, as the user GitHub takes any token with (`x-access-token`),
+a `Get` for the one host it is for, before any helper is asked, and keeps the
+`Store` or `Erase` that follows from the helpers, since a `store` or `cache`
+helper told of it would keep it. That host is the typed URL's, and the
+token goes to it over https alone (`url::token_host`): read off the `Get`'s
+URL, so a redirect or an `insteadOf` that takes the fetch to another host,
+to plain http or to ssh finds the helpers there instead, as it would with no
+token. A token for a URL it would not be sent over is refused before
+anything is registered or fetched (`gather_token_over_ssh`,
+`gather_token_not_https`), by a dry run too, rather than kept unused: one
+handed over for an ssh URL says the gather is not logging in the way
+somebody thinks. Plain http is refused even to this machine, since `gix`
+sends no credential over it at all, unless it is built with
+`http-client-insecure-credentials`, which nothing here asks for. Without a
+token the helpers answer, then ssh, as before.
+
+The front end reads the token, since core never reads the environment, and
+never runs `gh`: the CLI (`src/token.rs`) takes it from the variable
+`--token-env` names, refused when that holds nothing, or, with `--gh`, from
+`gh auth token --hostname <host>`, the host core says the token goes to
+(`gather::token_host`), so a GitHub token is never handed to another forge a
+URL names, run with no standard input and its prompt off, and what it prints
+never shown. Nothing writes it down: the ledger stores the URL redacted and
+never sees the token, the clone's config and reflogs hold the URL `gix` was
+given, which carries none, and every error is redacted as before. Only a
+shell hands either option over: a gather's task carries no token, no
+variable's name and no `--gh` (its fields are the URL, the folder and the
+branch, and one more is refused), so its lines spell neither, and a gather
+from the TUI or the panel logs in as the helpers and ssh do. Were one to
+name a variable, as a backup's task may, it would be held to the rule
+backup's is (`policy::token_variable`), since what the variable holds is
+sent to the host the request names.
+
+The callback's tests stand in a cascade whose prompt panics. One with a token
+runs `gix`'s own handshake over a transport of the test's at an https URL,
+which is asked to log in and notes the login it is given; a server on
+loopback is the other way, and is rejected for the token's case, since it
+would have to speak https with a certificate the machine trusts, which no
+test here can make it. One with none clones from a server on loopback that
+asks every request to log in, over `gix`'s real http transport.
+
+What a gather needs **outside the binary** is, then, only what logs it in:
+
+- **The system `ssh`**, for an ssh URL, found on the PATH as `gix` runs it,
+  with whatever keys, agent, `known_hosts` and configuration the account
+  gives it. Without one, an ssh URL cannot be fetched; an https URL needs
+  none.
+- **The credential helpers** git config names (`credential.helper`), which
+  `gix` runs itself, with no prompt: one named by a path or a `!` command
+  line, as `gh auth setup-git` writes one, runs as it is, and one named by a
+  short name, as `store`, `cache`, `osxkeychain` or `manager` are, runs as
+  `git credential-<name>`, as git runs it, so it needs the `git` it comes
+  with. `gix` also asks `git` once where the system's own config file is
+  (`gix-path`), and without a `git` reads no such file. A gather handed a
+  token needs neither for that host.
 
 `gix`'s error types are large and would become part of this crate's public API
 if they were carried, tying its version to gix's, so `GitError` keeps what they
@@ -3390,7 +3662,7 @@ A backup is the one exception, and the one thing Mindweaver sends: `gix`
 fetches and cannot push, so `mindweaver backup` runs the system's `git`,
 behind a port of its own
 ([D-27](#d-27-a-backup-is-an-export-pushed-with-the-systems-git)). Nothing
-else depends on one being installed.
+else depends on one being installed, but for the helpers above.
 
 ### Private repositories, as they were checked
 
@@ -3416,8 +3688,9 @@ and with no display, so no askpass could be shown:
   itself, which this machine's session did not run.
 
 So the callback keeps what was promised: a helper git config names still
-authenticates, and nothing asks. A token handed over for one run (D-16) is
-#110's.
+authenticates, and nothing asks. A token handed over for one run (D-16) came
+with #110, through the same callback, before the helpers ([why
+`gix`](#why-gix-rather-than-running-git)).
 
 ### A URL is kept without its credentials
 
@@ -3449,9 +3722,10 @@ dropped or a scheme lowercased, and cannot find a URL inside a sentence.
 A gather URL that carries a credential is **refused** before anything is
 registered or fetched, rather than used for that one fetch and stored without
 it: a token on the command line is already where `ps` and the shell history
-show it, and refusing is what points at a git credential helper, which keeps
-it off the command line altogether, as the front-end provider of
-[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt) will.
+show it, and refusing is what points at a git credential helper or a token
+handed over for the run (`--token-env`, `--gh`), the front end's provider of
+[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt), each of
+which keeps it off the command line altogether.
 So is such a URL typed where the branch or the folder goes: the ledger keeps
 a source's branch and folder word for word, since neither is a URL, and a
 `GitError` would quote the branch, so a token typed there, found by the
@@ -3549,8 +3823,10 @@ reason to take that away.
 The MCP Registry (#106) and the skill directories (#108) are HTTP APIs, not
 repositories, so they are read over HTTP rather than cloned
 ([D-14](#d-14-core-owns-http-behind-a-seam)). #105 built the seam they are
-read through, and nothing calls it yet: each of those issues is the first
-caller of its catalog.
+read through, and the skill directories a search asks are its first
+caller ([searching the skill
+directories](#searching-the-skill-directories)), the MCP Registry its
+next.
 
 **The port** is one `GET` (`port::Http::get`), answered whatever its status.
 An `HttpRequest` is made only through `HttpRequest::get` and `at`, which
@@ -3571,8 +3847,9 @@ the body comes, a length said beyond it refused before a byte is read and
 a body that says none, or lies, refused one chunk past it rather than read
 to its end. An `HttpResponse` keeps the status, the body and only the
 headers core reads (`KEPT_HEADERS`: type, tag, time, `Link`, `Location`,
-`Retry-After`), so a `Set-Cookie`, a credential, never reaches core to be
-kept by mistake. A failure is an `HttpError`, each variant with a code of
+`Retry-After`, and `X-RateLimit-Remaining` and `X-RateLimit-Reset`, which
+tell a rate limit), so a `Set-Cookie`, a credential, never reaches core to
+be kept by mistake. A failure is an `HttpError`, each variant with a code of
 its own (unreachable, timed out, too large, or anything else the library
 said), every URL in it the one asked and what the library said
 `Redacted`.
@@ -3599,7 +3876,15 @@ async task.
 
 **What core makes of an answer** is `http::Client`'s: a status that is no
 success is a failure by its status (`http_status_unsuccessful`), never the
-body; JSON is read into what the caller asks for (`http_json_invalid`); and
+body, but for a rate limit, which is one by name (`http_rate_limited`,
+#108): a `429`, or a `403` that says it is one, with no request left
+(`X-RateLimit-Remaining: 0`) or a wait asked for (`Retry-After`), as
+GitHub's API answers its limits, a `403` saying neither being a token
+without the right. When it lets a request through again is read from
+`Retry-After`, seconds or a date as written, then from `X-RateLimit-Reset`,
+said as the UTC time it is, the order GitHub asks a caller to read them in,
+and said rather than waited for: a command that slept an hour on a front
+end's behalf would look hung, and a retry is a caller's to choose; JSON is read into what the caller asks for (`http_json_invalid`); and
 a catalog's pages follow one another as each says (`Client::pages`), by a
 cursor put into the first page's URL (`with_query`) or by the `Link` an
 answer names (`next_link`). Paging stops, said beside the pages read rather
@@ -3646,6 +3931,136 @@ slower than the one and longer than the other, and runs core's client,
 redirects, pages and cache included, through both. Nothing reaches the
 network.
 
+### Searching the skill directories
+
+`mindweaver gather search QUERY` (#108,
+[D-15](#d-15-skill-search-is-github-plus-opt-in-finders)) asks the skill
+directories, each a `finder::Finder`, what they find, and lists each skill
+by its name, the repository it is in, its folder there, its installs or
+stars and the finders that found it. A finder helps find a skill and names
+where it is; it is never a source. What is taken is gathered from that
+repository as `gather git` gathers it, so a directory that changes or goes
+away breaks nothing on the shelf, and a finder failing is a warning beside
+what the others found, never a reason to hide it.
+
+**Three finders**, each asked at its own address through the HTTP client
+([catalogs over HTTP](#catalogs-over-http)), at most `PER_FINDER` results
+each, their first page: GitHub's code search (`/search/code`, `filename:
+SKILL.md` added to the query), its documented REST API, which answers no
+code search without a token; skills.sh's `/api/search`; and
+api.claude-plugins.dev's `/api/skills/search`. The last two are documented
+by nobody, so they are unstable: read as each answered on 2026-11-10, the
+day the fixtures their tests read were shaped (`tests/fixtures/finders`),
+best-effort, and said to be so wherever a person is told of them. Their
+names are the services' own (`github`, `skills.sh`,
+`claude-plugins.dev`), so what a marker lists is what somebody reading the
+terms looked up.
+
+**Which are asked is the workspace's**, in its marker's `finders`, written
+by hand (`finder::enabled`). With no such key a workspace asks
+`DEFAULT_FINDERS`, GitHub's code search alone, D-15's default, which asks
+nothing without a token; the two unstable directories are asked only once
+a person lists them, D-15 having the owner read their terms first, and
+`finders = []` asks none. One that is not enabled is never sent anything:
+a test holds every finder the marker leaves out to have been asked
+nothing, whatever answers, and `--finder` naming one is refused rather than
+asked (`finder_not_enabled`). A name this build does not know is said and
+passed over (`finder_unknown`), never a reason to refuse the marker, since
+a later build may know it. The key moves no `WEAVER_FORMAT_VERSION`, as
+`known` did not: an older build reads past it, and keeps it, comment and
+all, whenever it edits the marker through `toml_edit`. No command writes
+it: enabling a directory is a person's choice, made having read its
+terms, which no form should make in one keypress.
+
+**A token is GitHub's alone.** It is read by the front end, from the
+variable `--token-env` names or from `gh auth token` for the host core says
+it is for (`Search::token_host`, `github.com` for the API at
+`api.github.com`), as a gather's is
+([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
+and read only when a finder to ask takes one, so `--gh` runs `gh` for no
+search that would send its token nowhere. Core sends it to GitHub's
+finder alone, as a secret header, which no redirect carries to another
+site and the HTTP cache keeps nothing of; without one GitHub is skipped,
+sent nothing, and a hint says so, and when that leaves nothing to ask the
+search is refused (`finder_none_asked`) rather than answered empty. The
+TUI and the panel hand none over, so from either GitHub is never asked.
+
+**What a finder answers is read leniently**, as somebody else's JSON is:
+each finder's own module (`finder/github.rs`, `skills_sh.rs`,
+`claude_plugins.rs`) reads the answer's shape, then each result on its
+own. An answer in a shape this build does not read is a failure of that
+finder alone (`finder_answer_unreadable`), the API having changed under
+it; one that is not JSON, unreachable or rate limited is the client's
+failure, said with its code. A result that does not read, names no
+repository, names one with a credential (dropped without repeating it),
+names a folder that climbs out of its repository, or names a folder on this
+machine is dropped and said by its place in the finder's answer
+(`finder_result_dropped`). A folder on this machine is taken from a finder
+on this machine alone, a person's own or a test's, since a service
+elsewhere naming one would have a gather put on the shelf whatever a
+folder here holds. Every word a front end is handed is made printable.
+
+**A skill two finders name is listed once.** An address is read as `gather
+git` reads one (`url::located`), so `owner/repo` and a forge's address of a
+folder name a repository, a branch and a folder, and a result is listed by
+the repository's `url::canonical` and its folder (`Found::add`), so every
+spelling of one repository meets. A result with no folder, which skills.sh
+always is, is told by its name in its repository, since by its repository
+alone every skill such a finder lists of one would be folded into the
+first; folded into one that has a folder, it takes that folder and the
+branch it was found at, so a take gathers what was found rather than the
+whole repository. Results come in `Finder::ALL`'s order, the documented one
+first, each finder's as it ranked them.
+
+**`--take N` gathers the result listed N** through the function `gather
+git` runs, from its repository and its folder, at the branch a finder
+named, after saying the line it amounts to, so what was taken can be
+gathered again without searching. The number is the result's as the
+search lists it then, which is why the two unstable finders' answers are
+kept in the workspace's HTTP cache for `FRESH_FOR`, ten minutes, once it is
+made: a take made soon after a listing finds each result where it was.
+GitHub's, asked with a secret, is never kept. A token handed over goes on
+to that gather only for a repository on the host it is for
+(`Search::token_reaches`), since a finder may name any host and a gather
+sends its token to the one it fetches from. A result at the root, or one no
+finder names a folder for, gathers the whole repository.
+
+**`--finder-url FINDER=URL`** asks a finder at another address that speaks
+its API: a GitHub Enterprise server's (`https://ghe.example/api/v3`), a
+mirror, or a test's on loopback. Over https, or plain http to this machine
+alone, with no query, fragment or credential (`finder_url_invalid`), since
+a token and a query go to it. Read by core (`finder::addressed`), so
+whether it names a finder is said with a code (`finder_url_unnamed`).
+
+**A search is followed**, as a gather is: it is the network, one finder
+after another, each within the client's timeout. Its `finder::Watch` is
+told each finder it asks (`Progress::Asking`), and a cancel stops it before
+the next (`search_cancelled`), every step taking one, since a search
+writes nothing a cancel would leave half done. `task::Followed::Search`
+says so of the line, so the TUI runs it apart and draws which finder it is
+asking, and the panel's backend previews it as `cancellable`; with
+`--take` the line is a gather, followed as one.
+
+**The TUI** searches from the shelf's page: `f` opens a form for the query,
+whose task (`Task::SearchSkills`) is `mindweaver gather search --json
+<query>`, and the screen of results reads back the JSON the line printed,
+by the names the envelope's `data` gives each result (`finder::Hit`, which
+reads back as it goes out, its repository redacted again), never a table's
+columns, and draws each as the command's table does
+(`commands::search::rows`). `enter` on one runs `Task::Gather` of its
+repository, folder and branch, the line `--take` amounts to rather than
+`--take` itself, so the transcript gathers the same again however the
+finders answer by then. The panel has no page for it yet; its server runs a
+`search_skills` task as any other, which asks the finders the workspace
+enables with no token.
+
+Rejected: reading the TUI's results back from the HTTP cache once the line
+is over, which a search asked with a token could not be read from and which
+would make the cache a channel between a command and a screen; asking the
+finders from the TUI's own thread rather than through a line, a path of the
+TUI's own into core; and a branch dropped from a result that names one,
+which would gather a folder from a branch that may not hold it.
+
 ### Why the ledger is SQLite
 
 Everything else Mindweaver writes is a file a person opens: TOML with comments
@@ -3665,8 +4080,10 @@ it](#a-read-leaves-the-ledger-as-it-finds-it)).
 
 Six things are recorded: the **sources** gathered from, each by its name and
 the identity of its URL ([everything is namespaced by its
-source](#everything-is-namespaced-by-its-source)), the **artifacts** on
-the shelf and which source each came from, the **installations** (which skill,
+source](#everything-is-namespaced-by-its-source)) and the commit it is pinned
+to, the **artifacts** on the shelf, which source each came from, where in it,
+a hash of what was taken and its licence ([what is kept of each artifact
+gathered](#what-is-kept-of-each-artifact-gathered)), the **installations** (which skill,
 rule or MCP server Mindweaver put into which project, from where, every copy it
 wrote and a hash of what it wrote, or for a server every entry it wrote into
 an agent's config file and the fingerprint of each), the **files Mindweaver
@@ -3688,7 +4105,7 @@ A source's shelf folder is stored rather than derived: two URLs can reduce to
 the same readable name, and where a source's files went is a fact about the
 past that must not move when the naming rule changes.
 
-The schema has had seven versions, each a block in the SQLite store's
+The schema has had eight versions, each a block in the SQLite store's
 migration (`adapter::sqlite::Sqlite::migrate`) and a
 constant beside it:
 
@@ -3732,11 +4149,19 @@ constant beside it:
    repository however its URL is spelled (#98,
    [D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), closing
    the hole #7 left); and `pin` and `parent_id`, for what a source is
-   pinned to (#99) and the marketplace it is listed by (#103), which
-   nothing reads or writes yet. The columns go on the end of the table
+   pinned to (#99) and the marketplace it is listed by (#103), which no
+   build of this schema reads or writes, and a gather writes `pin` from
+   schema 8 on. The columns go on the end of the table
    rather than into a new one, which would be copied in under foreign keys
    that cascade a dropped `sources` into every artifact, and the old
    `UNIQUE` stays, holding nothing the new index does not.
+8. On `artifacts`, `upstream_path`, `content_hash` and the licence as three
+   columns, `licence_from` (`manifest`, `file` or `unknown`), `licence` and
+   `licence_file`: where in its source each artifact was, a hash of what was
+   put on the shelf and the licence it says it is under ([what is kept of
+   each artifact gathered](#what-is-kept-of-each-artifact-gathered), #99).
+   The source's `pin`, which step 7 made, is written by every gather from
+   this version on, so this step adds nothing for it.
 
 An older ledger is migrated step by step, so one made two versions ago ends
 where one made today begins, and two rules hold for every step:
@@ -3817,6 +4242,11 @@ writes tries again, until it goes. While a merge is kept its folder name is
 given to no new source, so no gather can clone into a folder about to be
 removed. A credential is left where the scrub finds it, which rewrites a
 clone before its row, and which the first command that writes runs next.
+Version 8 fills in nothing: what it adds is read off what a gather fetched
+and placed, which a row from before it kept none of and no SQL can read, so
+each row keeps its new columns empty until its source is gathered again. Its
+upstream path alone could be spelled from its source's folder and its own,
+and is not, so the three are there together or not at all.
 D-04's states (#47) took no step of their own: what tells them apart is the hash each copy was written with, which versions
 3 and 4 keep, and what the place it came from offers now, which is read where
 it is offered rather than kept. A record with no hash is held to its offer
@@ -5835,15 +6265,14 @@ questions still, worded for its rows ([open questions](#open-questions)).
 
 And beside both, read the same way again, is what a line does that a front
 end follows while it runs and can stop (`task::Followed`, `task::followed`):
-`gather git`, which reports each step through core's watch and stops on its
-cancel. The TUI runs a task with such a line apart, drawing its steps with
-a key that cancels it (`Task::runs_apart`), and the panel's backend says
-with each preview that a run of it takes a cancel, and hands it the
-server's ([a run under way](#a-run-under-way-followed-and-stopped)). A match
-over every command with no wildcard (`Followed::of_mind`, `of_weaver`), so
-a new command says whether it is followed before it compiles; a backup, the
-next that takes long enough to want watching, joins it once it reports its
-phases and stops on a cancel.
+`gather git` and `backup`, each of which reports each step through core's
+watch and stops on its cancel. The TUI runs a task with such a line apart,
+drawing its steps with a key that cancels it (`Task::runs_apart`), and the
+panel's backend says with each preview that a run of it takes a cancel, and
+hands it the server's ([a run under
+way](#a-run-under-way-followed-and-stopped)). A match over every command
+with no wildcard (`Followed::of_mind`, `of_weaver`), so a new command says
+whether it is followed before it compiles.
 
 The exceptions are named, not hidden: opening the install screen builds the
 screen `mindweaver install` opens, as a read, rather than running a line, and
@@ -5882,8 +6311,8 @@ editors.
 
 ### A gather runs apart
 
-A gather is the network, and the one task that runs apart
-(`Task::runs_apart`): asked of its lines, any of which `task::followed`
+A gather is the network, and so is a backup: the two tasks that run apart
+(`Task::runs_apart`), asked of their lines, any of which `task::followed`
 says a front end follows, so the TUI runs apart what the panel's backend
 says takes a cancel, by one list. `step` starts its lines on a thread of their own and
 returns at once, with a [watch](#following-a-gather-and-stopping-it) whose
@@ -5899,7 +6328,10 @@ while a task ran in place is dropped. `esc` cancels the watch: the gather stops
 before it places anything, and the form it came from says so, as for any gather
 that did not get as far as a report. Once the step is placing, which is no
 longer `cancellable`, the box says a cancel is too late instead, and the gather
-finishes with its report. Leaving cancels it too, and `wait` holds the screen
+finishes with its report. A backup is drawn the same way, its steps checking
+out, exporting, committing and pushing, and stops short of pushing: once it
+pushes, the box says a cancel is too late (`stops_short_of` reads which run
+it is off the task's lines, by the same list). Leaving cancels it too, and `wait` holds the screen
 until it has stopped, so what it did reaches the transcript and nothing is half
 done when the process ends. A gather still connecting takes a cancel only once
 it is connected, so `esc` there, or leaving, waits as long as the network does;
@@ -6951,10 +7383,14 @@ a folder on this machine ([what a browser may
 name](#what-a-browser-may-name)), and an address to the gather's own rules,
 which refuse a credential in it and never prompt for one.
 
-A backup (#265) plugs in the same way, with nothing of the server changed:
-its line joins `Followed`, its phases (checking out, exporting, committing,
-pushing) become stages of a `Step` it reports as it goes, and what a cancel
-does, which `on_cancel` says, is kill the `git` child under way.
+A backup plugs in the same way, with nothing of the server changed: its
+line is `Followed::Backup`, its steps (checking out, exporting, committing,
+pushing) are stages of the same `Step`, counting nothing, and the cancel
+`on_cancel` hands it cancels the same watch, which kills the `git` under
+way ([exporting and backing up the
+library](#exporting-and-backing-up-the-library)). Its repository is held
+to the policy as a gather's source is, and its token named only by the
+variable holding it, one named for a token (`policy::token_variable`).
 
 ### Live updates
 
@@ -8073,6 +8509,22 @@ was let go.
   lost, it marks the same stale itself and waits for that. Nothing the run
   answered is written into a view: an update made beforehand would be a
   second guess at what core says, and could disagree with it.
+- **A run that takes a cancel is followed, and stopped when asked.** A
+  gather's or a backup's preview says `cancellable`, and while it runs the
+  dialog draws the latest step the stream told of it, in the backend's
+  words (`Step::said`), and **Stop**. The live updates keep the run under
+  way as the stream tells it, whoever sent it (`Live::underway`: its
+  number, its lines, whether it takes a cancel and was asked to, and its
+  latest step), and the runner takes the one whose lines are the ones it
+  showed (`Runner::underway`), its number being the stream's to tell, since
+  the run's answer comes only once it is over. Stop is `POST
+  /api/v1/tasks/cancel` with that number (`Transport::cancel`), asked once,
+  and offered only while the step says a cancel still stops it
+  (`Step::cancellable`, core's): past it, the dialog says in words that it
+  is too late, as it says that a stop was asked for, so neither is told by
+  the button's colour alone. What the stop did is the run's outcome to
+  say. A cancel the server refuses, the run over already, changes nothing,
+  and is said nowhere beside it.
 - **How it went is a toast, and what it said a drawer.** A toast says what
   ran, or which line failed, and what the lines printed. When a run failed,
   or said a line with a code, the warnings drawer (`WarningsDrawer.vue`)
@@ -10202,10 +10654,13 @@ and `install::uninstall` a skill is (`install::rules`), offered from the
 workspace's own rules and from a load's, by the route it is filed under:
 held to the rules every name is, as the block holds it (`name_issues`),
 rather than to one folder name, and two places offering one route are
-refused as for a skill (`OfferedTwice`), `--from` saying which. A rule is
-never gathered (#111), so the shelf offers none. The command line, the
-install screen and what a load is said to offer take rules as they take
-skills ([which kind a name is](#which-kind-a-name-is)).
+refused as for a skill (`OfferedTwice`), `--from` saying which. The shelf
+offers the rules a gather took from a repository's folder (#111, [where a
+repository keeps its rules](#where-a-repository-keeps-its-rules)), each
+by the same route, installed as the workspace's own are, its origin its
+source's. The command line, the install screen and what a load is said
+to offer take rules as they take skills ([which kind a name
+is](#which-kind-a-name-is)).
 
 - **One render for every rule.** The block is one file, written whole, so
   a project marked by its settings is given its rules together: installing
@@ -11584,8 +12039,9 @@ install copies it.
 
 **A backup is a fresh check-out each time.** `backup::backup` checks the
 repository out into the workspace's scratch folder through the `Upstream`
-port, exports into it, commits the workspace's folder there and pushes, and
-takes the check-out away whatever came of it (`backup::CheckOut`'s `Drop`):
+port, exports into it, commits the workspace's folder there and pushes, a
+method of the port each, and takes the check-out away whatever came of it
+(`backup::CheckOut`'s `Drop`):
 nothing of the repository is kept between runs, so two machines backing up
 to one branch each start from what the other pushed, and a cache that could
 drift from the remote is never read. A branch the remote has not got is
@@ -11612,12 +12068,49 @@ configured identity's, or `Mindweaver <mindweaver@localhost>` when none is
 configured, and runs no hook. What `git` says on failure is its last line
 that is not a hint, every URL in it redacted.
 
-**Shell only, for now.** `backup` is on the list of what a front end with no
-terminal does not run (`task::Refusal::Sends`, `backup_unwatched`), as a
-gather was before progress reached the server: it sends for as long as that
-takes, with nothing to show of it nor a way to stop it, and ssh may ask on
-the terminal. `export` is run anywhere, though nothing but the command line
-builds its line yet.
+**Followed, and stopped until it pushes.** A backup is the network, as a
+gather is, and is followed the same way ([following a gather, and stopping
+it](#following-a-gather-and-stopping-it)): its `Request` carries a
+`backup::Watch`, told each `backup::Progress`, checking out, exporting,
+committing and pushing, in that order, the last never said when the commit
+leaves nothing to send. Which step it is at, and until which a cancel is
+honoured, is core's: the port has a method a step (`check_out`, `commit`,
+`push`) rather than one that publishes, so the backup looks at the watch
+before each and a last time before the push, the last moment a cancel
+stops it, as a gather's last look is before it places
+(`Progress::cancellable`). A cancel by then leaves the remote as it was and
+the check-out taken away (`backup_cancelled`, which an upstream that
+honoured one, `backup_git_cancelled`, is said as). Every step before the
+push is handed the watch, and `SystemGit` runs each `git` it makes then
+watched (`SystemGit::watched`): its output read on threads of its own, so
+a full pipe never stops it, and looked at every 20 ms, killed as soon as
+the watch is cancelled and never started once it is, rather than waited
+for as long as a server takes to answer. What it started, a remote helper
+or an `index-pack`, is given up to two seconds to notice it has gone, as
+its output closing tells, so the check-out it wrote into is taken away
+after it rather than under it. Killing a process group instead was turned
+down: `git` in a group of its own would no longer be stopped by a Ctrl-C at
+the shell that ran the backup, and an ssh it starts could no longer ask on
+that terminal. The push is handed no watch: stopped halfway, it would leave
+the remote as nobody could say.
+
+The steps are the front end's to show: a terminal draws each over the last
+on one line of stderr, the TUI in the box it draws over a gather
+(`Task::runs_apart`), and the panel's backend reports each as a `Step` the
+server streams. So `backup` left the list of what a front end with no
+terminal does not run (`Refusal::Sends`, and with it the code
+`backup_unwatched`, which nothing gives any more and no other condition is
+given), and joined `task::Followed`. The panel offers both below its
+library (`ExportForm.vue`, `BackupForm.vue`), each sending its task
+through the runner, which follows a backup and stops it as it does a
+gather ([its changes](#its-changes)). The TUI opens a form for each command,
+`x` and `b`, on any row, the library being the workspace's whatever row is
+lit; the export form's `replace` is `--yes`, asked about before it runs, as
+a deletion is. A task names a token only by the variable holding it, read
+in the environment of whatever runs the line (D-16), and one from outside
+names only a variable named for a token (`policy::token_variable`, ending
+in `TOKEN`), since what it holds is sent to whatever repository the request
+names.
 
 ## Decisions
 
@@ -12194,7 +12687,11 @@ redirects, reading JSON and paging, and the answers a workspace keeps in
 [D-26](#d-26-the-product-is-mindweaver) has given the folder since. Retries
 are not among it yet: no catalog has said what it needs, so a `429` or a
 `503` is a failure by its status, its `Retry-After` kept for the caller
-that first acts on it. #106 and #108 are its first callers.
+that first acts on it. #106 and #108 are its first callers. #108 acts on
+it first: a rate limit is a failure of its own, `FetchError::RateLimited`,
+saying when it lets a request through again, and is not retried, since a
+search waiting out GitHub's limit would hold a command for as long as it
+lasts.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -12208,6 +12705,16 @@ changes breaks nothing already gathered, and its failure is a warning.
 Rejected: GitHub alone, and no finders at all, both of which leave the skill
 directories out (vision point 5). Unblocks #108.
 
+Carried out by #108 ([searching the skill
+directories](#searching-the-skill-directories)): the three finders behind
+the HTTP client, each enabled only where a workspace's `weaver.toml` lists
+it in `finders`, GitHub's code search alone when it lists none, and asked
+only with a token handed over for the run; the two unstable ones are said
+to be so wherever a person reads of them, and no test or trial asked
+either service. Whether the owner has read their terms is not something
+the code can know, so nothing enables them but a hand edit of the marker,
+and that the owner reads them first is an open question until then.
+
 ### D-16: Credentials come from the front end, never from a prompt
 
 The front end supplies a credential provider, `--token-env VAR` or
@@ -12219,7 +12726,13 @@ and the server, so the never-prompting callback lands early (#26) and the
 providers later (#110), which also documents the ssh-binary and git-helper
 dependencies in [Why `gix`](#why-gix-rather-than-running-git). Rejected: HTTPS
 tokens only, which leaves ssh remotes out; and shelling out to `git`, which
-gives up what `gix` was chosen for. Unblocks #26 and #110.
+gives up what `gix` was chosen for. Unblocks #26 and #110. Carried out by
+both: #110's token is handed to core as a `port::Token` for one gather, read
+by the CLI from `--token-env` or from `gh auth token` for the repository's
+host (`--gh`), and offered by the callback to that host alone, over https,
+before the helpers; a token for an ssh URL, or any other that is not https,
+is refused rather than kept unused, and the panel and the TUI hand none
+over.
 
 ### D-17: The next front end is a local web panel
 
@@ -12627,13 +13140,56 @@ repository, stays on `gix`.
 
 ## Open questions
 
+- **The two unstable directories' terms.** skills.sh and
+  api.claude-plugins.dev are asked only once a workspace lists them, and no
+  test or trial of #108 asked either, but D-15 has the owner read both
+  services' terms before either is used: whether their APIs may be asked
+  this way, and with what attribution, is unanswered until then, and the
+  reference says to read them before listing them. A finder found to need
+  a key or attribution leaves the list, as SkillsMP and Glama were left out.
+- **A search's results are numbered as the finders rank them now.**
+  `--take N` searches again, answered from the cache for ten minutes by
+  the unstable finders, but GitHub's answer, asked with a token, is never
+  kept, so a take later than a listing, or after GitHub ranks otherwise,
+  can take another result than the one read. The line it takes is said
+  first, and the TUI takes by the line rather than by the number; keeping
+  what a search found, for a take to name, waits for somebody to need a
+  take across sessions.
+- **A branch a finder names makes a source of its own.** A result at a
+  forge's address of a folder names the branch it was found at, `main` as
+  often as not, which a take gathers at: a source's identity holds its
+  branch, so the same repository gathered from its default branch with
+  `gather git` is another source, offering the same skills under another
+  origin. Telling a branch that is the default from one that is not would
+  ask the remote, which reading a finder's answer should not.
+- **The panel has no search yet.** Its server runs a `search_skills` task,
+  and reports the finder asked, but no page sends one or lists what it
+  found: what the TUI's results screen shows waits for a page of the
+  shelf's to show it.
+
 - **What ssh asks during a backup.** `git` is told never to prompt, but the
   ssh it runs for an ssh URL asks for a key's passphrase or a host key on
   the terminal itself, as it does for a gather
-  ([why `gix`](#why-gix-rather-than-running-git)). A backup runs from a shell
-  alone, where somebody can answer, until progress and a cancel reach the
-  server (#112) and `BatchMode` can be set without overriding a
-  `core.sshCommand` somebody chose.
+  ([why `gix`](#why-gix-rather-than-running-git)). Now that a backup runs
+  from the TUI and the panel too, followed and stopped, that question is
+  raced for its answer with the TUI's keys, or asked on the terminal
+  `mindweaver ui` was started from, as a gather's is; a cancel stops it,
+  killing the `git` that started the ssh. Setting `BatchMode` waits for a
+  way that does not override a `core.sshCommand` somebody chose.
+- **A backup stopped by a signal.** A cancel takes the check-out away, but
+  a backup killed outright, by a Ctrl-C at the shell that ran it, leaves
+  its check-out in `.mindweaver/tmp`, since nothing runs its `Drop`: the
+  next backup makes another beside it, and nothing sweeps them. Sweeping
+  what an interrupted backup left, as an install sweeps its stage, waits
+  for a way to tell one still running in another process from one that
+  was killed.
+- **Which variable a request may name for a token.** A backup from the API
+  reads the variable a request names, and sends what it holds to the
+  repository the request names: the policy takes only a name ending in
+  `TOKEN`, which keeps `HOME` or another service's key from being sent,
+  but not another token named so (`NPM_TOKEN`). Naming the variables a
+  panel may read when `mindweaver ui` is started waits for somebody to need
+  a token the suffix refuses.
 - **Two backups racing to one branch.** Each starts from what the branch
   holds, and the second push is refused as `git` refuses one that is not a
   fast-forward (`backup_push_failed`), to be run again. Retrying on its own
@@ -12653,10 +13209,12 @@ repository, stays on `gix`.
   test asking a server on loopback would ask a developer's proxy instead
   ([catalogs over HTTP](#catalogs-over-http)). gix's transport does read
   one, through reqwest's defaults, so somebody behind a proxy can gather
-  and, once #106 lands, not read a catalog. A proxy the front end reads and
-  hands to the adapter, as it will a credential
+  and not search the skill directories (#108), nor, once #106 lands, read
+  the MCP Registry. A proxy the front end reads and hands to the adapter,
+  as it does a credential
   ([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
-  closes it when the first catalog does.
+  closes it; the first catalog read left it for somebody behind one to
+  ask for.
 - **A source an older build named `http`.** The ledger gives no source the
   name of the HTTP cache's folder any more (`RESERVED_IN_CACHE`), but one
   a build from before #105 gave it keeps it, its clone in the folder the
@@ -13501,6 +14059,31 @@ repository, stays on `gix`.
   nothing sweeps it, as an install's next run sweeps `.mind/tmp`. Nor is
   `.mindweaver/tmp` taken away once empty, since the panel's save makes and
   writes into it from another process.
+- **A pin taken by itself is not held to its branch.** Where the server hands
+  out a commit by its id, a pin is fetched alone, shallow, and nothing says
+  whether the branch the source is asked at (`--ref`, or the remote's HEAD)
+  reaches it, which only the fallback, cloning that branch whole, can see. A
+  pin on another branch is then gathered all the same. Holding every pin to
+  its branch would cost every pinned gather the branch's whole history, or a
+  second, deepening fetch, for a check the person typing the commit can
+  make; a source's identity carries its branch whatever it is pinned to.
+- **A pin from the panel and the TUI.** Neither front end's gather asks for
+  one (`Task::Gather` holds no pin), and the panel's shelf and sources pages
+  show neither the pin nor the licence, though the snapshot carries both:
+  `gather git --pin` and `gather list` are the way to them until a page or a
+  form is given them.
+- **A commit named in a folder's address.** `/tree/<commit>/skills`, as a
+  forge links to a commit, reads as a branch named like the commit, which
+  the fetch then fails to find. Reading 40 hexadecimal digits there as a pin
+  would follow what a browser shows, and is left until a forge's link is
+  asked for by somebody pinning.
+- **Each skill's own provenance in its folder.** What is kept of an
+  artifact (#99) is the ledger's alone: nothing is written beside the
+  shelf's copy, nor into a project's, for an agent or a person reading the
+  folder to find, as `gh skill` writes its `github-` keys into the front
+  matter of what it installs ([adopting what a project already
+  keeps](#adopting-what-a-project-already-keeps)). The shelf's copy is the
+  source's, byte for byte, which is what its hash is of.
 - **Directories edited into a marker by hand.** Where a holder's directories
   may be (inside it and, for a workspace, clear of the shelf and the cache) is
   checked when `init` writes the marker, not each time it is read, so a marker
@@ -13672,36 +14255,27 @@ repository, stays on `gix`.
   can leave the shelf between two revisions, and the ledger behind it. A
   handler that cancels the watch would make the command line stop where the
   TUI's `esc` does.
-- **Gathering rules.** Only skills are gatherable. A rule is a loose file at any
-  depth, so harvesting one means deciding what its name is relative to: the
-  same question `Catalog::take_files` answers inside a project, asked of a
-  folder that is not one.
-- **Private repositories.** Mindweaver gives `gix` no credentials of its own,
-  so a private source gets through only when a git-config helper (or, for an
-  ssh URL, ssh itself) has them, and otherwise the gather fails and says how to
-  provide one, never at a prompt (see
-  [Why `gix`](#why-gix-rather-than-running-git)). A URL is stored, logged and
-  shown without credentials, and a gather URL that carries one is refused, so
-  a helper is also the only place a token typed into a URL can go (see
-  [A URL is kept without its
-  credentials](#a-url-is-kept-without-its-credentials)). What else it should
-  be given is decided in
-  [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt): a
-  provider the front end supplies, through that same callback. #110 carries it
-  out. #109 checked the helpers against a real private repository
-  ([as they were checked](#private-repositories-as-they-were-checked)):
-  they do get through, and nothing prompts. ssh's own questions are still open: a passphrase for a key the
-  agent does not hold, a password when the server accepts password
-  authentication, or whether to trust a host seen for the first time, is asked
-  by ssh on the terminal, out of the callback's reach. `BatchMode=yes` in
-  the ssh command would make those failures too. One connection never sees
-  the callback either: when the remote has a branch named `HEAD`, which
-  clashes with the `HEAD` a clone fetches to know what to check out, `gix`
-  0.87 retries on a new connection without calling `configure_connection`, and
-  that one runs the helpers and then prompts, as `gix` does by default. While
-  the helpers are the only source, it asks them what the first connections
-  already got answered; once #110 supplies a token through the callback, that
-  connection will not have it. An in-memory `gitoxide.credentials.terminalPrompt=false`
+- **What ssh asks, and the one connection `gix` opens alone.** How a private
+  repository is logged into is settled, which was the open question "Private
+  repositories": a helper git config names, ssh's own keys, or a token the
+  front end hands over for one run (`--token-env`, `--gh`), all through the
+  callback that never prompts ([why `gix`](#why-gix-rather-than-running-git),
+  [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)), as
+  #109 checked against a real private repository for the helpers and ssh
+  ([as they were checked](#private-repositories-as-they-were-checked)) before
+  #110 added the token. Two gaps are left. ssh's own questions: a passphrase
+  for a key the agent does not hold, a password when the server accepts
+  password authentication, or whether to trust a host seen for the first
+  time, is asked by ssh on the terminal, out of the callback's reach.
+  `BatchMode=yes` in the ssh command would make those failures too. And one
+  connection never sees the callback: when the remote has a branch named
+  `HEAD`, which clashes with the `HEAD` a clone fetches to know what to check
+  out, `gix` 0.87 retries on a new connection without calling
+  `configure_connection`, and that one runs the helpers and then prompts, as
+  `gix` does by default. It asks the helpers what the first connections
+  already got answered, and is never offered a token handed over, so a gather
+  given one of such a repository logs in there with the helpers or not at
+  all. An in-memory `gitoxide.credentials.terminalPrompt=false`
   on the clone would keep that prompt off the terminal, though not an askpass
   named by `GIT_ASKPASS` or `SSH_ASKPASS`; a `gix` that configures the retry
   too would close it. In the TUI either prompt is worse than at the command

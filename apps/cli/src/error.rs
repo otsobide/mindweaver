@@ -12,6 +12,7 @@ use mindweaver_core::adopt::AdoptError;
 use mindweaver_core::backup::BackupError;
 use mindweaver_core::everywhere::EverywhereError;
 use mindweaver_core::export::ExportError;
+use mindweaver_core::finder::SearchError;
 use mindweaver_core::gather::GatherError;
 use mindweaver_core::ledger::LedgerError;
 use mindweaver_core::{
@@ -104,10 +105,28 @@ pub enum CliError {
     Export(#[from] ExportError),
     #[error(transparent)]
     Backup(#[from] BackupError),
+    #[error(transparent)]
+    Search(#[from] SearchError),
     #[error(
         "${0} holds no token: set it for this command, or leave --token-env out to log in as git does"
     )]
     TokenUnset(String),
+    /// `--gh`, and no `gh` on the PATH to ask.
+    #[error(
+        "--gh asks GitHub's `gh` for the token, and there is no `gh` on the PATH: install it and \
+         log in with `gh auth login`, or name a variable holding a token with --token-env"
+    )]
+    GhMissing,
+    /// `--gh`, and `gh` there but not started, for why the system says.
+    #[error("--gh asks GitHub's `gh` for the token, and it could not be run: {0}")]
+    GhUnrun(String),
+    /// `--gh`, and `gh auth token` with no token for the host: logged out,
+    /// or never logged in there.
+    #[error(
+        "`gh` has no token for {0}: log in with `gh auth login --hostname {0}`, or name a \
+         variable holding a token with --token-env"
+    )]
+    GhLoggedOut(String),
     #[error(transparent)]
     Template(#[from] TemplateError),
     #[error(transparent)]
@@ -300,11 +319,15 @@ codes!(CliError {
     Self::TokenFileUnwritable { .. } => "token_file_unwritable",
     Self::TokenFileUnremoved { .. } => "token_file_unremoved",
     Self::TokenUnset(_) => "token_env_unset",
+    Self::GhMissing => "gh_missing",
+    Self::GhUnrun(_) => "gh_unrun",
+    Self::GhLoggedOut(_) => "gh_token_missing",
 } carried {
     Self::Workspace(error) => error,
     Self::Chosen { source, .. } => source,
     Self::Artifact(error) => error,
     Self::Gather(error) => error,
+    Self::Search(error) => error,
     Self::Ledger(error) => error,
     Self::Install(error) => error,
     Self::Create(error) => error,

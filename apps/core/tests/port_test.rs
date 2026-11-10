@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex};
 use common::{skill, workspace};
 use mindweaver_core::gather::{self, GatherError, Request, Watch};
 use mindweaver_core::ledger::{Action, Ledger, Outcome};
-use mindweaver_core::port::{Clock, Cloned, GitError, Remote};
+use mindweaver_core::port::{Clock, Cloned, GitError, Remote, Token};
 use mindweaver_core::settings::ProjectId;
-use mindweaver_core::value::Revision;
+use mindweaver_core::value::{Pin, Revision};
 use mindweaver_core::Kind;
 
 /// A remote that fetches by writing the files it was made with, and notes
@@ -30,8 +30,10 @@ impl Remote for Written {
         &self,
         url: &str,
         reference: Option<&str>,
+        _pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        _token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         if watch.is_cancelled() {
             return Err(GitError::Cancelled);

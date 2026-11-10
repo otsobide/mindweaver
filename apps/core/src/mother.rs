@@ -36,14 +36,14 @@ pub use fixture::{
     GitRepositoryMother, MindflayerMother, ProjectMother, ShelfMother, WorkspaceMother,
 };
 pub use ledger::{
-    EntryMother, EntryTargetMother, GatheredMother, InstallRecordMother, MovedMother, SourceMother,
-    TargetMother,
+    EntryMother, EntryTargetMother, GatheredMother, InstallRecordMother, LicenceMother,
+    MovedMother, SourceMother, TakenMother, TargetMother,
 };
 pub use settings::SettingsMother;
 pub use url::{Credentialed, UrlMother};
 pub use value::{
-    ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, ProjectIdMother,
-    RedactedMother, RevisionMother, VariableNameMother,
+    ArtifactNameMother, ContentHashMother, InputNameMother, OriginMother, PinMother,
+    ProjectIdMother, RedactedMother, RevisionMother, VariableNameMother,
 };
 
 #[cfg(test)]

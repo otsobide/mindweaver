@@ -21,6 +21,7 @@ use mindweaver_core::install::{
 use mindweaver_core::ledger::{InstallRecord, Target};
 use mindweaver_core::lifecycle;
 use mindweaver_core::migrate;
+use mindweaver_core::mother::{RuleMother, ShelfMother};
 use mindweaver_core::value::ContentHash;
 use mindweaver_core::{
     hash, Agent, AgentHomes, Directories, Kind, Ledger, LifecycleError, MindProject, Missed,
@@ -706,6 +707,63 @@ fn two_rules_rendered_again_and_one_taken_out_leave_the_block_and_the_ledger_ali
     );
     assert_eq!(fixture.records(), recorded[..1]);
     assert!(!fixture.ledger.created("app", "AGENTS.md").unwrap());
+}
+
+/// A rule gathered onto the shelf from a repository's folder of rules is
+/// offered by its route, named by `--from` as its source's name, and
+/// installed as the library's are: a section of the block in a project its
+/// settings mark, recorded with the source as its origin and standing
+/// current with the shelf (#111).
+#[test]
+fn a_rule_gathered_onto_the_shelf_installs_into_the_projects_agents_md_block() {
+    let fixture = fixture(Share::Shared, &Agent::ALL);
+    let gathered = ShelfMother::rules_into(&fixture.workspace, &fixture.ledger, &["git/commits"]);
+    let from = gathered.name.to_string();
+    let candidate = install::offered(
+        &fixture.workspace,
+        &fixture.ledger,
+        &fixture.project,
+        Kind::Rule,
+        "git/commits",
+        Some(&from),
+    )
+    .unwrap();
+
+    let installed = install::install(
+        &fixture.workspace,
+        &fixture.ledger,
+        &fixture.project,
+        &candidate,
+        &AgentHomes::default(),
+    )
+    .unwrap();
+
+    assert!(
+        matches!(&installed.installed, Installed::Added { name, paths, .. }
+            if name == "git/commits" && *paths == [fixture.agents_md()]),
+        "{installed:?}"
+    );
+    let body = RuleMother::create("commits");
+    assert_eq!(
+        fixture.text(),
+        format!(
+            "<!-- mindweaver:begin -->\n<!-- mindweaver:rule git/commits -->\n{body}\
+             <!-- mindweaver:end -->\n"
+        )
+    );
+    let source = &fixture.ledger.sources().unwrap()[0];
+    assert_eq!(
+        fixture.records(),
+        [InstallRecord {
+            origin: Some(source.origin()),
+            ..record(
+                "git/commits",
+                &body,
+                vec![in_block(section_hash("git/commits", body.trim_end()))],
+            )
+        }]
+    );
+    assert_eq!(fixture.standing("git/commits"), Standing::Current);
 }
 
 #[test]

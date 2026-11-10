@@ -16,6 +16,7 @@ pub(crate) mod known;
 pub(crate) mod migrate;
 pub(crate) mod project;
 pub(crate) mod read;
+pub(crate) mod search;
 pub(crate) mod settings;
 pub(crate) mod status;
 #[cfg(feature = "ui")]
@@ -25,7 +26,7 @@ pub(crate) mod workspace;
 
 use std::path::{Path, PathBuf};
 
-use mindweaver_core::gather::Watch;
+use crate::progress::Watch;
 use mindweaver_core::resolve::{self, resolve, Intent};
 use mindweaver_core::url;
 use mindweaver_core::view::Listing;
@@ -792,6 +793,7 @@ fn run_weaver(
                     message: message.as_deref(),
                     token_env: token_env.as_deref(),
                 },
+                watch,
             )
         }),
 

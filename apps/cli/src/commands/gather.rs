@@ -4,14 +4,16 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use mindweaver_core::gather::{self, Report, Request, Scrub, Watch};
-use mindweaver_core::install::{offered_by_loads, Offer};
+use mindweaver_core::gather::{self, Report, Request, Scrub};
+use mindweaver_core::install::{is_installable_name, offered_by_loads, Offer};
+use mindweaver_core::port::Token;
 use mindweaver_core::url::redacted;
-use mindweaver_core::{Kind, WeaverWorkspace};
+use mindweaver_core::{Kind, Licence, WeaverWorkspace};
 
 use super::{reading_workspace, workspace_here};
-use crate::render::{indent, json_or_text, plural, printable, table};
-use crate::{CliError, Failure, GatherCommand, Lookup, Outcome, Warning};
+use crate::progress::{Progress, Watch};
+use crate::render::{counted_kind, indent, json_or_text, printable, table};
+use crate::{token, CliError, Credential, Failure, GatherCommand, Lookup, Outcome, Warning};
 
 /// Collect artifacts onto the workspace shelf, or say what is already on it.
 ///
@@ -27,19 +29,32 @@ pub(crate) fn run_gather(
     match command {
         GatherCommand::Git {
             url,
+            kind,
             path,
             reference,
             name,
+            pin,
             dry_run,
+            credential,
         } => {
             // Found as a gather finds it, a dry run's too, which fetches into
             // the workspace's scratch folder and so needs one made.
             let workspace = workspace_here(directory, lookup)?;
-            let request = Request::git(url.clone())
-                .from_subdirectory(path.clone())
+            // Each only when given, so core says what a gather of a kind
+            // looks in when no folder is named, and which kinds have none.
+            let mut request = Request::git(url.clone());
+            if let Some(kind) = kind {
+                request = request.taking(*kind);
+            }
+            if let Some(path) = path {
+                request = request.from_subdirectory(path.clone());
+            }
+            let request = request
                 .at(reference.clone())
                 .named(name.clone())
-                .watched_by(watch.clone());
+                .pinned(pin.clone())
+                .watched_by(watch.relaying(Progress::Gather))
+                .with_token(handed(url, credential)?);
             if *dry_run {
                 // A read of the ledger, which a workspace that never
                 // gathered does not make, and no scrub: a dry run writes
@@ -65,7 +80,41 @@ pub(crate) fn run_gather(
                 reading_workspace(directory, lookup, |workspace| shelf(workspace, &mut found))?;
             Ok(json_or_text(found.filter(|_| *json), text))
         }
+        GatherCommand::Search {
+            query,
+            finders,
+            at,
+            take,
+            json,
+            credential,
+        } => {
+            let asked = super::search::Asked {
+                query,
+                finders,
+                at,
+                credential,
+            };
+            match take {
+                Some(number) => super::search::run_take(&asked, *number, directory, lookup, watch),
+                None => super::search::run_search(&asked, *json, directory, lookup, watch),
+            }
+        }
     }
+}
+
+/// The token `credential` says a gather of `url` logs in with, read now,
+/// for this run alone: the variable `--token-env` names, or what `gh` has
+/// for the host core says the token goes to, which refuses a URL no token
+/// goes over before `gh` is asked. `None` when neither is given, and the
+/// gather logs in as git config's helpers and ssh do.
+fn handed(url: &str, credential: &Credential) -> Result<Option<Token>, CliError> {
+    if let Some(name) = &credential.token_env {
+        return token::from_variable(name).map(Some);
+    }
+    if credential.gh {
+        return token::from_gh(&gather::token_host(url)?).map(Some);
+    }
+    Ok(None)
 }
 
 /// `mindweaver gather list`: what can be installed from elsewhere, from a
@@ -86,14 +135,22 @@ fn shelf(workspace: &WeaverWorkspace, found: &mut Option<Vec<Offer>>) -> Result<
     let mut offers: Vec<Offer> = loads.offers;
     let mut stderr = stderr;
     for gathered in ledger.gathered().map_err(CliError::from)? {
-        // Listed only if it could be installed: a name that is not one folder
-        // name never can be, wherever it came from.
-        if mindweaver_core::install::is_folder_name(&gathered.name) {
+        // Listed only if it could be installed: a name no copy can be filed
+        // under never can be, wherever it came from. A skill's is one
+        // folder name, a rule's a route held to the name rules, as core
+        // says of each kind.
+        if is_installable_name(gathered.kind, &gathered.name) {
             offers.push(Offer::Shelf(gathered));
         } else {
+            let unlike = match gathered.kind {
+                Kind::Skill => String::from("which is not one folder name"),
+                Kind::Rule | Kind::Mcp => {
+                    format!("which no {} can be installed under", gathered.kind.noun())
+                }
+            };
             stderr.push(
                 format!(
-                    "warning: {}: declares the name `{}`, which is not one folder name, so it is not offered",
+                    "warning: {}: declares the name `{}`, {unlike}, so it is not offered",
                     gathered.path, gathered.name
                 )
                 .into(),
@@ -138,8 +195,8 @@ impl Scrubbed {
 
 /// What the scrub that opening the ledger to write runs took out
 /// ([`mindweaver_core::WeaverWorkspace::ledger_to_write`]), said the way a
-/// person can act on: every source it scrubbed now needs its credential from
-/// a git credential helper.
+/// person can act on: every source it scrubbed now needs its credential
+/// handed over for the run, or from a git credential helper.
 pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
     // What the step to schema 7 made one first, which came first: the
     // spelling that went is what a script may still name it by.
@@ -163,7 +220,8 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
     notes.extend(scrub.sources.iter().map(|source| {
         format!(
             "note: {}: the user name, password or token an older Mindweaver stored in this \
-                 URL is taken out; gathering it again needs a git credential helper that has it",
+                 URL is taken out; gathering it again needs it from --token-env, --gh or a git \
+                 credential helper",
             source.url
         )
         .into()
@@ -208,14 +266,7 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
 /// A gather that got this far was given none, since core refuses them, so
 /// this costs nothing today and still holds if that ever changes.
 fn gathered(url: &str, report: &Report) -> Outcome {
-    let url = redacted(url);
-    let mut stdout = String::new();
-    let at = report
-        .revision
-        .as_deref()
-        .map(short)
-        .map_or_else(String::new, |revision| format!(" at {revision}"));
-    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
+    let mut stdout = heading(url, report);
 
     // Added first, then updated, then unchanged: a second gather is run to
     // find out what moved, and what moved should not be at the bottom.
@@ -240,7 +291,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         let _ = writeln!(
             stdout,
             "\n{}: {} added, {} updated, {} unchanged",
-            plural(report.total(), "skill"),
+            counted_kind(report.total(), report.kind),
             report.added.len(),
             report.updated.len(),
             report.unchanged.len()
@@ -257,14 +308,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
 /// It exits as the gather would, on what could not be taken and on what is
 /// wrong with what would be, so a script can ask before it gathers.
 fn foreseen(url: &str, report: &Report) -> Outcome {
-    let url = redacted(url);
-    let mut stdout = String::new();
-    let at = report
-        .revision
-        .as_deref()
-        .map(short)
-        .map_or_else(String::new, |revision| format!(" at {revision}"));
-    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
+    let mut stdout = heading(url, report);
 
     let mut rows: Vec<Vec<String>> = Vec::new();
     for (label, harvested) in [
@@ -289,13 +333,27 @@ fn foreseen(url: &str, report: &Report) -> Outcome {
             stdout,
             "\n{}: {} to add, {} to update, {} unchanged\n\
              nothing gathered: run it without --dry-run to gather",
-            plural(report.total(), "skill"),
+            counted_kind(report.total(), report.kind),
             report.added.len(),
             report.updated.len(),
             report.unchanged.len()
         );
     }
     said(stdout, report, "would be")
+}
+
+/// The line a gather's report starts with: the source by its name and the
+/// URL it was gathered from, the revision it was gathered at, and whether
+/// that was a pin, which the source is pinned to from now on (#99).
+fn heading(url: &str, report: &Report) -> String {
+    let url = redacted(url);
+    let at = report
+        .revision
+        .as_deref()
+        .map(short)
+        .map_or_else(String::new, |revision| format!(" at {revision}"));
+    let pinned = if report.pin.is_some() { ", pinned" } else { "" };
+    format!("{}: {url}{at}{pinned}\n", printable(&report.name))
 }
 
 /// `stdout`, with what `report` has to say beside it on stderr: what could
@@ -343,7 +401,16 @@ fn said(stdout: String, report: &Report, was: &str) -> Outcome {
 
 /// Everything that can be installed from elsewhere, with where each thing
 /// comes from, spelled as `--from` takes it: a source by its name
-/// ([`Offer::listed_from`]).
+/// ([`Offer::listed_from`]), and what it says of its licence, as a gather
+/// read it ([`Licence::said`]), with nothing there for one a gather has not
+/// read since it was kept (#99), nor for a workspace's own, which no gather
+/// read.
+///
+/// A source's pin, when it has one, goes beside its name, the name being
+/// what `--from` takes, so the pin is not written into it. Each of the two
+/// is a column that earns its place, as the kind's does, only once
+/// something listed has one: a listing of what loaded workspaces offer
+/// reads as it did.
 ///
 /// Empty, it says how to fill it, and suggests loading only when nothing is
 /// loaded yet; `mindweaver load` on its own lists what is.
@@ -368,6 +435,22 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
     kinds.sort();
     kinds.dedup();
     let name_kind = kinds.len() > 1;
+    let pin = |entry: &Offer| match entry {
+        Offer::Shelf(gathered) => gathered
+            .source
+            .pin
+            .as_ref()
+            .map(|pin| format!("pinned {}", short(pin))),
+        Offer::Workspace { .. } | Offer::Loaded { .. } => None,
+    };
+    let name_pin = shelf.iter().any(|entry| pin(entry).is_some());
+    fn licence(entry: &Offer) -> Option<&str> {
+        match entry {
+            Offer::Shelf(gathered) => gathered.licence.as_ref().map(Licence::said),
+            Offer::Workspace { .. } | Offer::Loaded { .. } => None,
+        }
+    }
+    let name_licence = shelf.iter().any(|entry| licence(entry).is_some());
 
     let rows: Vec<Vec<String>> = shelf
         .iter()
@@ -378,6 +461,12 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
             }
             row.push(printable(entry.name()));
             row.push(printable(&entry.listed_from()));
+            if name_pin {
+                row.push(pin(entry).unwrap_or_default());
+            }
+            if name_licence {
+                row.push(printable(licence(entry).unwrap_or("")));
+            }
             row.push(printable(entry.summary().unwrap_or("")));
             row
         })

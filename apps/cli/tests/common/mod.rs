@@ -21,7 +21,11 @@ pub use mindweaver_cli::{
     agent_homes, default_home, run, run_watched, run_weaver_cli, run_weaver_cli_watched,
     AgentHomeOptions, Cli, CliError, Failure, Lookup, Outcome, WeaverCli,
 };
-pub use mindweaver_core::gather::{Progress, Watch};
+// The watch every line is run with, of either run's step, and a gather's
+// step as core says it, which a test wraps in it.
+pub use mindweaver_cli::progress::{Progress, Watch};
+pub use mindweaver_core::backup::Progress as Backup;
+pub use mindweaver_core::gather::Progress as Gather;
 pub use mindweaver_core::install::Standing;
 pub use mindweaver_core::ledger::Ledger;
 pub use mindweaver_core::{AgentHomes, Reason, WeaverWorkspace};

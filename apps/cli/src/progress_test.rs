@@ -1,3 +1,4 @@
+use mindweaver_core::gather::Progress as Gather;
 use serde_json::json;
 
 use super::*;
@@ -26,34 +27,34 @@ impl Written {
 #[test]
 fn each_step_reads_as_what_is_counted_and_how_far_it_has_got() {
     let cases = [
-        (Progress::Connecting, "connecting"),
+        (Progress::Gather(Gather::Connecting), "connecting"),
         (
-            Progress::Receiving {
+            Progress::Gather(Gather::Receiving {
                 done: 120,
                 total: Some(340),
-            },
+            }),
             "receiving objects 120/340",
         ),
         (
-            Progress::Resolving {
+            Progress::Gather(Gather::Resolving {
                 done: 7,
                 total: None,
-            },
+            }),
             "resolving deltas 7",
         ),
         (
-            Progress::CheckingOut {
+            Progress::Gather(Gather::CheckingOut {
                 done: 0,
                 total: None,
-            },
+            }),
             "checking out files",
         ),
         (
-            Progress::Harvesting { done: 1, total: 3 },
+            Progress::Gather(Gather::Harvesting { done: 1, total: 3 }),
             "reading folders 1/3",
         ),
         (
-            Progress::Placing { done: 0, total: 2 },
+            Progress::Gather(Gather::Placing { done: 0, total: 2 }),
             "placing on the shelf 0/2",
         ),
     ];
@@ -68,11 +69,11 @@ fn the_line_is_rewritten_in_place_and_wiped_at_the_end() {
     let line = ProgressLine::to(written.clone());
     let watch = line.watch();
 
-    watch.report(Progress::Receiving {
+    watch.report(Progress::Gather(Gather::Receiving {
         done: 12,
         total: Some(340),
-    });
-    watch.report(Progress::Harvesting { done: 1, total: 3 });
+    }));
+    watch.report(Progress::Gather(Gather::Harvesting { done: 1, total: 3 }));
     line.clear();
 
     // The shorter line covers what is left of the longer one with spaces,
@@ -98,7 +99,7 @@ fn a_line_that_is_not_drawn_hands_out_a_watch_that_reports_to_nobody() {
     let line = ProgressLine { drawn: None };
     let watch = line.watch();
 
-    watch.report(Progress::Connecting);
+    watch.report(Progress::Gather(Gather::Connecting));
     line.clear();
 
     // Still a watch that can be cancelled, as every one is.
@@ -110,41 +111,41 @@ fn a_line_that_is_not_drawn_hands_out_a_watch_that_reports_to_nobody() {
 fn a_step_says_its_stage_its_count_its_words_and_whether_a_cancel_still_stops_it() {
     let cases = [
         (
-            Progress::Connecting,
+            Progress::Gather(Gather::Connecting),
             json!({"stage": "connecting", "done": null, "total": null,
                    "said": "connecting", "cancellable": true}),
         ),
         (
-            Progress::Receiving {
+            Progress::Gather(Gather::Receiving {
                 done: 120,
                 total: Some(340),
-            },
+            }),
             json!({"stage": "receiving", "done": 120, "total": 340,
                    "said": "receiving objects 120/340", "cancellable": true}),
         ),
         (
-            Progress::Resolving {
+            Progress::Gather(Gather::Resolving {
                 done: 7,
                 total: None,
-            },
+            }),
             json!({"stage": "resolving", "done": 7, "total": null,
                    "said": "resolving deltas 7", "cancellable": true}),
         ),
         (
-            Progress::CheckingOut {
+            Progress::Gather(Gather::CheckingOut {
                 done: 0,
                 total: None,
-            },
+            }),
             json!({"stage": "checking_out", "done": 0, "total": null,
                    "said": "checking out files", "cancellable": true}),
         ),
         (
-            Progress::Harvesting { done: 1, total: 3 },
+            Progress::Gather(Gather::Harvesting { done: 1, total: 3 }),
             json!({"stage": "harvesting", "done": 1, "total": 3,
                    "said": "reading folders 1/3", "cancellable": true}),
         ),
         (
-            Progress::Placing { done: 0, total: 2 },
+            Progress::Gather(Gather::Placing { done: 0, total: 2 }),
             json!({"stage": "placing", "done": 0, "total": 2,
                    "said": "placing on the shelf 0/2", "cancellable": false}),
         ),
@@ -171,9 +172,9 @@ fn handed(pace: Duration, steps: &[Progress]) -> Vec<String> {
 /// pace; with none, every step is.
 #[test]
 fn a_burst_of_steps_is_handed_on_by_each_stage_s_first_and_last() {
-    let steps: Vec<Progress> = std::iter::once(Progress::Connecting)
-        .chain((0..=200).map(|done| Progress::Harvesting { done, total: 200 }))
-        .chain((0..=3).map(|done| Progress::Placing { done, total: 3 }))
+    let steps: Vec<Progress> = std::iter::once(Progress::Gather(Gather::Connecting))
+        .chain((0..=200).map(|done| Progress::Gather(Gather::Harvesting { done, total: 200 })))
+        .chain((0..=3).map(|done| Progress::Gather(Gather::Placing { done, total: 3 })))
         .collect();
 
     assert_eq!(
@@ -198,4 +199,103 @@ fn a_reported_watch_is_cancelled_as_any_is() {
     watch.clone().cancel();
 
     assert!(watch.is_cancelled());
+}
+
+/// A backup's steps count nothing, so each is said in words alone, and is
+/// cancellable until it pushes, as core says.
+#[test]
+fn a_backup_s_steps_are_said_in_words_with_no_count_and_cancellable_until_the_push() {
+    use mindweaver_core::backup::Progress as Backup;
+    let cases = [
+        (
+            Backup::CheckingOut,
+            json!({"stage": "checking_out", "done": null, "total": null,
+                   "said": "checking the repository out", "cancellable": true}),
+        ),
+        (
+            Backup::Exporting,
+            json!({"stage": "exporting", "done": null, "total": null,
+                   "said": "exporting the library", "cancellable": true}),
+        ),
+        (
+            Backup::Committing,
+            json!({"stage": "committing", "done": null, "total": null,
+                   "said": "committing", "cancellable": true}),
+        ),
+        (
+            Backup::Pushing,
+            json!({"stage": "pushing", "done": null, "total": null,
+                   "said": "pushing", "cancellable": false}),
+        ),
+    ];
+    for (progress, step) in cases {
+        let progress = Progress::Backup(progress);
+        assert_eq!(serde_json::to_value(Step::of(progress)).unwrap(), step);
+        assert_eq!(progress.cancellable(), step["cancellable"] == true);
+    }
+}
+
+/// Every step of a backup is handed on, each a stage of its own.
+#[test]
+fn a_backup_s_every_step_is_handed_on() {
+    use mindweaver_core::backup::Progress as Backup;
+    let steps = [
+        Backup::CheckingOut,
+        Backup::Exporting,
+        Backup::Committing,
+        Backup::Pushing,
+    ]
+    .map(Progress::Backup);
+
+    assert_eq!(
+        handed(Duration::from_secs(3600), &steps),
+        [
+            "checking the repository out",
+            "exporting the library",
+            "committing",
+            "pushing"
+        ]
+    );
+}
+
+/// A run's own watch, handed to it by the command, reaches the one the
+/// front end holds, its steps in the front end's words and its cancel both
+/// ways.
+#[test]
+fn a_watch_relayed_to_a_run_reaches_the_one_a_front_end_holds() {
+    use mindweaver_core::backup::Progress as Backup;
+    let written = Written::default();
+    let line = ProgressLine::to(written.clone());
+    let held = line.watch();
+
+    let run = held.relaying(Progress::Backup);
+    run.report(Backup::Exporting);
+    held.cancel();
+
+    assert_eq!(written.text(), "\rexporting the library");
+    assert!(run.is_cancelled());
+}
+
+/// A search's step is the finder it asks, counted by those that answered,
+/// and a cancel always still stops it, before the next.
+#[test]
+fn a_search_s_step_names_the_finder_it_asks_and_always_takes_a_cancel() {
+    use mindweaver_core::finder::{Finder, Progress as Search};
+    let progress = Progress::Search(Search::Asking {
+        finder: Finder::ClaudePlugins,
+        done: 1,
+        total: 2,
+    });
+
+    assert_eq!(said(progress), "asking claude-plugins.dev 1/2");
+    assert_eq!(
+        serde_json::to_value(Step::of(progress)).unwrap(),
+        json!({
+            "stage": "asking",
+            "done": 1,
+            "total": 2,
+            "said": "asking claude-plugins.dev 1/2",
+            "cancellable": true,
+        })
+    );
 }

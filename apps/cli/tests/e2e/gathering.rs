@@ -6,12 +6,25 @@
 //! one by its URL: a table pads every row to its longest source, which a
 //! temporary folder's path would make as long as the system's says.
 
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
+use std::sync::{Arc, Mutex};
+
 use crate::{skill, Scenario};
 
 const SOURCE: &str = "~/src/acme-skills";
 
+/// A skill's file declaring the licence `license`, as its author writes it.
+fn licensed(name: &str, description: &str, license: &str) -> String {
+    format!(
+        "---\nname: {name}\ndescription: {description}\nlicense: {license}\n---\n\n# {name}\n\n\
+         Steps.\n"
+    )
+}
+
 /// `~/Projects` linking `collapse`, beside `~/src/acme-skills`, a repository
-/// offering two skills.
+/// offering two skills, the first declaring its licence and the second
+/// saying nothing of one.
 fn acme() -> Scenario {
     let scenario = Scenario::projects(&["collapse"]);
     scenario.source(
@@ -19,7 +32,11 @@ fn acme() -> Scenario {
         &[
             (
                 "skills/commit-style/SKILL.md",
-                &skill("commit-style", "How this repo writes commit messages"),
+                &licensed(
+                    "commit-style",
+                    "How this repo writes commit messages",
+                    "MIT",
+                ),
             ),
             (
                 "skills/ddd-reviewer/SKILL.md",
@@ -123,10 +140,149 @@ fn gather_list_says_what_the_shelf_holds_and_from_where() {
         .run("~/Projects", "mindweaver gather list")
         .succeeds()
         .prints(concat!(
-            "commit-style  src-acme-skills  How this repo writes commit messages\n",
-            "ddd-reviewer  src-acme-skills  Review a change against the DDD layering rules\n",
+            "commit-style  src-acme-skills  MIT      How this repo writes commit messages\n",
+            "ddd-reviewer  src-acme-skills  unknown  Review a change against the DDD layering \
+             rules\n",
         ))
         .quiet();
+}
+
+#[test]
+fn gathering_at_a_pin_takes_that_commit_and_says_the_source_is_pinned() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario.change(
+        SOURCE,
+        &[(
+            "skills/ddd-reviewer/SKILL.md",
+            &skill("ddd-reviewer", "Review a change, as it is now"),
+        )],
+    );
+
+    scenario
+        .run(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills: ../src/acme-skills at {}, pinned\n\
+             \x20 added  commit-style  How this repo writes commit messages\n\
+             \x20 added  ddd-reviewer  Review a change against the DDD layering rules\n\
+             \n\
+             2 skills: 2 added, 0 updated, 0 unchanged\n",
+            &pin[..7]
+        ))
+        .quiet();
+}
+
+#[test]
+fn gather_list_shows_the_pin_of_a_pinned_source_beside_its_name() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario
+        .source(
+            "~/src/other-rules",
+            &[(
+                "skills/commit-style/SKILL.md",
+                &skill("commit-style", "Conventional commits, strictly"),
+            )],
+        )
+        .given(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+        )
+        .given("~/Projects", "mindweaver gather git ../src/other-rules");
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(&format!(
+            "commit-style  src-acme-skills  pinned {short}  MIT      How this repo writes commit \
+             messages\n\
+             commit-style  src-other-rules                  unknown  Conventional commits, strictly\n\
+             ddd-reviewer  src-acme-skills  pinned {short}  unknown  Review a change against the \
+             DDD layering rules\n",
+            short = &pin[..7]
+        ))
+        .quiet();
+}
+
+#[test]
+fn gathering_again_without_the_pin_follows_the_branch_again() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario.given(
+        "~/Projects",
+        &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+    );
+
+    scenario
+        .run("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills: ../src/acme-skills at {}\n\
+             \x20 unchanged  commit-style  How this repo writes commit messages\n\
+             \x20 unchanged  ddd-reviewer  Review a change against the DDD layering rules\n\
+             \n\
+             2 skills: 0 added, 0 updated, 2 unchanged\n",
+            scenario.head(SOURCE)
+        ))
+        .quiet();
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "commit-style  src-acme-skills  MIT      How this repo writes commit messages\n",
+            "ddd-reviewer  src-acme-skills  unknown  Review a change against the DDD layering \
+             rules\n",
+        ));
+}
+
+#[test]
+fn a_pin_that_is_no_commit_in_full_is_refused_before_anything_is_fetched() {
+    let scenario = acme();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-skills --pin a1b2c3d",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: `a1b2c3d` cannot pin a source: it has to be a commit in full, 40 hexadecimal \
+             digits, not a commit shortened, a branch or a tag\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache/..-src-acme-skills"));
+}
+
+#[test]
+fn a_pin_the_repository_does_not_have_is_refused_and_nothing_is_gathered() {
+    let scenario = acme();
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+
+    scenario
+        .run(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {missing}"),
+        )
+        .exits(1)
+        .prints("")
+        .says(&format!(
+            "error: ../src/acme-skills: has no commit {missing} that its default branch reaches, \
+             so nothing is gathered at it\n"
+        ));
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "nothing gathered yet\n",
+            "  take some with `mindweaver gather git <url>`, or offer a workspace's own with \
+             `mindweaver load <path>`\n",
+        ));
 }
 
 #[test]
@@ -188,7 +344,8 @@ fn a_url_carrying_a_token_is_refused_before_anything_is_fetched() {
         .says(
             "error: https://github.com/acme/private-skills: a password, a token or, over \
              http(s), a user name in the URL is refused, because gathering stores and shows the \
-             URL: gather it without one, and configure a git credential helper that has it\n",
+             URL: gather it without one, and hand the token over with --token-env or --gh, or \
+             configure a git credential helper that has it\n",
         );
 
     scenario
@@ -499,4 +656,508 @@ fn a_branch_given_twice_over_is_refused_before_anything_is_fetched() {
         .says("error: the URL names the branch `v1`, and `--ref` names `v2`: give it once\n");
 
     assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+// ---------------------------------------------------------------------------
+// Rules, from the folder a repository keeps them in (#111): the
+// reference's "Gathering rules"
+// ---------------------------------------------------------------------------
+
+const RULES: &str = "~/src/acme-rules";
+
+/// `~/Projects` linking `collapse`, beside `~/src/acme-rules`, a repository
+/// keeping two rules in `rules/`, one a folder down, beside the README and
+/// the licence the folder is documented with, and a changelog at its root.
+fn acme_rules() -> Scenario {
+    let scenario = Scenario::projects(&["collapse"]);
+    scenario.source(
+        RULES,
+        &[
+            (
+                "rules/git/commits.md",
+                "# Commit one coherent step at a time\n\nSay why in the body.\n",
+            ),
+            (
+                "rules/review/tone.md",
+                "# Say what a change does before what is wrong with it\n",
+            ),
+            ("rules/README.md", "# Our rules\n\nOne file a rule.\n"),
+            ("rules/LICENSE", "MIT License\n\nCopyright (c) Acme\n"),
+            ("CHANGELOG.md", "# Changelog\n\n- Every rule.\n"),
+        ],
+    );
+    scenario
+}
+
+#[test]
+fn gathering_rules_takes_every_markdown_file_in_the_folder_named_by_its_route() {
+    let scenario = acme_rules();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-rules: ../src/acme-rules at {}\n\
+             \x20 added  git/commits  Commit one coherent step at a time\n\
+             \x20 added  review/tone  Say what a change does before what is wrong with it\n\
+             \n\
+             2 rules: 2 added, 0 updated, 0 unchanged\n",
+            scenario.head(RULES)
+        ))
+        .quiet();
+
+    assert_eq!(
+        scenario.files("~/Projects/.mindweaver/rules"),
+        [
+            "..-src-acme-rules/git/commits.md",
+            "..-src-acme-rules/review/tone.md"
+        ],
+        "the README and the licence are no rules, and the changelog is not in the folder"
+    );
+    assert!(
+        !scenario.exists("~/Projects/collapse/AGENTS.md"),
+        "nothing is written into a project"
+    );
+}
+
+#[test]
+fn rules_are_gathered_only_from_a_folder_named() {
+    let scenario = acme_rules();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: rules are gathered from the folder `--path` names, every markdown file in it \
+             one: name the folder that holds them, or `--path .` for the whole repository\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn a_rule_whose_route_is_no_name_is_said_and_not_taken() {
+    let scenario = acme_rules();
+    scenario.change(RULES, &[("rules/Python_Style.md", "# Prefer pathlib\n")]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+        )
+        .exits(1)
+        .prints(&format!(
+            "src-acme-rules: ../src/acme-rules at {}\n\
+             \x20 added  git/commits  Commit one coherent step at a time\n\
+             \x20 added  review/tone  Say what a change does before what is wrong with it\n\
+             \n\
+             2 rules: 2 added, 0 updated, 0 unchanged\n",
+            scenario.head(RULES)
+        ))
+        .says(
+            "warning: rules/Python_Style.md: not taken, since a rule is named by its route, and \
+             `Python_Style` is not usable as a name: it has to be lowercase letters and digits, \
+             joined by single hyphens\n",
+        );
+}
+
+#[test]
+fn a_dry_run_of_rules_says_where_each_is_and_writes_nothing() {
+    let scenario = acme_rules();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules --dry-run",
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-rules: ../src/acme-rules at {}\n\
+             \x20 would add  git/commits  rules/git/commits.md  Commit one coherent step at a \
+             time\n\
+             \x20 would add  review/tone  rules/review/tone.md  Say what a change does before \
+             what is wrong with it\n\
+             \n\
+             2 rules: 2 to add, 0 to update, 0 unchanged\n\
+             nothing gathered: run it without --dry-run to gather\n",
+            scenario.head(RULES)
+        ))
+        .quiet();
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/rules"));
+}
+
+#[test]
+fn a_gathered_rule_installs_into_the_projects_agents_md() {
+    let scenario = acme_rules();
+    scenario.given(
+        "~/Projects",
+        "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+    );
+
+    scenario
+        .run("~/Projects", "mindweaver install -p collapse git/commits")
+        .succeeds()
+        .prints("installed rule git/commits into collapse, from ../src/acme-rules\n")
+        .quiet();
+
+    assert_eq!(
+        scenario.read("~/Projects/collapse/AGENTS.md"),
+        concat!(
+            "<!-- mindweaver:begin -->\n",
+            "<!-- mindweaver:rule git/commits -->\n",
+            "# Commit one coherent step at a time\n",
+            "\n",
+            "Say why in the body.\n",
+            "<!-- mindweaver:end -->\n",
+        )
+    );
+}
+
+#[test]
+fn gather_list_says_the_kind_of_each_once_rules_are_on_the_shelf_beside_skills() {
+    let scenario = acme_rules();
+    scenario
+        .source(
+            SOURCE,
+            &[(
+                "skills/commit-style/SKILL.md",
+                &licensed(
+                    "commit-style",
+                    "How this repo writes commit messages",
+                    "MIT",
+                ),
+            )],
+        )
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .given(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+        );
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "skill  commit-style  src-acme-skills  MIT          How this repo writes commit \
+             messages\n",
+            "rule   git/commits   src-acme-rules   MIT License  Commit one coherent step at a \
+             time\n",
+            "rule   review/tone   src-acme-rules   MIT License  Say what a change does before \
+             what is wrong with it\n",
+        ))
+        .quiet();
+}
+
+// ---------------------------------------------------------------------------
+// A private repository: the reference's paragraphs on one, in "Gathering skills
+// from elsewhere"
+// ---------------------------------------------------------------------------
+
+/// A private repository's server on loopback: whatever it is asked, it
+/// asks who is asking (`401`, `WWW-Authenticate: Basic`), and notes each
+/// login it was sent, `None` for a request that sent none. Over plain http,
+/// where a gather never sends a credential, which is what it holds.
+struct Guarded {
+    address: SocketAddr,
+    sent: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl Guarded {
+    fn listening() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let address = listener.local_addr().expect("where it listens");
+        let sent = Arc::<Mutex<Vec<Option<String>>>>::default();
+        let noted = Arc::clone(&sent);
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => request.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&request).into_owned();
+                noted.lock().unwrap().push(request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("authorization")
+                        .then(|| value.trim().to_owned())
+                }));
+                let _ = stream.write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\n\
+                      WWW-Authenticate: Basic realm=\"private\"\r\n\
+                      Content-Length: 0\r\n\
+                      Connection: close\r\n\r\n",
+                );
+            }
+        });
+        Self { address, sent }
+    }
+
+    fn url(&self) -> String {
+        format!("http://{}/acme/private-skills.git", self.address)
+    }
+}
+
+/// An https URL on loopback where nothing listens: a fetch from it fails at
+/// once, with no network, after whatever a gather does with a token first.
+fn nowhere_over_https() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("where it listened").port();
+    drop(listener);
+    format!("https://127.0.0.1:{port}/acme/private-skills.git")
+}
+
+/// A token as a front end is handed one, drawn for one test.
+fn a_token() -> String {
+    mindweaver_core::mother::random::hex(40)
+}
+
+/// `gh` as a person logged in to `host` has it: `gh auth token --hostname
+/// <host>` prints `token`, and anything else is `gh`'s error. Every line it
+/// is run with is noted in `~/gh-asked`.
+fn gh_logged_in(scenario: &Scenario, host: &str, token: &str) {
+    scenario.program(
+        "~/bin/gh",
+        &format!(
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$*\" >> \"$HOME/gh-asked\"\n\
+             if [ \"$*\" = 'auth token --hostname {host}' ]; then\n\
+             \x20 printf '%s\\n' '{token}'\n\
+             \x20 exit 0\n\
+             fi\n\
+             echo \"no oauth token found for $4\" >&2\n\
+             exit 1\n"
+        ),
+    );
+}
+
+#[test]
+fn a_private_repository_nothing_logs_into_fails_saying_how_to_hand_over_a_token() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let server = Guarded::listening();
+    // What a prompt would run, were one ever reached: it leaves a mark.
+    scenario.program(
+        "~/bin/askpass",
+        "#!/bin/sh\ntouch \"$HOME/asked\"\necho hunter2\n",
+    );
+    let askpass = scenario.at("~/bin/askpass").display().to_string();
+    let line = format!("mindweaver gather git {}", server.url());
+
+    scenario
+        .run_with(
+            "~/Projects",
+            &line,
+            &[
+                ("GIT_ASKPASS", &askpass),
+                ("SSH_ASKPASS", &askpass),
+                ("GIT_TERMINAL_PROMPT", "1"),
+            ],
+        )
+        .exits(1)
+        .prints("")
+        .says(&format!(
+            "error: {}: needs credentials, and gathering never prompts for them: configure a git \
+             credential helper, use ssh-agent for an ssh URL, or hand it a token with --token-env \
+             or --gh\n",
+            server.url()
+        ));
+
+    assert_eq!(*server.sent.lock().unwrap(), [None]);
+    assert!(!scenario.exists("~/asked"), "a prompt was reached");
+}
+
+#[test]
+fn a_token_variable_that_holds_nothing_is_said_before_anything_is_fetched() {
+    let scenario = Scenario::projects(&["collapse"]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git acme/private-skills --token-env GITHUB_TOKEN",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: $GITHUB_TOKEN holds no token: set it for this command, or leave --token-env \
+             out to log in as git does\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn a_token_for_a_repository_reached_over_ssh_is_refused_before_anything_is_fetched() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let token = a_token();
+
+    let ran = scenario.run_with(
+        "~/Projects",
+        "mindweaver gather git git@github.com:acme/private-skills.git --token-env GITHUB_TOKEN",
+        &[("GITHUB_TOKEN", &token)],
+    );
+
+    ran.exits(1).prints("").says(
+        "error: git@github.com:acme/private-skills.git: reached over ssh, which logs in with keys \
+         of its own, so a token would be for nothing: leave --token-env and --gh out, or gather \
+         its https URL\n",
+    );
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn a_token_for_a_repository_over_plain_http_is_refused_and_never_sent() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let server = Guarded::listening();
+    let token = a_token();
+    let line = format!(
+        "mindweaver gather git {} --token-env GITHUB_TOKEN",
+        server.url()
+    );
+
+    scenario
+        .run_with("~/Projects", &line, &[("GITHUB_TOKEN", &token)])
+        .exits(1)
+        .prints("")
+        .says(&format!(
+            "error: {}: not fetched over https, the one way a token is sent: leave --token-env \
+             and --gh out, or gather its https URL\n",
+            server.url()
+        ));
+
+    assert_eq!(*server.sent.lock().unwrap(), []);
+}
+
+#[test]
+fn gh_with_no_token_for_the_repository_s_host_is_said_and_nothing_is_fetched() {
+    let scenario = Scenario::projects(&["collapse"]);
+    gh_logged_in(&scenario, "gitlab.com", &a_token());
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather git acme/private-skills --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: `gh` has no token for github.com: log in with `gh auth login --hostname \
+             github.com`, or name a variable holding a token with --token-env\n",
+        );
+
+    assert_eq!(
+        scenario.read("~/gh-asked"),
+        "auth token --hostname github.com\n"
+    );
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn gh_asked_for_where_there_is_no_gh_is_said() {
+    let scenario = Scenario::projects(&["collapse"]);
+    scenario.folder("~/bin");
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather git acme/private-skills --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: --gh asks GitHub's `gh` for the token, and there is no `gh` on the PATH: \
+             install it and log in with `gh auth login`, or name a variable holding a token with \
+             --token-env\n",
+        );
+}
+
+#[test]
+fn gh_is_never_asked_for_a_repository_no_token_goes_to() {
+    let scenario = Scenario::projects(&["collapse"]);
+    gh_logged_in(&scenario, "github.com", &a_token());
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather git git@github.com:acme/private-skills.git --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: git@github.com:acme/private-skills.git: reached over ssh, which logs in with \
+             keys of its own, so a token would be for nothing: leave --token-env and --gh out, or \
+             gather its https URL\n",
+        );
+
+    assert!(!scenario.exists("~/gh-asked"));
+}
+
+/// The token `gh` gives reaches the fetch, a dry run's too, and nothing a
+/// gather says or leaves holds it: the repository is on this machine,
+/// where nothing answers, so the fetch fails once it has the token.
+#[test]
+fn the_token_gh_gives_is_handed_to_the_fetch_and_kept_nowhere() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let token = a_token();
+    gh_logged_in(&scenario, "127.0.0.1", &token);
+    let url = nowhere_over_https();
+
+    for line in [
+        format!("mindweaver gather git {url} --gh"),
+        format!("mindweaver gather git {url} --dry-run --gh"),
+    ] {
+        scenario
+            .run_on_path("~/Projects", &line, &[], &["~/bin"])
+            .exits(1)
+            .prints("")
+            .says(&format!(
+                "error: {url}: cannot be fetched: An IO error occurred when talking to the server\n"
+            ));
+    }
+
+    assert_eq!(
+        scenario.read("~/gh-asked"),
+        "auth token --hostname 127.0.0.1\nauth token --hostname 127.0.0.1\n"
+    );
+    let kept: Vec<String> = scenario
+        .files("~/Projects")
+        .into_iter()
+        .filter(|file| {
+            std::fs::read(scenario.at(&format!("~/Projects/{file}")))
+                .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(&token))
+        })
+        .collect();
+    assert_eq!(kept, Vec::<String>::new());
+}
+
+#[test]
+fn a_token_from_a_variable_and_from_gh_at_once_is_the_grammar_s_to_refuse() {
+    let scenario = Scenario::projects(&["collapse"]);
+
+    let ran = scenario.run(
+        "~/Projects",
+        "mindweaver gather git acme/private-skills --token-env GITHUB_TOKEN --gh",
+    );
+
+    ran.exits(2).prints("");
+    assert!(
+        ran.stderr
+            .starts_with("error: the argument '--token-env <VARIABLE>' cannot be used with '--gh'"),
+        "{ran}"
+    );
 }

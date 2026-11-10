@@ -38,16 +38,17 @@ use std::time::Duration;
 
 use thiserror::Error;
 
+use crate::backup;
 use crate::code::codes;
 use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
     Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
-    Outcome, Source, SourceKind, Target,
+    Outcome, Source, SourceKind, Taken, Target,
 };
 use crate::settings::ProjectId;
 use crate::url::carries_credentials;
-use crate::value::{Redacted, Revision, SourceName};
+use crate::value::{Pin, Redacted, Revision, SourceName};
 use crate::workspace::WorkspaceError;
 
 /// Where a source's artifacts are fetched from: a repository a gather clones
@@ -62,14 +63,29 @@ pub trait Remote: Debug + Send + Sync {
     /// whatever was there, telling `watch` how it goes and stopping when it
     /// is cancelled ([`GitError::Cancelled`]).
     ///
+    /// At `pin` when one is given (#99): that commit's files, whatever
+    /// `reference` is at now, and the pin as the revision, or
+    /// [`GitError::PinUnreachable`] when the repository has no such commit
+    /// for it to reach. `reference` is still the branch the pin is looked
+    /// for on where the commit cannot be asked for by its id alone.
+    ///
     /// What is left at `into` holds no credential once this returns, whoever
     /// asked: a caller that forgot to refuse one is not trusted to.
+    ///
+    /// `token`, when a front end handed one over for this run (D-16), is
+    /// offered only to the host [`token_host`](crate::url::token_host) says
+    /// it is for, when that host asks who is fetching, and never asked of
+    /// anyone, kept, nor told to whatever else answers for credentials.
+    /// Without one, or where it is not offered, the remote logs in as it
+    /// would anyway: git config's credential helpers, then ssh's own keys.
     fn fetch(
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError>;
 
     /// Take out of the clone at `clone` every credential an older build left
@@ -86,7 +102,14 @@ pub trait Remote: Debug + Send + Sync {
 /// `git`, behind words of core's. What a backup writes is core's
 /// ([`crate::export`]); this only checks out, commits and pushes.
 ///
-/// Neither method ever asks a person for anything: a credential nobody
+/// One method a step, so that which step a backup is at, and until which
+/// one a cancel is honoured, is core's to say ([`backup::Progress`]): the
+/// steps before the push are handed the backup's [`backup::Watch`], and
+/// stop when it is cancelled ([`UpstreamError::Cancelled`]), what they
+/// were running stopped rather than waited for; the push is handed none,
+/// since a push stopped halfway leaves the remote as nobody can say.
+///
+/// No method ever asks a person for anything: a credential nobody
 /// supplied is an error ([`UpstreamError::Credentials`]), as a gather's is.
 pub trait Upstream: Debug + Send + Sync {
     /// Check `url` out into `into`, a folder not there yet, on `branch`, or
@@ -100,20 +123,27 @@ pub trait Upstream: Debug + Send + Sync {
         branch: Option<&str>,
         into: &Path,
         token: Option<&Token>,
+        watch: &backup::Watch,
     ) -> Result<CheckedOut, UpstreamError>;
 
     /// Commit what `paths` (routes from the work tree's root) hold now in
-    /// the work tree at `work`, as `message`, and push it to where it was
-    /// checked out from, on its branch: nothing at all when they hold what
-    /// the branch held and the remote has the branch, and the commit it was
-    /// started from, uncommitted to, when the remote has not got it yet.
-    fn publish(
+    /// the work tree at `work`, as `message`, and say what is then to be
+    /// sent to where it was checked out from: nothing at all when they hold
+    /// what the branch held and the remote has the branch, and the commit
+    /// it was started from, uncommitted to, when the remote has not got
+    /// the branch yet.
+    fn commit(
         &self,
         work: &Path,
         paths: &[&str],
         message: &str,
-        token: Option<&Token>,
-    ) -> Result<Published, UpstreamError>;
+        watch: &backup::Watch,
+    ) -> Result<Commit, UpstreamError>;
+
+    /// Push what [`commit`](Self::commit) left at the head of the work tree
+    /// at `work` to where it was checked out from, on its branch. Never
+    /// stopped once started: what is sent by then is the remote's.
+    fn push(&self, work: &Path, token: Option<&Token>) -> Result<(), UpstreamError>;
 }
 
 /// A token a front end was handed for one run (D-16): sent where the run
@@ -149,7 +179,20 @@ pub struct CheckedOut {
     pub branch: String,
 }
 
-/// What [`Upstream::publish`] sent.
+/// What [`Upstream::commit`] left to send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Commit {
+    /// The paths held what the branch held, and the remote has the branch,
+    /// or holds no commit at all: nothing to send.
+    Nothing,
+    /// The head of the work tree, to push to its branch: the commit made of
+    /// what the paths hold, or the one a branch the remote has not got was
+    /// started from.
+    Ready { revision: Revision },
+}
+
+/// What a backup sent: what [`Upstream::commit`] left, once
+/// [`Upstream::push`] sent it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Published {
     /// The paths held what the branch held: nothing was committed or sent.
@@ -181,6 +224,11 @@ pub enum UpstreamError {
     Commit { detail: String },
     #[error("{url}: the backup could not be pushed: {detail}")]
     Push { url: String, detail: String },
+    /// The backup's watch was cancelled while a step before the push ran,
+    /// or before it started: what `git` was running was stopped, and
+    /// nothing was sent.
+    #[error("the backup was cancelled before anything was pushed")]
+    Cancelled,
 }
 
 codes!(UpstreamError {
@@ -189,6 +237,7 @@ codes!(UpstreamError {
     Self::Credentials { .. } => "backup_credentials_needed",
     Self::Commit { .. } => "backup_commit_failed",
     Self::Push { .. } => "backup_push_failed",
+    Self::Cancelled => "backup_git_cancelled",
 });
 
 /// The time, for what the ledger stamps an action or a gather with.
@@ -235,12 +284,25 @@ pub enum GitError {
     /// The server asked who is fetching, and nothing that may answer had a
     /// credential it would take. `url` is shown without its credentials.
     #[error(
-        "{url}: needs credentials, and gathering never prompts for them: \
-         configure a git credential helper, or use ssh-agent for an ssh URL"
+        "{url}: needs credentials, and gathering never prompts for them: configure a git \
+         credential helper, use ssh-agent for an ssh URL, or hand it a token with --token-env \
+         or --gh"
     )]
     Credentials { url: String },
     #[error("{url}: cloned, but its files could not be checked out: {detail}")]
     Checkout { url: String, detail: String },
+    /// The commit a source is pinned to is not one the repository has for
+    /// `reference`, the remote's HEAD when it is `None`, to reach: mistyped,
+    /// on another branch, or gone with a history somebody rewrote.
+    #[error(
+        "{url}: has no commit {pin} {on}, so nothing is gathered at it",
+        on = on_branch(reference.as_deref())
+    )]
+    PinUnreachable {
+        url: String,
+        pin: Pin,
+        reference: Option<String>,
+    },
     /// The [`Watch`] was cancelled before the clone was finished. What there
     /// was of it is gone.
     #[error("the clone was cancelled before it was finished")]
@@ -258,6 +320,7 @@ codes!(GitError {
     Self::Fetch { .. } => "git_fetch_failed",
     Self::Credentials { .. } => "git_credentials_needed",
     Self::Checkout { .. } => "git_checkout_failed",
+    Self::PinUnreachable { .. } => "git_pin_unreachable",
     Self::Cancelled => "git_clone_cancelled",
 } carried {
     Self::Scrub(error) => error,
@@ -306,7 +369,8 @@ pub const HTTP_LIMIT: usize = 8 * 1024 * 1024;
 
 /// The headers of an answer core reads, and so the only ones a
 /// [`HttpResponse`] holds: its type, what a cached answer is checked again
-/// by, the next page, where a redirect leads and how long to wait.
+/// by, the next page, where a redirect leads, and how long to wait and how
+/// many requests are left, which tell a rate limit ([`crate::http`]).
 ///
 /// A list rather than every header, because what an answer holds may be
 /// kept on the disk ([`crate::http::Cache`]), and a `Set-Cookie` is a
@@ -319,6 +383,8 @@ pub const KEPT_HEADERS: &[&str] = &[
     "link",
     "location",
     "retry-after",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
 ];
 
 /// The headers a request sends as a secret whichever way they were added,
@@ -686,6 +752,15 @@ codes!(HttpError {
     Self::Fetch { .. } => "http_fetch_failed",
 });
 
+/// Which branch a pin was looked for on, as [`GitError::PinUnreachable`]
+/// says it.
+fn on_branch(reference: Option<&str>) -> String {
+    match reference {
+        Some(reference) => format!("that `{reference}` reaches"),
+        None => String::from("that its default branch reaches"),
+    }
+}
+
 /// Where a workspace's records are kept: the gathered sources and what each
 /// supplied, every installation and its copies, the projects it knew, and
 /// the action log.
@@ -772,8 +847,14 @@ pub trait LedgerStore: Debug + Send {
     /// given again from then on, and a merge said for the last time.
     fn cleared_merge(&self, directory: &str) -> Result<(), LedgerError>;
 
-    /// Note which revision a source was last gathered at.
-    fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError>;
+    /// Note which revision a source was last gathered at, and the pin it
+    /// was gathered at, or none, which is what it is pinned to from now on.
+    fn saw_source(
+        &self,
+        id: i64,
+        revision: Option<&str>,
+        pin: Option<&Pin>,
+    ) -> Result<(), LedgerError>;
 
     /// Forget a source, and with it what it brought; an installation from it
     /// keeps its `origin` but no longer points at it (see the schema's notes
@@ -791,15 +872,7 @@ pub trait LedgerStore: Debug + Send {
     /// The same name from a *different* source is a different row, on purpose:
     /// two repositories offering `commit-style` are two things to choose
     /// between, and this is what remembers which is which.
-    fn record(
-        &self,
-        source: &Source,
-        kind: Kind,
-        name: &str,
-        path: &str,
-        summary: Option<&str>,
-        revision: Option<&str>,
-    ) -> Result<(), LedgerError>;
+    fn record(&self, source: &Source, taken: &Taken) -> Result<(), LedgerError>;
 
     /// Everything gathered, ordered the way a listing reads it: by kind, then
     /// name, then source.
