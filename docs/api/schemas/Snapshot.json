@@ -925,6 +925,65 @@
         "agents"
       ]
     },
+    "Licence": {
+      "description": "Where a gathered artifact says what it is licensed under, and what it\nsays.\n\nTagged by `from`, beside what that place said, so a reader tells a\nlicence its author declared from a line read off a file:\n`{\"from\": \"manifest\", \"text\": \"MIT\"}`, `{\"from\": \"file\", \"file\":\n\"LICENSE.txt\", \"text\": \"Apache License\"}` or `{\"from\": \"unknown\"}`.",
+      "oneOf": [
+        {
+          "description": "The `license` its manifest declares, as written: a licence's name,\nor words pointing at a file it bundles, as the Agent Skills format\nhas it.",
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "manifest"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "text"
+          ]
+        },
+        {
+          "description": "A licence file in its folder, beside its manifest, which declares\nnone: the file's name, and its first line that holds anything, as\nwritten, when there is one to read ([`KEPT`] characters of it at\nmost).",
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string",
+              "const": "file"
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "from",
+            "file",
+            "text"
+          ]
+        },
+        {
+          "description": "Neither: nothing it holds says.",
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "from"
+          ]
+        }
+      ]
+    },
     "LoadedWorkspace": {
       "description": "A workspace another one loads, and how much of its own it offers.",
       "type": "object",
@@ -1324,6 +1383,13 @@
           "description": "[`Source::origin`], which every artifact it supplied is installed\nfrom.",
           "type": "string"
         },
+        "pin": {
+          "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "reference": {
           "description": "The branch or tag asked for, or `None` for whatever the remote's HEAD\npoints at.",
           "type": [
@@ -1355,6 +1421,7 @@
         "revision",
         "directory",
         "name",
+        "pin",
         "origin"
       ]
     },
@@ -1362,6 +1429,13 @@
       "description": "One artifact gathered onto the shelf, with what `--from` takes for it.\n\nThe ledger's row with its origin beside it, as `gather list --json`\nprints an offer from the shelf: the same names, so a script reading\neither reads one shape. Beside the row rather than in it, since an offer\nflattens the row beside an origin of its own.",
       "type": "object",
       "properties": {
+        "content_hash": {
+          "description": "[`crate::hash::tree`] of what was put on the shelf, the recipe an\ninstall keeps of its copies: whether the shelf still holds what was\ngathered, and whether two gathers took the same thing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "gathered_at": {
           "description": "When it was gathered, in seconds since the Unix epoch.",
           "type": "integer",
@@ -1369,6 +1443,17 @@
         },
         "kind": {
           "$ref": "#/$defs/Kind"
+        },
+        "licence": {
+          "description": "The licence it says it is under, as it says it ([`Licence::of`]).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Licence"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "name": {
           "type": "string"
@@ -1382,7 +1467,7 @@
           "type": "string"
         },
         "revision": {
-          "description": "The revision it was taken at.",
+          "description": "The commit it was taken at, as the fetch resolved it: the pin, when\nits source is pinned.",
           "type": [
             "string",
             "null"
@@ -1397,6 +1482,13 @@
             "string",
             "null"
           ]
+        },
+        "upstream_path": {
+          "description": "Its folder in its source, from the repository's root, `/`\nseparated: where an update looks for it again, and what an audit\nreads it at.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1407,11 +1499,14 @@
         "revision",
         "gathered_at",
         "source",
+        "upstream_path",
+        "content_hash",
+        "licence",
         "origin"
       ]
     },
     "Source": {
-      "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), which moved no version.",
+      "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), and its `pin` after that (#99),\nneither of which moved a version.",
       "type": "object",
       "properties": {
         "directory": {
@@ -1424,6 +1519,13 @@
         "name": {
           "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
           "type": "string"
+        },
+        "pin": {
+          "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "reference": {
           "description": "The branch or tag asked for, or `None` for whatever the remote's HEAD\npoints at.",
@@ -1455,7 +1557,8 @@
         "subdirectory",
         "revision",
         "directory",
-        "name"
+        "name",
+        "pin"
       ]
     },
     "SourceKind": {

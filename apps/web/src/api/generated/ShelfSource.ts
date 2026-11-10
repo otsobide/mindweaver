@@ -44,4 +44,11 @@ directory: string,
  * somebody named it ([`SourceName::derived`]), what a listing shows
  * and `--from` takes.
  */
-name: string, };
+name: string, 
+/**
+ * The commit its last gather was pinned to (`gather git --pin`, #99),
+ * which its `revision` is then: `None` while it follows its branch,
+ * or the remote's HEAD. Not part of what the source is: moving the
+ * pin, or gathering it with none, gathers into the same source.
+ */
+pin: string | null, };
