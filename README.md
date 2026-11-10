@@ -197,6 +197,16 @@ repositories, and what happened lately: gathers, installs, relinks.
 
 ![Sources: the repository the shelf is filled from, and the latest actions](docs/images/sources.png)
 
+### Catalogs
+
+Search the skill directories your workspace lists and the MCP Registry
+from the panel. A skill found is taken onto the shelf from its repository,
+by the `mindweaver gather git` line the CLI would run; an MCP server is
+added to the library once you have read what an agent would run and where
+it would be written, its dry run first. Each search, take and add is a
+command shown before it runs: your browser never asks a directory or the
+registry anything, and is handed no token.
+
 ### Assign
 
 Every skill, rule and MCP server there is to install, from the library,
