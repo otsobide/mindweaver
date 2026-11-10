@@ -210,6 +210,8 @@ every_store![
     nothing_stored_through_the_port_is_left_to_scrub,
     every_spelling_of_one_repository_is_one_source,
     a_source_is_found_by_its_name_and_takes_another_when_renamed,
+    a_source_would_be_registered_under_the_name_and_folder_registering_gives_it,
+    a_source_moved_to_another_folder_is_found_there_and_keeps_the_rest,
     a_project_is_known_by_its_id_at_the_route_it_was_last_seen_at,
     an_id_seen_at_another_route_moves_there_unless_it_was_last_seen_at_a_stale_one,
     a_route_seen_holding_another_id_forgets_the_one_it_held,
@@ -2025,6 +2027,72 @@ fn a_source_is_found_by_its_name_and_takes_another_when_renamed(mut store: Store
     assert_eq!(refused.code(), "ledger_query_failed");
     store.reopen();
     assert_eq!(store.source_named(&name).unwrap(), Some(renamed));
+}
+
+/// What a dry run is told a source would be given is what registering it
+/// then gives it, numbered past what another has, and nothing is
+/// registered by asking.
+fn a_source_would_be_registered_under_the_name_and_folder_registering_gives_it(mut store: Store) {
+    let url = UrlMother::https();
+    let asked = store.would_register(&url).unwrap();
+    store.reopen();
+    assert!(store.sources().unwrap().is_empty());
+
+    let registered = source(&store, &url);
+    assert_eq!(
+        asked,
+        (registered.name.clone(), registered.directory.clone())
+    );
+
+    // The same repository at a branch is another source, whose name and
+    // folder another has: both numbered.
+    let (name, directory) = store.would_register(&url).unwrap();
+    let branch = store
+        .source_for(
+            SourceKind::Git,
+            &url,
+            Some("main"),
+            mindweaver_core::DEFAULT_SUBDIRECTORY,
+        )
+        .unwrap();
+    assert_ne!(name, registered.name);
+    assert_ne!(directory, registered.directory);
+    assert_eq!((branch.name, branch.directory), (name, directory));
+}
+
+/// A source moved to another folder is found there and no longer where it
+/// was, keeping all the rest; one moved onto a coordinate another source
+/// holds is refused, and the store is as it was.
+fn a_source_moved_to_another_folder_is_found_there_and_keeps_the_rest(mut store: Store) {
+    // The root, as a gather naming no folder takes it, spelled here: what a
+    // store keeps is the same whatever the default is.
+    const WHOLE: &str = ".";
+    let url = UrlMother::https();
+    let older = store
+        .source_for(SourceKind::Git, &url, None, "skills")
+        .unwrap();
+
+    store.set_source_folder(older.id, WHOLE).unwrap();
+
+    store.reopen();
+    let moved = Source {
+        subdirectory: String::from(WHOLE),
+        ..older.clone()
+    };
+    let found = |folder: &str| store.source(SourceKind::Git, &url, None, folder).unwrap();
+    assert_eq!(found(WHOLE), Some(moved.clone()));
+    assert_eq!(found("skills"), None);
+
+    let other = store
+        .source_for(SourceKind::Git, &url, None, "agents")
+        .unwrap();
+    let refused = store.set_source_folder(other.id, WHOLE).unwrap_err();
+    assert_eq!(refused.code(), "ledger_query_failed");
+    store.reopen();
+    assert_eq!(
+        store.source(SourceKind::Git, &url, None, WHOLE).unwrap(),
+        Some(moved)
+    );
 }
 
 // ---------------------------------------------------------------------------

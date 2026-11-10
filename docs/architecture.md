@@ -3074,6 +3074,7 @@ the workspace and belonging to no project yet.
   cache/<source>/            the clone
   cache/http/                what catalogs answered over HTTP
   skills/<source>/<name>/    what was taken out of it
+  tmp/gather-<run>/          a dry run's clone and copies, while it runs
 ```
 
 Gathering fills that shelf and stops. Nothing is written into a mind project,
@@ -3147,7 +3148,123 @@ since the scripts it is for would break.
 The folder a skill lands in keeps the name the **source** gave it, not the name
 the skill declares. When those disagree that is something gathering warns about
 and `mindweaver validate` reports; renaming the folder on the way in would repair
-the symptom and hide it.
+the symptom and hide it. A skill at the root of a source is the one exception:
+the source gives it no folder of its own, the clone's being named for the
+source, so it is filed under the name it declares, and judged as filed there
+(`Artifact::validate_filed_as`).
+
+### Where a repository keeps its skills
+
+Until #101 a gather took the folders directly in one folder of the source,
+`skills` unless `--path` named another. Repositories keep skills in many
+places, and the tools a repository of skills is written for agree on where
+(`gh skill` and `npx skills`), so a gather looks where both of them do
+(`gather::LAYOUTS`): a `SKILL.md` at the root of the folder looked in makes it
+the one skill, its whole repository when no `--path` is given; otherwise every
+folder holding a `SKILL.md` that is a folder of its own there, or in `skills/`,
+a namespace of it (`skills/<ns>/`, the hidden `skills/.curated/` and
+`skills/.system/` among them), `.agents/skills/`, `.claude/skills/` or
+`plugins/<plugin>/skills/`. What only one of the two tools reads, `npx
+skills`'s `.experimental` and its walk of the whole tree when nothing else is
+found, is left out, so what a source gathers is what either tool would
+install from it. Fixed ways rather than a walk is what bounds the depth, four
+folders down at most: a walk taking every `SKILL.md` would take an example a
+skill ships, or a test's fixture, which neither tool takes. A folder holding
+a `SKILL.md` is a skill with everything in it, so one found inside another is
+the other's. A folder whose name starts with `.` is passed over unless a
+layout names it, and so is `node_modules`, which is nobody's skills and can be
+the largest thing in a checkout. `DEFAULT_SUBDIRECTORY` is now `.`, the root,
+which a source shows as its folder; `--path` still restricts the search,
+looking for the same layouts under the folder it names, a route from the
+repository's root (`gather::route_of`, so `skills/` and `./skills` are one
+source's folder) that may not climb out with `..`, start at a root, or lead out
+through a link in the clone (`gather_path_outside`).
+
+A link in the clone is followed only to a folder inside the one looked in, and
+a folder reached by two ways, `.claude/skills` linked to `skills` as
+repositories link them, is one skill, found where it really is. One leading out
+is not followed, where the walk before #101 followed a skill's folder through
+any link and the copy then took it as its own bound: a repository could put
+whatever folder of the machine held a `SKILL.md` on the shelf. A manifest that
+is a link leading out of the clone is not read either (`gathered_link_outside`),
+since the report quotes what it declares.
+
+The shelf keeps one folder of a name per source and the ledger one skill of a
+name per source, so two skills of one source called the same, by their
+folders, in any case, or by the names they declare, are a failure for each
+(`gathered_name_clash`), which names the others by their routes in the source,
+and neither is taken. Taking the first would make which skill a project gets
+depend on the order a folder is listed in, and a silent pick is what D-13's
+names exist to rule out; `--path` takes the one wanted, as a source of its own.
+In any case because a disk that does not tell `Deploy` from `deploy` would hold
+one folder of both, and a source gathers the same on every disk.
+
+What the shelf's copy is taken without is what an install leaves out of every
+copy, a skill's own `.claude-plugin` at its top ([what no copy
+holds](#what-no-copy-holds)), and git's own folder, which a skill at the
+root of a source has beside it and is the clone's. Leaving the plugin's folder
+out on the shelf as well as in a project means the shelf never offers what no
+install would give; the gather says it in a note (`Report::left_out`), not a
+warning, since leaving it out is what gathering does and nothing for whoever
+gathered to fix. The copy is compared without them too (`copy::same_leaving`),
+so an unchanged skill is `Unchanged`.
+
+A source that holds no skill in any of those places is refused
+(`gather_nothing_found`), saying where it looked, where before a `skills`
+folder with nothing in it gathered nothing and noted the revision: the
+revision a source names is the one its shelf holds, and a gather that took
+nothing leaves the shelf holding what an earlier one took.
+
+A source an older build registered took `skills/` unless told otherwise, and
+was registered from it. Gathered again naming no folder, it is the same source
+(`gather::known`, `OLDER_DEFAULT_SUBDIRECTORY`), moved to `.`
+(`LedgerStore::set_source_folder`), and moved back if the gather is cancelled:
+a second source of one repository would offer every skill under one origin,
+which `--from` cannot tell apart ([open questions](#open-questions)).
+
+### What was typed for a source
+
+`gh skill` and `npx skills` take `owner/repo@ref`, and the address of a folder
+as a browser shows it on GitHub or GitLab, and so does a gather
+(`url::located`, beside #98's `url::fetched`, which it builds on rather than
+repeats): `acme/skills@v2` is `https://github.com/acme/skills` at `v2`, and
+`https://github.com/acme/skills/tree/main/skills/review`, or GitLab's
+`/-/tree/` and its subgroups, is that repository at `main` looked in at
+`skills/review`, fetched over https from the forge's own host. The branch is
+the one part after `tree`, as both tools read it, so a branch with a `/` in it
+reads as a shorter branch and a folder ([open questions](#open-questions)).
+What the text says and `--ref` or `--path` say are one each: the same twice is
+taken once, two different ones refused before anything is registered or
+fetched (`gather_ref_twice`, `gather_path_twice`), since which of them a gather
+is of is not a thing to guess. A credential is refused in what was typed before
+it is read, so nothing read from it holds one.
+
+### A dry run fetches, and writes nothing else
+
+`gather git --dry-run` (`gather::dry_run`) says what a gather would take, what
+of it the shelf holds already, and where each skill is in the source
+(`Harvested::route`). It reads the ledger, which a workspace that never
+gathered does not make (`ledger_for_reading`), registers nothing, logs
+nothing, and leaves the shelf and the source's clone in the cache as they
+were. What it says of a source is what registering it would give it, its name
+and folder, asked of the store with nothing registered
+(`LedgerStore::would_register`), so the name it prints is the one a gather
+then gives. It has to fetch, since what a source offers now is the question,
+so it clones into a folder of its run's own in the workspace's scratch folder,
+`.mindweaver/tmp/gather-<run>`, copies each skill there as a gather would put
+it on the shelf, so a copy a gather would refuse is refused here, compares that
+with the shelf's (`copy::compared`), and takes the folder away whatever came of
+it. Not in the cache, whose clone is the one a gather can be looked at
+afterwards by, and not in the system's temporary folder, which core cannot
+name without reading the environment. It takes no lock, since nothing a gather
+beside it writes is written here; a gather that finishes meanwhile can leave
+what it said of the shelf out of date, as it can any read's. What it could not
+read is named by its route in the source (`Failure::routed`), since the clone
+it read it from is gone; what is wrong with what it would take, by the path
+the gather would put it at. It exits as the gather would, on what could not be
+taken and on what is wrong, so a script can ask first. The panel refuses it as
+it refuses every gather (`Refusal::Unwatched`), and the TUI's gather form has
+no key for it.
 
 ### The clone is kept, and re-made
 
@@ -4550,8 +4667,10 @@ declares ([docs/agents.md](agents.md), docs-only, so it is left out whatever
 Claude does with it). A skill is instructions an agent reads when it chooses
 to; a plugin's hooks run commands on their own and its servers are started
 for it, which installing a skill must not turn on behind anybody's back.
-Gathering a plugin's skills brings that folder along, and the shelf keeps it,
-as it keeps whatever a source held.
+Gathering leaves it off the shelf too since #101, with a note ([where a
+repository keeps its skills](#where-a-repository-keeps-its-skills)), so an
+offer holds one only when it is the workspace's own, a loaded workspace's,
+or a shelf copy an older build gathered or somebody put it in.
 
 Left out of every install, whichever agents the project names, rather than
 only out of Claude's copy: one copy differing from the other is what D-07
@@ -13345,13 +13464,43 @@ repository, stays on `gix`.
 - **Gathering a repository that is a workspace.** A team repository made by
   `mindweaver init` and `mindweaver add` keeps its own skills in
   `.mindweaver/library/skills`, where a workspace made before the library kept
-  them in `skills`, the folder `mindweaver gather` harvests by default. So a plain
-  `mindweaver gather git <url>` of it, which used to work, now says there is no
-  `skills` folder, and `--path .mindweaver/library/skills` is needed. Gather
-  could read a cloned workspace's `weaver.toml` for where its own are when no
-  `--path` is given, as `load` reads a loaded one's, or look in
-  `.mindweaver/library/skills` among the layouts #101 harvests; whether to
-  trust a marker that came from a source is part of that choice.
+  them in `skills`, which a gather still finds. So a plain `mindweaver gather
+  git <url>` of it, which used to work, now says it found no skill where a
+  repository keeps them, since `.mindweaver` is hidden and none of #101's
+  layouts (`gh skill`'s and `npx skills`'s) names it, and `--path
+  .mindweaver/library/skills` is needed. Gather could read a cloned
+  workspace's `weaver.toml` for where its own are when no `--path` is given,
+  as `load` reads a loaded one's, or add `.mindweaver/library/skills` to the
+  layouts, which neither tool reads; whether to trust a marker that came from
+  a source is part of that choice.
+- **Two copies of one skill in one source.** A repository that copies its
+  skills into `.claude/skills` for its own use, rather than linking the
+  folder, holds each twice, and the two are a clash, neither taken, though
+  they hold the same bytes; `--path skills` takes one set. Taking byte for
+  byte identical copies as one would pick nothing, since either is the same
+  shelf copy, but which route the report then says, and whether two that
+  differ only in what the shelf leaves out are one, are the owner's to say.
+- **A branch with a `/` in a folder's address.** `/tree/feature/x/skills`
+  reads as the branch `feature` and the folder `x/skills`, as `gh skill` and
+  `npx skills` read it, and a gather of it fails to find that branch. Asking
+  the remote which of its branches the address starts with would read it
+  right, at the price of a fetch of the remote's refs before the gather, and
+  of a `Remote` port that can list them.
+- **A source gathered from `skills` on purpose.** A source an older build
+  registered from `skills` is taken for the whole repository's by the next
+  gather that names no folder (`OLDER_DEFAULT_SUBDIRECTORY`), since that was
+  its default; one somebody gathered with `--path skills` on purpose is
+  taken so too, and a later `--path skills` then registers a second source
+  of one origin ([one origin for two folders of one
+  repository](#open-questions)). The ledger never kept whether a folder was
+  typed, so the two cannot be told apart.
+- **A dry run stopped by Ctrl-C.** A dry run takes its clone away whatever it
+  came to, but a process ended by a signal, which the CLI does not catch
+  (see Ctrl-C during `mindweaver gather`), leaves it in
+  `.mindweaver/tmp/gather-<run>`, under a name no other run is given, and
+  nothing sweeps it, as an install's next run sweeps `.mind/tmp`. Nor is
+  `.mindweaver/tmp` taken away once empty, since the panel's save makes and
+  writes into it from another process.
 - **Directories edited into a marker by hand.** Where a holder's directories
   may be (inside it and, for a workspace, clear of the shelf and the cache) is
   checked when `init` writes the marker, not each time it is read, so a marker

@@ -666,9 +666,16 @@
           "front_matter_unterminated",
           "gathered_name_not_utf8",
           "gathered_copy_failed",
+          "gathered_name_clash",
+          "gathered_link_outside",
+          "gathered_root_unnamed",
           "gather_cancelled",
           "credentials_in_url",
           "gather_no_such_folder",
+          "gather_nothing_found",
+          "gather_path_outside",
+          "gather_ref_twice",
+          "gather_path_twice",
           "source_name_invalid",
           "source_name_taken",
           "kind_not_gatherable",
@@ -3345,7 +3352,7 @@
             ]
           },
           "subdirectory": {
-            "description": "The folder inside the source that was harvested, `skills` by default.",
+            "description": "The folder inside the source that was harvested: `.`, the whole\nrepository, by default, and `skills` for a source an older build\nregistered with what was its default then.",
             "type": "string"
           },
           "url": {
@@ -3596,7 +3603,7 @@
             ]
           },
           "subdirectory": {
-            "description": "The folder inside the source that was harvested, `skills` by default.",
+            "description": "The folder inside the source that was harvested: `.`, the whole\nrepository, by default, and `skills` for a source an older build\nregistered with what was its default then.",
             "type": "string"
           },
           "url": {

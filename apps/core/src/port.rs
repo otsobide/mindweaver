@@ -731,6 +731,12 @@ pub trait LedgerStore: Debug + Send {
         subdirectory: &str,
     ) -> Result<Source, LedgerError>;
 
+    /// The name and the folder a source registered from `url` now would be
+    /// given ([`source_for`](Self::source_for)), registering nothing: what a
+    /// gather's dry run says of a source it has not met
+    /// ([`crate::gather::dry_run`]).
+    fn would_register(&self, url: &str) -> Result<(SourceName, String), LedgerError>;
+
     /// The source called `name`, if one is.
     fn source_named(&self, name: &SourceName) -> Result<Option<Source>, LedgerError>;
 
@@ -738,6 +744,15 @@ pub trait LedgerStore: Debug + Send {
     /// it is the caller's to have asked ([`source_named`](Self::source_named)):
     /// a store refuses a name two sources would hold as a failure.
     fn rename_source(&self, id: i64, name: &SourceName) -> Result<(), LedgerError>;
+
+    /// Take the source `id` from the folder `subdirectory` of its repository
+    /// from now on: one an older build registered from `skills`, its default
+    /// folder then, which a gather naming no folder takes the whole
+    /// repository of since #101 ([`crate::gather::OLDER_DEFAULT_SUBDIRECTORY`]).
+    /// Whether no other source is at the coordinate it moves to is the
+    /// caller's to have asked ([`source`](Self::source)): a store refuses one
+    /// two sources would hold as a failure.
+    fn set_source_folder(&self, id: i64, subdirectory: &str) -> Result<(), LedgerError>;
 
     /// The sources the step to schema 7 made one with another ([`Merged`])
     /// whose folders are not gone yet, in the order the step made them one.

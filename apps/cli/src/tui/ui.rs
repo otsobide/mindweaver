@@ -1063,10 +1063,14 @@ fn gathering(form: &GatherForm, frame: &mut Frame, area: Rect) {
             form.field == index,
         );
     }
-    // What `ref` means, under it, rather than in a key line too long to fit.
+    // What an empty `folder` and `ref` mean, under them, rather than in a
+    // key line too long to fit.
     let hint = Line::from(vec![
         Span::raw(" ".repeat(usize::from(LABEL))),
-        Span::styled("a branch or tag; empty takes the default branch", dim()),
+        Span::styled(
+            "empty folder: all of it; empty ref: its default branch",
+            dim(),
+        ),
     ]);
     frame.render_widget(Paragraph::new(hint), rows[3]);
     runs(frame, rows[4], form.task().as_ref());

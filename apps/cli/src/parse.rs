@@ -1534,10 +1534,13 @@ pub struct ShareMode {
 pub enum GatherCommand {
     /// Take skills from a git repository.
     Git {
-        /// The repository to clone.
+        /// The repository to clone: a URL, a path, `owner/repo` on GitHub,
+        /// `owner/repo@REF` at a branch or tag, or the address of a folder
+        /// on github.com or gitlab.com (`.../tree/REF/DIR`).
         url: String,
 
-        /// The folder inside the repository to take skills from.
+        /// The folder inside the repository to look for skills in, instead
+        /// of all of it (`.`).
         #[arg(long, value_name = "DIR", default_value = DEFAULT_SUBDIRECTORY)]
         path: String,
 
@@ -1552,6 +1555,12 @@ pub enum GatherCommand {
         /// before, it is called this from now on.
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
+
+        /// Say what would be taken, and what of it the shelf holds already,
+        /// writing nothing: the repository is fetched into a folder of its
+        /// own, removed afterwards.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// List what can be installed from the shelf and from loaded workspaces,

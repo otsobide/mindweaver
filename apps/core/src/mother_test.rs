@@ -480,6 +480,36 @@ fn the_fixture_mothers_make_a_workspace_a_project_and_a_repository() {
     assert!(repository.path().join("skills/deploy/SKILL.md").is_file());
 }
 
+/// Each layout a different folder, every one of them where a skill is put
+/// when it is asked for there, and one skill's repository holding its
+/// `SKILL.md` at its root.
+#[test]
+fn a_git_repository_mother_lays_skills_out_where_it_is_told() {
+    let layouts = GitRepositoryMother::layouts();
+    let mut distinct = layouts.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(distinct.len(), layouts.len(), "{layouts:?}");
+    assert_eq!(layouts[0], ".");
+
+    for layout in &layouts {
+        let repository = GitRepositoryMother::with_skills_in(layout, &["deploy"]);
+        assert!(gix::open(repository.path()).unwrap().head_id().is_ok());
+        assert!(
+            repository
+                .path()
+                .join(layout)
+                .join("deploy/SKILL.md")
+                .is_file(),
+            "{layout}"
+        );
+    }
+
+    let one = GitRepositoryMother::one_skill("deploy");
+    assert!(one.path().join("SKILL.md").is_file());
+    assert!(one.path().join("examples/inner/SKILL.md").is_file());
+}
+
 #[test]
 fn a_mindflayer_mother_makes_a_workspace_under_the_old_names() {
     let (dir, workspace) = MindflayerMother::empty();

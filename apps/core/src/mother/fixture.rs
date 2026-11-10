@@ -288,11 +288,18 @@ impl GitRepositoryMother {
 
     /// A repository holding a skill for each of `names`, under `skills/`.
     pub fn with_skills(names: &[&str]) -> TempDir {
+        Self::with_skills_in("skills", names)
+    }
+
+    /// A repository holding a skill for each of `names` in `folder`, a
+    /// route from its root, `.` for the root itself, where each is then a
+    /// folder of its own.
+    pub fn with_skills_in(folder: &str, names: &[&str]) -> TempDir {
         let files: Vec<(String, String)> = names
             .iter()
             .map(|name| {
                 (
-                    format!("skills/{name}/SKILL.md"),
+                    format!("{folder}/{name}/SKILL.md"),
                     SkillMother::create(name, &format!("What {name} does")),
                 )
             })
@@ -302,6 +309,43 @@ impl GitRepositoryMother {
             .map(|(path, text)| (path.as_str(), text.as_str()))
             .collect();
         Self::create(&borrowed)
+    }
+
+    /// Every folder a gather reads a repository's skills from when it holds
+    /// no `SKILL.md` at its root (#101), each a route from that root: the
+    /// root itself, whose every folder holding one is a skill, then
+    /// `skills/`, a namespace of it, its two hidden ones, the folders agents
+    /// read in a project, and a plugin's. The namespace and the plugin are
+    /// named at random, as a repository names its own.
+    pub fn layouts() -> Vec<String> {
+        vec![
+            String::from("."),
+            String::from("skills"),
+            format!("skills/{}", random::kebab()),
+            String::from("skills/.curated"),
+            String::from("skills/.system"),
+            String::from(".agents/skills"),
+            String::from(".claude/skills"),
+            format!("plugins/{}/skills", random::kebab()),
+        ]
+    }
+
+    /// A repository that is one skill, `name`: a `SKILL.md` at its root,
+    /// beside a `README.md`, a script, and an example the skill ships of
+    /// another, whose `SKILL.md` is the skill's file like any other.
+    pub fn one_skill(name: &str) -> TempDir {
+        Self::create(&[
+            (
+                "SKILL.md",
+                &SkillMother::create(name, &format!("What {name} does")),
+            ),
+            ("README.md", "# One skill\n"),
+            ("scripts/run.sh", "echo run\n"),
+            (
+                "examples/inner/SKILL.md",
+                &SkillMother::create("inner", "An example"),
+            ),
+        ])
     }
 
     /// The URL a gather is handed for a repository on the disk: its path, for
