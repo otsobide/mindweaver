@@ -2572,6 +2572,19 @@ type derives `Serialize` from the start:
   sources --json` prints whole; and what a gather took off the shelf, as
   `removed` on its `Report`. Names added, which move neither
   `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Listed by #103**: the marketplace a plugin is gathered from and its
+  name in the catalog, as `parent` (the marketplace's name) and `entry` on
+  a `ledger::Source`, `null` each for every other source, `marketplace`
+  one more word of a `SourceKind`, and a licence a plugin declares for a
+  skill that declares none, `{"from": "plugin", "text"}`, one more
+  variant of a `licence::Licence`; and what `gather marketplace --list
+  --json` prints (`marketplace::Listing`, its `Catalog`, each `Entry` and
+  where it is, a `Place` tagged by `type` beside what its entry says of
+  it, as Claude Code spells a source's kind, and what it keeps beside its
+  skills, `Extra`, a word each), which the TUI reads back as it reads a
+  search's results. An entry the catalog lists that could not be read is
+  a warning, the envelope's, never data. Names added, which move neither
+  `ENVELOPE_VERSION` nor `view::FORMAT`.
 - **Listed by #107**: what a search of an MCP registry found
   (`mcp_registry::Listing`), which `mindweaver gather mcp search --json`
   prints, by hand, each entry as its `Summary`, since an entry keeps its
@@ -3467,7 +3480,9 @@ and the licence it said it was under. So each row keeps, from schema 8 on:
   as written, else the first line that holds anything of a licence file
   directly in its folder (`LICENSE` or `LICENCE`, in any case, alone or
   followed by an extension or a `-`, the first by name), read up to 4 KiB and
-  kept to 200 characters, with the file's name, else `unknown`, which is said
+  kept to 200 characters, with the file's name, else, for a skill of a
+  marketplace's plugin (#103), the licence the plugin declares
+  (`Licence::Plugin`), else `unknown`, which is said
   rather than left out. Nothing is matched against SPDX or judged: which
   licences a workspace takes is somebody's policy, and a name guessed out of
   a file's words would be a fact nobody wrote. The repository's own licence,
@@ -3612,6 +3627,120 @@ once somebody says yes (`Task::RemoveSource`), which every front end with no
 terminal asks about first (`Caution::Forgets`). The panel's page of them is
 #113's.
 
+A marketplace (#103) is managed as every source is, by its name, and what
+is done to it reaches each plugin of it: `gather update` reads its catalog
+again and gathers each plugin of it gathered before as one gather of the
+marketplace (`sources::update`'s units), a plugin named alone gathered so
+too, and `gather remove` takes each plugin's folders before the
+marketplace's own and its rows with it, which `forget_source` cascades to
+through `parent_id`, the plan of each held to the rules a source's is
+before anything goes. A plugin removed alone is forgotten as any source
+is, and a later update of its marketplace gathers it no more.
+
+### Gathering from a Claude Code marketplace
+
+A Claude Code plugin marketplace is a git repository whose catalog,
+`.claude-plugin/marketplace.json`, lists plugins, each in the
+marketplace's own repository (`./plugins/deploy`, `./`, or a name bare
+under the catalog's `metadata.pluginRoot`) or in one of its own (`github`,
+`url`, `git-subdir`, each with an optional `ref` and `sha`). It is a
+source of its own kind (`SourceKind::Marketplace`), its catalog's
+repository, and each plugin gathered from it is a git source whose
+`parent_id` names it, known by its `entry`, what the catalog calls it
+([D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), schema 9),
+and called after both, `acme-tools.deploy`, its shelf folder named the same
+way beside the marketplace's. By its entry rather than by where it is:
+where is the catalog's to say each time, and anthropics/skills lists two
+plugins that are both its whole repository, so a plugin's URL and folder
+are moved when the catalog moves it (`LedgerStore::child_for`), and the
+identity a gather finds a source by holds of the sources no marketplace
+lists. A plugin's `reference` is left out, its branch the catalog's to say
+each time as its pin is, so what was installed from it keeps its origin
+when the catalog moves it to another tag ([open
+questions](#open-questions)).
+
+`gather marketplace` (`marketplace::gather`) holds the workspace from the
+start, fetches the catalog's repository into a folder of the run's own,
+reads the catalog, and only then registers the marketplace and moves the
+clone into the cache, so a repository whose catalog does not read is never
+registered. `--list` stops there: the marketplace is recorded, the clone
+kept, its plugins listed, and nothing else fetched, so a catalog of two
+thousand plugins costs one clone. Its default name is the one the catalog
+gives itself when that is a name a source can have, numbered when another
+has it, and `owner-repo` otherwise. `--plugin` names the plugins to gather,
+refused whole for one the catalog does not list before any is fetched, and
+`--all` gathers each the catalog lists, past `marketplace::ASKED_BEYOND`
+(25) to gather only with `--yes`: without it the command reads the catalog
+first through `marketplace::read`, which writes nothing, its ledger only
+read, and says what it would gather. A plugin in the marketplace's
+repository is read from its clone; one of its own is fetched into a clone
+of its own in the cache, at its `ref`, at its `sha` when it has one, which
+is then the revision its shelf holds and the source's `pin`, as `gather git
+--pin` keeps one.
+
+What is taken of a plugin is its skills alone (`gather::plugin`), read as
+Claude Code reads a plugin rather than through `gather::LAYOUTS`: the
+folders its entry's `skills` lists, each a skill or a folder of skills,
+held inside the plugin's folder, a folder that holds none said
+(`gathered_listed_missing`); with none listed, a `SKILL.md` at its root, or
+else each folder of its `skills/` holding one. A folder that is no skill of
+Claude Code's, its `commands` or an example it ships, is no skill of the
+shelf's either. What it keeps or declares beside them (commands, agents,
+hooks, MCP and LSP servers, `marketplace::Extra`) is said in a note and
+left, installing whole plugins being out of the issue's scope. A skill that
+says nothing of its licence is under the plugin's (`Licence::Plugin`), as
+its entry or its own `.claude-plugin/plugin.json` declares it, a skill's
+own manifest or file first. Placing it is what a gather of a git source
+does from its last check on (`gather::placed`), so what a plugin offers no
+more goes, and the shelf and the ledger say one thing of it.
+
+A catalog is somebody else's JSON, read leniently and never obeyed. A key
+this build does not know is passed over. An entry that cannot be read (no
+name, a name no source or folder could be called after, a name two
+entries share in any case, a source naming nothing to fetch, a `sha` that
+is no commit in full, a path climbing out of the repository, a credential
+in a URL, which is never repeated) is a warning of its own code
+(`marketplace::UnreadEntry`), listed beside the rest and costing none of
+them. One that reads and that no gather takes is said and passed over
+(`marketplace::NotGathered`): one from npm or an archive, which is out of
+#103's scope; one whose source is a `command` to run, which is never run
+nor kept, whatever it says; one of a kind this build does not know; and
+one a catalog fetched from elsewhere names by a path or a `file://` URL on
+this machine, since a catalog from GitHub naming a folder of the machine it
+is gathered on would put that folder's skills on the shelf under its name
+(`marketplace_plugin_local`), where a catalog in a folder on this machine
+may name its neighbours. A `headersHelper`, a command printing the headers
+a fetch would send, is never run either, and said in a note. Under `--all`
+each is a note; named, it fails the command, as a skill that cannot be
+taken does, and the rest are gathered. The catalog file is read only
+inside the clone, to 8 MiB, and a plugin's manifest only inside it too, a
+link leading out of either not followed, as a skill's manifest is not.
+
+A plugin that fails, a repository that cannot be fetched among it, is said
+by its code beside the rest, and one new to the ledger that took nothing is
+forgotten again, clone and all: a plugin is a source once something of it
+is on the shelf. A cancel is honoured until a plugin starts placing, as a
+gather's is: one before the marketplace is registered leaves everything as
+it was, and one later stops the gather between two plugins, those before it
+gathered, those after it not tried. A token handed over goes to the
+catalog's host, and on to a plugin only on that same host, so a GitHub
+token never reaches a plugin kept on another forge.
+
+Rejected: gathering each plugin as an independent source, noted as listed
+by the marketplace, which is D-13's other option; listing a catalog through
+a gather's dry run, which would fetch it twice for a `--list` and record
+nothing for a later `--plugin` to find; and walking a plugin with
+`gather::LAYOUTS`, which would take a plugin's `.claude/skills`, or an
+example skill it ships, that Claude Code never loads from it.
+
+The TUI's marketplace screens are the commands: `m` on the shelf's page,
+or on a marketplace or a plugin of one in the sources screen, opens a form
+naming it (`Task::ListMarketplace`, `gather marketplace --list --json`,
+read back by the envelope's names as a search's results are), and `space`
+on its plugins ticks those to gather and `enter` gathers them
+(`Task::GatherPlugins`, `gather marketplace --plugin <name>...`), each run
+apart and stopped as a gather is. A plugin no gather takes is not ticked.
+
 ### Following a gather, and stopping it
 
 A gather is the network, so it can take long enough that somebody wants to
@@ -3678,7 +3807,7 @@ apart](#a-gather-runs-apart)). The panel's backend reports each step to the
 server, which streams it, and hands the server's cancel to the watch ([a run
 under way](#a-run-under-way-followed-and-stopped)). Which lines a front end
 follows so is one list, `task::Followed`, read off the parsed command as a
-refusal is: `gather git`, and `backup`
+refusal is: `gather git`, `gather marketplace`, and `backup`
 ([exporting and backing up the
 library](#exporting-and-backing-up-the-library)).
 
@@ -4571,6 +4700,18 @@ constant beside it:
    each artifact gathered](#what-is-kept-of-each-artifact-gathered), #99).
    The source's `pin`, which step 7 made, is written by every gather from
    this version on, so this step adds nothing for it.
+9. On `sources`, `entry`, what a Claude Code marketplace's catalog calls a
+   plugin gathered from it, beside the `parent_id` step 7 made, naming the
+   marketplace: a plugin is known by its marketplace and its entry, unique
+   behind `sources_by_entry`, and `sources_by_identity` is made again to
+   hold of the sources no marketplace lists alone, since two entries of
+   one catalog may both be its whole repository, as anthropics/skills's
+   are ([gathering from a Claude Code
+   marketplace](#gathering-from-a-claude-code-marketplace), #103). A
+   marketplace is a source of kind `marketplace`, which no step need make,
+   the kind being text, nor does `plugin`, one more word of an artifact's
+   `licence_from`. Nothing older is filled in: no build before this one
+   gathered from a marketplace.
 
 An older ledger is migrated step by step, so one made two versions ago ends
 where one made today begins, and two rules hold for every step:
@@ -13091,9 +13232,13 @@ record and every `origin` the envelope and the snapshot hold spell it.
 #100 carried out refreshing and removing one ([managing the
 sources](#managing-the-sources)), each by its name: `gather sources` lists
 what a command takes, `gather rename` changes it, `gather update` gathers
-again and `gather remove` forgets. A marketplace's children, which #103
-brings, are what a removal of their parent will cascade to through
-`parent_id`; a git source has none.
+again and `gather remove` forgets. #103 carried out the marketplace
+([gathering from a Claude Code
+marketplace](#gathering-from-a-claude-code-marketplace)): a parent source
+of its own kind, each plugin a git source gathered only when named or by a
+confirmed `--all`, known by its entry (schema 9's `entry` beside
+`parent_id`), at its pin when its entry has one, and gathered again and
+forgotten with its marketplace, `parent_id` cascading.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -14375,11 +14520,32 @@ repository, stays on `gix`.
   to keep as it was is pinned; a gather that kept what is gone until told
   was the other way, which would leave the shelf offering what no source
   has.
-- **What a removal of a parent leaves.** A marketplace's children (#103)
-  are rows whose `parent_id` cascades from their parent's, which
-  `forget_source` would take with it, but `gather remove` takes away only
-  the folders of the source named: a parent's removal has to take each
-  child's clone and shelf folders too, and say each, once children exist.
+- **A plugin's branch is not kept.** A marketplace's plugin is recorded
+  with no `reference`, its branch the catalog's to say each time, so what
+  was installed from it keeps its origin when the catalog moves it to
+  another tag (#103). `gather sources` then shows its pin, which a gather
+  writes, but not the branch it was fetched at, and an install's origin
+  says nothing of it. Keeping the branch would show it, at the price of
+  either moving every origin with the catalog or keeping one the catalog no
+  longer says.
+- **One origin for a plugin and its marketplace's repository.** A plugin
+  kept in its marketplace's repository has that repository's URL for its
+  origin, as a git source of it gathered with `gather git` has: both offer
+  a skill of one name under one origin, as two folders of one repository
+  do ([one origin for two folders of one repository](#open-questions)),
+  and `--from` then takes the plugin's name.
+- **What of a plugin is not taken.** A marketplace's plugin is gathered for
+  its skills alone, and its commands, agents, hooks, MCP and LSP servers
+  are said and left (#103). Taking an MCP server a plugin declares into the
+  library, or installing a plugin whole, is a decision of its own, which
+  the hooks above all make one to take with care: a hook runs a command.
+- **A cancel after the marketplace is recorded.** A gather of a marketplace
+  registers it once its catalog reads and before any plugin is fetched, so
+  a cancel while a plugin is fetched leaves the marketplace recorded, its
+  clone in the cache, and the plugins before it gathered, where a gather of
+  a git source cancelled leaves nothing. Recording the marketplace only
+  once its first plugin placed would leave `--list`, which places nothing,
+  recording nothing.
 - **Which kind a source holding nothing is gathered again as.** A source
   keeps no kind of its own: `gather update` reads off the shelf which
   kinds it holds, and gathers one it holds nothing of, whose every gather

@@ -224,7 +224,7 @@ fn every_word_type_s_schema_says_the_words_serde_writes() {
         MarkerFile::SettingsJson,
         MarkerFile::SettingsToml,
     ]);
-    says_the_words_serde_writes(&[SourceKind::Git]);
+    says_the_words_serde_writes(&[SourceKind::Git, SourceKind::Marketplace]);
     says_the_words_serde_writes(&[
         scan::Reason::Id,
         scan::Reason::Mind,

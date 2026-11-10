@@ -806,6 +806,28 @@ pub trait LedgerStore: Debug + Send {
         subdirectory: &str,
     ) -> Result<Source, LedgerError>;
 
+    /// The plugin `parent`, a marketplace, lists as `entry` (#103),
+    /// registering it the first time as a git source at `url`, from its
+    /// folder `subdirectory`, called after the marketplace and the entry
+    /// (`acme-tools.deploy`), numbered when another source has that, and
+    /// moved there when the catalog says it is somewhere else now: a plugin
+    /// is what its entry is, and where is the catalog's to say each time.
+    ///
+    /// Never found by [`source`](Self::source), which finds the sources no
+    /// marketplace lists, so a plugin at a repository somebody also gathers
+    /// with `gather git` is two sources, each called by its own name.
+    fn child_for(
+        &self,
+        parent: &Source,
+        entry: &str,
+        url: &str,
+        subdirectory: &str,
+    ) -> Result<Source, LedgerError>;
+
+    /// The plugins `parent`, a marketplace, has had gathered, by their
+    /// entries: what a refresh or a removal of it reaches.
+    fn children(&self, parent: &Source) -> Result<Vec<Source>, LedgerError>;
+
     /// The name and the folder a source registered from `url` now would be
     /// given ([`source_for`](Self::source_for)), registering nothing: what a
     /// gather's dry run says of a source it has not met
@@ -859,7 +881,8 @@ pub trait LedgerStore: Debug + Send {
     /// Forget a source, and with it what it brought; an installation from it
     /// keeps its `origin` but no longer points at it (see the schema's notes
     /// on what a forgotten source takes with it). Whether there was one to
-    /// forget.
+    /// forget. A marketplace takes the plugins it lists with it, and what
+    /// each brought (#103).
     ///
     /// For a gather that registered a source and then was cancelled, which
     /// leaves the ledger as it found it: a source nothing came from would
@@ -895,7 +918,8 @@ pub trait LedgerStore: Debug + Send {
     fn shelf_moved(&self, from: &str, to: &str) -> Result<usize, LedgerError>;
 
     /// Every source anything was gathered from, or tried to be, ordered the
-    /// way a listing reads them: by URL, then branch, then folder.
+    /// way a listing reads them: by URL, then branch, then folder, each
+    /// marketplace's plugins straight after it, by their entries (#103).
     ///
     /// Its own query rather than the sources of [`gathered`](Self::gathered):
     /// a source whose gather failed before it took anything, or whose every

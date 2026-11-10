@@ -25,8 +25,11 @@ use crate::code::codes;
 use crate::gather::{self, GatherError, Report, Request};
 use crate::install;
 use crate::kind::Kind;
-use crate::ledger::{Action, FromSource, Gathered, Ledger, LedgerError, Outcome, Source};
+use crate::ledger::{
+    Action, FromSource, Gathered, Ledger, LedgerError, Outcome, Source, SourceKind,
+};
 use crate::lock::LockError;
+use crate::marketplace::{self, MarketplaceError};
 use crate::url::{carries_credentials, redacted};
 use crate::value::{Origin, SourceName};
 use crate::view::KindCount;
@@ -91,6 +94,13 @@ pub enum Again {
     /// Not tried, since one before it was cancelled: a cancel stops the
     /// update, not one source of it.
     Unreached,
+    /// A marketplace gathered again (#103), its catalog read again and each
+    /// plugin chosen of it gathered again as the catalog says now, and what
+    /// each came to. Added after the rest.
+    Listed(Box<marketplace::Gathered>),
+    /// A marketplace whose catalog could not be gathered again, for this
+    /// reason, so none of its plugins was: each is as it was.
+    Unlisted(MarketplaceError),
 }
 
 /// One source an update gathered again, as it was before, the kind it
@@ -138,6 +148,14 @@ fn kinds_of(source: &Source, shelf: &[Gathered]) -> Vec<Kind> {
 /// holds the workspace for itself, as `gather git` does, so another command
 /// can write between two of them, and none of them waits for the network of
 /// all the others.
+///
+/// A marketplace (#103) is gathered again through its catalog
+/// ([`marketplace::gather`]), each plugin of it gathered before chosen
+/// again, as the catalog says it is now, and one named alone is gathered
+/// so, through its marketplace: what a plugin is, is its entry there. A
+/// marketplace and its plugins named together are one gather of it.
+/// `request` is asked of the marketplace for how it is fetched, its watch,
+/// its remote and its token ([`marketplace::Request::again`]).
 pub fn update(
     workspace: &WeaverWorkspace,
     ledger: &Ledger,
@@ -147,29 +165,132 @@ pub fn update(
     let shelf = ledger.gathered()?;
     let mut cancelled = false;
     let mut regathered = Vec::new();
-    for source in sources {
-        for kind in kinds_of(&source, &shelf) {
-            let again = if cancelled {
-                Again::Unreached
-            } else {
-                match request(&source, kind)
-                    .and_then(|asked| gather::gather(workspace, ledger, &asked))
-                {
-                    Ok(report) => Again::Gathered(report),
-                    Err(error) => {
-                        cancelled = matches!(error, GatherError::Cancelled);
-                        Again::Failed(error)
-                    }
+    for unit in units(ledger, sources)? {
+        match unit {
+            Unit::Git(source) => {
+                for kind in kinds_of(&source, &shelf) {
+                    let again = if cancelled {
+                        Again::Unreached
+                    } else {
+                        match request(&source, kind)
+                            .and_then(|asked| gather::gather(workspace, ledger, &asked))
+                        {
+                            Ok(report) => Again::Gathered(report),
+                            Err(error) => {
+                                cancelled = matches!(error, GatherError::Cancelled);
+                                Again::Failed(error)
+                            }
+                        }
+                    };
+                    regathered.push(Regathered {
+                        source: source.clone(),
+                        kind,
+                        again,
+                    });
                 }
-            };
-            regathered.push(Regathered {
-                source: source.clone(),
-                kind,
-                again,
-            });
+            }
+            Unit::Marketplace(source, entries) => {
+                let again = if cancelled {
+                    Again::Unreached
+                } else {
+                    let gathered = request(&source, gather::DEFAULT_KIND)
+                        .map_err(MarketplaceError::from)
+                        .and_then(|how| {
+                            let asked = marketplace::Request::again(&source, entries, &how);
+                            marketplace::gather(workspace, ledger, &asked)
+                        });
+                    match gathered {
+                        Ok(gathered) => {
+                            cancelled = gathered.plugins.iter().any(|plugin| {
+                                matches!(
+                                    plugin.took,
+                                    marketplace::Took::Failed(GatherError::Cancelled)
+                                )
+                            });
+                            Again::Listed(Box::new(gathered))
+                        }
+                        Err(error) => {
+                            cancelled =
+                                matches!(error, MarketplaceError::Gather(GatherError::Cancelled));
+                            Again::Unlisted(error)
+                        }
+                    }
+                };
+                regathered.push(Regathered {
+                    source,
+                    kind: gather::DEFAULT_KIND,
+                    again,
+                });
+            }
         }
     }
     Ok(regathered)
+}
+
+/// What an update gathers again, one gather each: a git source, or a
+/// marketplace and the entries of the plugins of it chosen.
+enum Unit {
+    Git(Source),
+    Marketplace(Source, Vec<String>),
+}
+
+/// `sources`, chosen, as the gathers an update of them makes, in the order
+/// chosen: each git source alone, each marketplace with every plugin it has
+/// had gathered, and a plugin named alone through its marketplace, the
+/// first place it or its marketplace is chosen, each plugin once.
+fn units(ledger: &Ledger, sources: Vec<Source>) -> Result<Vec<Unit>, LedgerError> {
+    fn add(units: &mut Vec<Unit>, parent: &Source, entries: Vec<String>) {
+        let at = units.iter_mut().find_map(|unit| match unit {
+            Unit::Marketplace(source, listed) if source.id == parent.id => Some(listed),
+            Unit::Marketplace(..) | Unit::Git(_) => None,
+        });
+        match at {
+            Some(listed) => {
+                for entry in entries {
+                    if !listed.contains(&entry) {
+                        listed.push(entry);
+                    }
+                }
+            }
+            None => units.push(Unit::Marketplace(parent.clone(), entries)),
+        }
+    }
+    let every = ledger.sources()?;
+    let mut units: Vec<Unit> = Vec::new();
+    for source in sources {
+        match (source.kind, source.parent_id) {
+            (SourceKind::Marketplace, _) => {
+                let entries = ledger
+                    .children(&source)?
+                    .into_iter()
+                    .filter_map(|child| child.entry)
+                    .collect();
+                add(&mut units, &source, entries);
+            }
+            (SourceKind::Git, Some(parent)) => {
+                let Some(parent) = every.iter().find(|one| one.id == parent) else {
+                    continue;
+                };
+                add(&mut units, parent, source.entry.into_iter().collect());
+            }
+            (SourceKind::Git, None) => units.push(Unit::Git(source)),
+        }
+    }
+    Ok(units)
+}
+
+/// The sources an update of `chosen` fetches from: each git source, and
+/// each marketplace, that of a plugin chosen alone among them, once each,
+/// in the order chosen. What a front end reads a token for before any of
+/// them is fetched, the plugins of a marketplace each handed its token, as
+/// its gather hands it, when it is on the same host.
+pub fn reached(ledger: &Ledger, chosen: &[Source]) -> Result<Vec<Source>, SourceError> {
+    Ok(units(ledger, chosen.to_vec())?
+        .into_iter()
+        .map(|unit| match unit {
+            Unit::Git(source) | Unit::Marketplace(source, _) => source,
+        })
+        .collect())
 }
 
 /// What renaming a source did: the name it had, and the source as it is
@@ -232,6 +353,10 @@ pub struct Removal {
     /// Every installation of what it supplied, which is left where it is,
     /// recorded, and offered by nothing once it is forgotten.
     pub installed: Vec<FromSource>,
+    /// For a marketplace (#103), what forgetting each plugin of it takes
+    /// away and leaves, by their entries, each forgotten with it: added
+    /// after the rest, and none for any other source.
+    pub plugins: Vec<Removal>,
 }
 
 /// What forgetting the source called `name` would take away, and leave
@@ -300,12 +425,24 @@ fn planned(
         .filter(|counted| counted.count > 0)
         .collect();
     let installed = ledger.installed_from(&source)?;
+    // A marketplace's plugins go with it, the ledger cascading to their
+    // rows: each held to the same as it is, so one whose folder would be
+    // somebody's refuses the whole removal before anything goes.
+    let plugins = match source.kind {
+        SourceKind::Marketplace => ledger
+            .children(&source)?
+            .into_iter()
+            .map(|child| planned(workspace, ledger, child))
+            .collect::<Result<_, _>>()?,
+        SourceKind::Git => Vec::new(),
+    };
     Ok(Removal {
         source,
         clone,
         shelves,
         shelved,
         installed,
+        plugins,
     })
 }
 
@@ -328,10 +465,24 @@ pub fn remove(
     unsaid(name)?;
     let _lock = workspace.lock()?;
     let removal = planned(workspace, ledger, named(ledger, name)?)?;
+    // A marketplace's plugins' folders first, then its own, so one that
+    // will not go leaves the marketplace, and every plugin of it whose
+    // folders are not gone yet, for the next removal.
     let folders = removal
-        .clone
+        .plugins
         .iter()
-        .chain(removal.shelves.iter().map(|(_, path)| path));
+        .flat_map(|plugin| {
+            plugin
+                .clone
+                .iter()
+                .chain(plugin.shelves.iter().map(|(_, path)| path))
+        })
+        .chain(
+            removal
+                .clone
+                .iter()
+                .chain(removal.shelves.iter().map(|(_, path)| path)),
+        );
     for path in folders {
         match fs::remove_dir_all(path) {
             Ok(()) => {}
@@ -345,13 +496,16 @@ pub fn remove(
             }
         }
     }
+    // A marketplace's plugins' rows go with its own, the ledger cascading.
     ledger.forget_source(removal.source.id)?;
-    ledger.log(
-        Action::Forget,
-        Some(removal.source.url.as_str()),
-        Outcome::Ok,
-        Some(removal.source.name.as_str()),
-    )?;
+    for forgotten in removal.plugins.iter().chain(std::iter::once(&removal)) {
+        ledger.log(
+            Action::Forget,
+            Some(forgotten.source.url.as_str()),
+            Outcome::Ok,
+            Some(forgotten.source.name.as_str()),
+        )?;
+    }
     Ok(removal)
 }
 

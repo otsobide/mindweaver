@@ -267,6 +267,12 @@ impl Request {
     /// folder is always named, the one it was registered from, so a source
     /// of rules from the root is gathered from there again rather than
     /// refused for naming none.
+    ///
+    /// A marketplace (#103) is its catalog's repository at its branch, which
+    /// is all a gather of one fetches before it reads the catalog: it is
+    /// gathered again through [`crate::marketplace`], which takes from this
+    /// how its front end fetches, its watch, its remote and its token, and
+    /// so is a plugin it lists, through its marketplace.
     pub fn again(source: &ledger::Source, kind: Kind) -> Self {
         match source.kind {
             SourceKind::Git => Request::git(source.url.as_str())
@@ -274,6 +280,9 @@ impl Request {
                 .at(source.reference.clone())
                 .from_subdirectory(source.subdirectory.clone())
                 .pinned(source.pin.as_ref().map(|pin| pin.as_str().to_owned())),
+            SourceKind::Marketplace => {
+                Request::git(source.url.as_str()).at(source.reference.clone())
+            }
         }
     }
 }
@@ -428,20 +437,12 @@ pub fn gather(
     // is the more useful of the two.
     match &outcome {
         Ok(report) => {
-            // What was removed only when something was, so the line a gather
-            // that removed nothing logs reads as it did before one could.
-            let removed = match report.removed.len() {
-                0 => String::new(),
-                removed => format!(", {removed} removed"),
-            };
-            let detail = format!(
-                "{} added, {} updated, {} unchanged{removed}, {} failed",
-                report.added.len(),
-                report.updated.len(),
-                report.unchanged.len(),
-                report.failures.len()
-            );
-            ledger.log(Action::Gather, Some(&url), Outcome::Ok, Some(&detail))?;
+            ledger.log(
+                Action::Gather,
+                Some(&url),
+                Outcome::Ok,
+                Some(&logged(report)),
+            )?;
         }
         // Not logged: a cancel leaves the ledger as it found it, and the
         // person who cancelled knows already.
@@ -456,6 +457,24 @@ pub fn gather(
         }
     }
     outcome
+}
+
+/// What the log says a gather that went ahead did, a marketplace's plugin's
+/// (#103) as any other's.
+pub(crate) fn logged(report: &Report) -> String {
+    // What was removed only when something was, so the line a gather that
+    // removed nothing logs reads as it did before one could.
+    let removed = match report.removed.len() {
+        0 => String::new(),
+        removed => format!(", {removed} removed"),
+    };
+    format!(
+        "{} added, {} updated, {} unchanged{removed}, {} failed",
+        report.added.len(),
+        report.updated.len(),
+        report.unchanged.len(),
+        report.failures.len()
+    )
 }
 
 /// What the scrub [`WeaverWorkspace::ledger_to_write`] runs took out.
@@ -1146,12 +1165,30 @@ fn take(
     source: &ledger::Source,
     finding: Finding,
 ) -> Result<Report, GatherError> {
-    let watch = &request.watch;
     let cache = workspace.cache_dir().join(&source.directory);
     let clone = fetch(request, typed, &cache)?;
+    let mut report = empty_report(source, &clone, typed.pin.clone(), request.kind);
 
-    let shelf = workspace.gathered_dir(request.kind).join(&source.directory);
-    let mut report = Report {
+    // Everything is read before anything is placed, rather than each
+    // artifact read and placed in turn, so that the shelf only starts to
+    // change once all of it is known.
+    let examined = examine(&clone, typed, finding, &request.watch, &mut report.failures)?;
+    placed(
+        workspace,
+        ledger,
+        source,
+        &clone,
+        typed.pin.as_ref(),
+        examined,
+        report,
+        &request.watch,
+    )
+}
+
+/// What a gather of `source` from `clone` says before it has taken
+/// anything: the revision and the pin it is of, and nothing else.
+fn empty_report(source: &ledger::Source, clone: &Cloned, pin: Option<Pin>, kind: Kind) -> Report {
+    Report {
         revision: clone.revision.clone(),
         directory: source.directory.clone(),
         added: Vec::new(),
@@ -1161,18 +1198,36 @@ fn take(
         warnings: Vec::new(),
         name: source.name.clone(),
         left_out: Vec::new(),
-        pin: typed.pin.clone(),
-        kind: request.kind,
+        pin,
+        kind,
         removed: Vec::new(),
-    };
+    }
+}
 
-    // Everything is read before anything is placed, rather than each
-    // artifact read and placed in turn, so that the shelf only starts to
-    // change once all of it is known.
-    let Examined { found, filed } = examine(&clone, typed, finding, watch, &mut report.failures)?;
+/// Put what was found of `source` on the shelf, once all of it is read:
+/// the rest of a gather, from the last moment a cancel is honoured, the
+/// revision `clone` is at and the pin it was taken at recorded first, each
+/// artifact then placed and recorded, and what the source offers no more
+/// taken off ([`gone`]). A gather of a git source and of a marketplace's
+/// plugin (#103) alike, since what one is on the shelf does not depend on
+/// where it was read.
+#[allow(clippy::too_many_arguments)]
+fn placed(
+    workspace: &WeaverWorkspace,
+    ledger: &Ledger,
+    source: &ledger::Source,
+    clone: &Cloned,
+    pin: Option<&Pin>,
+    examined: Examined,
+    mut report: Report,
+    watch: &Watch,
+) -> Result<Report, GatherError> {
+    let kind = report.kind;
+    let shelf = workspace.gathered_dir(kind).join(&source.directory);
+    let Examined { found, filed } = examined;
     // What the shelf held of it before this gather records anything, which
     // is what it may take off the shelf once it has ([`gone`]).
-    let before = shelved_of(ledger, source, request.kind)?;
+    let before = shelved_of(ledger, source, kind)?;
 
     // The last moment a cancel is honoured, and the reason everything is read
     // first: past here the shelf and the ledger change, and a gather stopped
@@ -1185,7 +1240,7 @@ fn take(
     // since the revision a source names is the one its shelf holds, and so
     // is the pin, or the lack of one: a source is pinned while its shelf
     // holds what a pin took.
-    ledger.saw_source(source.id, clone.revision.as_deref(), typed.pin.as_ref())?;
+    ledger.saw_source(source.id, clone.revision.as_deref(), pin)?;
 
     let total = found.len();
     watch.report(Progress::Placing { done: 0, total });
@@ -1225,7 +1280,7 @@ fn take(
         ledger.record(
             source,
             &Taken {
-                kind: request.kind,
+                kind,
                 name: one.artifact.name().to_owned(),
                 path: relative(workspace, &destination),
                 summary: one.artifact.summary().map(str::to_owned),
@@ -1247,9 +1302,9 @@ fn take(
     // Once what it offers is placed, what it offers no more goes: a skill
     // whose folder upstream is gone would otherwise be offered from the
     // shelf for good, and what was installed from it never found orphaned.
-    for gone in gone(workspace, source, request.kind, &report, &filed, before) {
+    for gone in gone(workspace, source, kind, &report, &filed, before) {
         if let Some(at) = &gone.at {
-            match unshelve(request.kind, at, &shelf) {
+            match unshelve(kind, at, &shelf) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 // Kept, row and all, so the shelf and the ledger still say
@@ -1264,7 +1319,7 @@ fn take(
             }
         }
         if let Some(harvested) = gone.harvested {
-            ledger.forget_gathered(source, request.kind, &harvested.name)?;
+            ledger.forget_gathered(source, kind, &harvested.name)?;
             report.removed.push(harvested);
         }
     }
@@ -1474,6 +1529,9 @@ struct Found {
     /// The folder looked in, in the clone, whose licence file a rule is
     /// under.
     looked_in: PathBuf,
+    /// The licence of the plugin it is in, which a skill that says
+    /// nothing of one is under (#103): `None` but for a marketplace's.
+    otherwise: Option<String>,
 }
 
 impl Found {
@@ -1519,12 +1577,15 @@ impl Found {
     }
 
     /// The licence it says it is under, once it is on the shelf at `at`: a
-    /// skill's, read from its folder there ([`Licence::of`]); a rule's,
-    /// which says nothing of one itself, the licence file at the top of the
-    /// folder it was gathered from, which no rule is taken from (#111).
+    /// skill's, read from its folder there ([`Licence::of`]), or the
+    /// plugin's it is in when it says nothing (#103); a rule's, which says
+    /// nothing of one itself, the licence file at the top of the folder it
+    /// was gathered from, which no rule is taken from (#111).
     fn licence(&self, at: &Path) -> Licence {
         match self.layout() {
-            Layout::Directory { .. } => Licence::of(&self.artifact, at),
+            Layout::Directory { .. } => {
+                Licence::of(&self.artifact, at).or_plugins(self.otherwise.as_deref())
+            }
             Layout::Files { .. } | Layout::Flat { .. } => {
                 Licence::of(&self.artifact, &self.looked_in)
             }
@@ -1561,29 +1622,7 @@ fn examine(
     watch: &Watch,
     failures: &mut Vec<Failure>,
 ) -> Result<Examined, GatherError> {
-    let root = match typed.path.as_str() {
-        DEFAULT_SUBDIRECTORY => clone.root.clone(),
-        path => clone.root.join(path),
-    };
-    if !root.is_dir() {
-        return Err(GatherError::NoSuchFolder {
-            subdirectory: typed.path.clone(),
-            url: typed.url.clone(),
-        });
-    }
-    let unread = |path: &Path| {
-        let path = path.to_path_buf();
-        move |source| GatherError::Read { path, source }
-    };
-    let within = fs::canonicalize(&clone.root).map_err(unread(&clone.root))?;
-    let (_, inside) =
-        copy::followed(&root, std::slice::from_ref(&within)).map_err(unread(&root))?;
-    if !inside {
-        return Err(GatherError::PathOutside {
-            path: typed.path.clone(),
-        });
-    }
-
+    let root = folder_in(clone, &typed.path, &typed.url)?;
     let candidates = match finding {
         Finding::Folders { manifest } => candidates(&root, manifest)?,
         Finding::Files { extension } => rule_files(&root, extension)?,
@@ -1595,6 +1634,196 @@ fn examine(
             kind: typed.kind,
         });
     }
+    Ok(read_all(
+        clone,
+        &root,
+        &candidates,
+        finding,
+        None,
+        watch,
+        failures,
+    ))
+}
+
+/// A plugin a Claude Code marketplace lists (#103), as a gather takes its
+/// skills: in a repository fetched already, its own or the marketplace's.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Plugin<'a> {
+    /// The repository it is in, fetched: a plugin of the marketplace's own
+    /// repository is read from its clone, which no gather fetches again.
+    pub clone: &'a Cloned,
+    /// Where it is in that repository, a route from its root.
+    pub folder: &'a str,
+    /// Where its catalog entry says its skills are, each a route from its
+    /// folder: `None` when it says nothing, which takes a `SKILL.md` at its
+    /// root, or else each folder of its `skills`.
+    pub skills: Option<&'a [String]>,
+    /// The licence it declares, which every skill of it saying none is
+    /// under.
+    pub licence: Option<&'a str>,
+    /// The commit its catalog entry pins it to, which it was fetched at.
+    pub pin: Option<&'a Pin>,
+    /// The repository's URL, as a refusal names it.
+    pub url: &'a str,
+}
+
+/// Gather the skills `plugin` holds onto the shelf of `source`, the
+/// plugin's own source, as a gather of a git source puts its own there:
+/// read whole first, a cancel honoured until it starts placing, then
+/// placed, recorded, and what it offers no more taken off.
+///
+/// Takes no lock, since the gather of the marketplace calling it holds the
+/// workspace for all of its plugins ([`crate::marketplace::gather`]), and
+/// fetches nothing, which that gather has done.
+pub(crate) fn plugin(
+    workspace: &WeaverWorkspace,
+    ledger: &Ledger,
+    source: &ledger::Source,
+    plugin: &Plugin,
+    watch: &Watch,
+) -> Result<Report, GatherError> {
+    let mut report = empty_report(source, plugin.clone, plugin.pin.cloned(), Kind::Skill);
+    let examined = examine_plugin(plugin, watch, &mut report.failures)?;
+    placed(
+        workspace,
+        ledger,
+        source,
+        plugin.clone,
+        plugin.pin,
+        examined,
+        report,
+        watch,
+    )
+}
+
+/// What `plugin` holds of skills: the folders its catalog entry lists,
+/// each a skill when it holds a `SKILL.md` or a folder of skills when it
+/// holds none, as Claude Code reads a plugin's `skills` either way; and
+/// when it lists none, the plugin itself when it holds a `SKILL.md` at its
+/// root, or else each folder of its `skills` holding one, which is where
+/// Claude Code looks in a plugin.
+///
+/// Not [`LAYOUTS`], which reads a repository as the tools of skills read
+/// one: a plugin is read as Claude Code reads it, and a folder that is no
+/// skill of its, its `commands` or an example it ships, is no skill of
+/// the shelf's either. A folder listed is held to the plugin's own, links
+/// followed only inside it, and one that holds no skill is a failure of
+/// its own beside the rest.
+fn examine_plugin(
+    plugin: &Plugin,
+    watch: &Watch,
+    failures: &mut Vec<Failure>,
+) -> Result<Examined, GatherError> {
+    let manifest = crate::artifact::manifest_of(Kind::Skill);
+    let root = folder_in(plugin.clone, plugin.folder, plugin.url)?;
+    let bound = fs::canonicalize(&root).map_err(|source| GatherError::Read {
+        path: root.clone(),
+        source,
+    })?;
+    let skills_in = |folder: &Path| -> Result<Vec<PathBuf>, GatherError> {
+        Ok(folders_in(folder, &bound)?
+            .into_iter()
+            .map(|(_, reached)| reached)
+            .filter(|skill| holds(skill, manifest))
+            .collect())
+    };
+    let mut candidates = match plugin.skills {
+        Some(listed) => {
+            let mut found = Vec::new();
+            for typed in listed {
+                let at = route_of(typed).map(|route| match route.as_str() {
+                    DEFAULT_SUBDIRECTORY => root.clone(),
+                    route => root.join(route),
+                });
+                let reached = at.filter(|at| followed_inside(at, &bound).is_some());
+                let held = match &reached {
+                    Some(at) if holds(at, manifest) => vec![at.clone()],
+                    Some(at) => skills_in(at)?,
+                    None => Vec::new(),
+                };
+                if held.is_empty() {
+                    failures.push(Failure::Unlisted {
+                        path: reached.unwrap_or_else(|| root.clone()),
+                        route: typed.clone(),
+                    });
+                }
+                found.extend(held);
+            }
+            found
+        }
+        None if holds(&root, manifest) => vec![root.clone()],
+        None => {
+            let skills = root.join("skills");
+            if followed_inside(&skills, &bound).is_some() {
+                skills_in(&skills)?
+            } else {
+                Vec::new()
+            }
+        }
+    };
+    candidates.sort();
+    candidates.dedup();
+    if candidates.is_empty() {
+        return Err(GatherError::PluginEmpty {
+            url: plugin.url.to_owned(),
+            path: plugin.folder.to_owned(),
+            listed: plugin.skills.is_some(),
+        });
+    }
+    let finding = Finding::Folders { manifest };
+    Ok(read_all(
+        plugin.clone,
+        &root,
+        &candidates,
+        finding,
+        plugin.licence,
+        watch,
+        failures,
+    ))
+}
+
+/// The folder `path`, a route from `clone`'s root, in it: refused when it
+/// is not there, and when it is a link leading out of the clone, since what
+/// a gather looks in is one of the repository's.
+fn folder_in(clone: &Cloned, path: &str, url: &str) -> Result<PathBuf, GatherError> {
+    let root = match path {
+        DEFAULT_SUBDIRECTORY => clone.root.clone(),
+        path => clone.root.join(path),
+    };
+    if !root.is_dir() {
+        return Err(GatherError::NoSuchFolder {
+            subdirectory: path.to_owned(),
+            url: url.to_owned(),
+        });
+    }
+    let unread = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| GatherError::Read { path, source }
+    };
+    let within = fs::canonicalize(&clone.root).map_err(unread(&clone.root))?;
+    let (_, inside) =
+        copy::followed(&root, std::slice::from_ref(&within)).map_err(unread(&root))?;
+    if !inside {
+        return Err(GatherError::PathOutside {
+            path: path.to_owned(),
+        });
+    }
+    Ok(root)
+}
+
+/// Each of `candidates` under `root`, the folder looked in, read as
+/// `finding` reads one, with what could not be among `failures`, and none
+/// called as another is: a skill under `licence` when it says nothing of
+/// one itself, a plugin's (#103).
+fn read_all(
+    clone: &Cloned,
+    root: &Path,
+    candidates: &[PathBuf],
+    finding: Finding,
+    licence: Option<&str>,
+    watch: &Watch,
+    failures: &mut Vec<Failure>,
+) -> Examined {
     let total = candidates.len();
     watch.report(Progress::Harvesting { done: 0, total });
     let mut found = Vec::with_capacity(total);
@@ -1602,7 +1831,7 @@ fn examine(
     for (done, candidate) in candidates.iter().enumerate() {
         let read = match finding {
             Finding::Folders { .. } => read(candidate, &clone.root, failures),
-            Finding::Files { .. } => read_rule(candidate, &root, &clone.root, failures),
+            Finding::Files { .. } => read_rule(candidate, root, &clone.root, failures),
         };
         match read {
             Some((from, place, artifact)) => {
@@ -1619,7 +1848,8 @@ fn examine(
                     filed: place,
                     route,
                     artifact,
-                    looked_in: root.clone(),
+                    looked_in: root.to_path_buf(),
+                    otherwise: licence.map(str::to_owned),
                 });
             }
             // Still the source's, though it could not be taken: a skill's
@@ -1634,7 +1864,7 @@ fn examine(
                         .and_then(|name| name.to_str())
                         .map(str::to_owned),
                     Finding::Files { .. } => candidate
-                        .strip_prefix(&root)
+                        .strip_prefix(root)
                         .ok()
                         .and_then(paths::to_config_string),
                 };
@@ -1652,10 +1882,10 @@ fn examine(
             total,
         });
     }
-    Ok(Examined {
+    Examined {
         found: unclashed(found, failures),
         filed,
-    })
+    }
 }
 
 /// `found` without every skill another in the same source is called as
@@ -2154,6 +2384,20 @@ pub enum Failure {
         #[source]
         source: io::Error,
     },
+    /// A folder a marketplace's plugin lists in its catalog entry as a
+    /// skill, or a folder of skills, holds none inside the plugin (#103):
+    /// not there, a link leading out of the plugin, or climbing out of it.
+    /// Said by the route the entry spells.
+    #[error(
+        "{route}: listed by its plugin's catalog entry as a skill, and holds no `SKILL.md` \
+         inside the plugin, so nothing of it is taken"
+    )]
+    Unlisted {
+        /// Where it leads in the clone, or the plugin's own folder when it
+        /// leads nowhere in it, which [`Failure::path`] says.
+        path: PathBuf,
+        route: String,
+    },
 }
 
 codes!(Failure {
@@ -2165,6 +2409,7 @@ codes!(Failure {
     Self::Unhashed { .. } => "gathered_unhashed",
     Self::Unnamed { .. } => "gathered_route_unusable",
     Self::Unremoved { .. } => "gathered_unremoved",
+    Self::Unlisted { .. } => "gathered_listed_missing",
 } carried {
     Self::Artifact(error) => error,
 });
@@ -2181,7 +2426,8 @@ impl Failure {
             | Failure::Unfiled { path, .. }
             | Failure::Unhashed { path, .. }
             | Failure::Unnamed { path, .. }
-            | Failure::Unremoved { path, .. } => path,
+            | Failure::Unremoved { path, .. }
+            | Failure::Unlisted { path, .. } => path,
         }
     }
 
@@ -2231,6 +2477,10 @@ impl Failure {
             Failure::Unremoved { path, source } => Failure::Unremoved {
                 path: routed(path),
                 source,
+            },
+            Failure::Unlisted { path, route } => Failure::Unlisted {
+                path: routed(path),
+                route,
             },
         }
     }
@@ -2358,6 +2608,15 @@ pub enum GatherError {
     PinInvalid { pin: String },
     #[error("{} cannot be gathered yet", .kind.plural())]
     NotGatherable { kind: Kind },
+    /// Not one skill in a marketplace's plugin (#103), where its catalog
+    /// entry lists them (`listed`), or, listing none, at its root and in
+    /// each folder of its `skills`.
+    #[error("{url}: {}", plugin_empty(path, *listed))]
+    PluginEmpty {
+        url: String,
+        path: String,
+        listed: bool,
+    },
     #[error("{path}: cannot be read: {source}")]
     Read {
         path: PathBuf,
@@ -2381,6 +2640,7 @@ codes!(GatherError {
     Self::NameTaken { .. } => "source_name_taken",
     Self::PinInvalid { .. } => "source_pin_invalid",
     Self::NotGatherable { .. } => "kind_not_gatherable",
+    Self::PluginEmpty { .. } => "gather_plugin_empty",
     Self::Read { .. } => "gather_read_failed",
 } carried {
     Self::Git(error) => error,
@@ -2407,6 +2667,23 @@ fn nothing_found(kind: Kind, path: &str) -> String {
         ),
         // Gathered from nowhere yet ([`gatherable`]).
         Kind::Mcp => format!("no {} found {at}", kind.noun()),
+    }
+}
+
+/// What [`GatherError::PluginEmpty`] says after the URL: no skill in the
+/// plugin at `path`, and where it was looked for.
+fn plugin_empty(path: &str, listed: bool) -> String {
+    let at = looked_in(path);
+    if listed {
+        format!(
+            "no skill found in the plugin {at}: none of the folders its catalog entry lists \
+             holds a `SKILL.md`"
+        )
+    } else {
+        format!(
+            "no skill found in the plugin {at}: looked for a `SKILL.md` there and in each folder \
+             of its `skills`; only skills are gathered from a plugin"
+        )
     }
 }
 

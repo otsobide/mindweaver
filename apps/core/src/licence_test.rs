@@ -200,6 +200,33 @@ fn a_skill_that_says_nothing_of_its_licence_is_unknown_and_said_so() {
     assert_eq!(licence.said(), "unknown");
 }
 
+/// A skill of a marketplace's plugin that says nothing of its licence is
+/// under the plugin's (#103); one that says its own keeps it, and a
+/// plugin's written empty declares nothing.
+#[test]
+fn a_skill_saying_no_licence_is_under_its_plugins_and_one_saying_its_own_keeps_it() {
+    let plugin = SkillMother::licence();
+    let own = Licence::Manifest {
+        text: random::text(20),
+    };
+    let filed = Licence::File {
+        file: String::from("LICENSE"),
+        text: None,
+    };
+
+    assert_eq!(
+        Licence::Unknown.or_plugins(Some(&plugin)),
+        Licence::Plugin {
+            text: plugin.clone()
+        }
+    );
+    assert_eq!(Licence::Unknown.or_plugins(Some(&plugin)).said(), plugin);
+    assert_eq!(own.clone().or_plugins(Some(&plugin)), own);
+    assert_eq!(filed.clone().or_plugins(Some(&plugin)), filed);
+    assert_eq!(Licence::Unknown.or_plugins(Some("  ")), Licence::Unknown);
+    assert_eq!(Licence::Unknown.or_plugins(None), Licence::Unknown);
+}
+
 #[test]
 fn a_licence_is_written_tagged_by_where_it_was_read_beside_what_it_said() {
     let text = random::text(20);
@@ -225,6 +252,10 @@ fn a_licence_is_written_tagged_by_where_it_was_read_beside_what_it_said() {
         json!({"from": "file", "file": "LICENSE", "text": null})
     );
     assert_eq!(
+        serde_json::to_value(Licence::Plugin { text: text.clone() }).unwrap(),
+        json!({"from": "plugin", "text": text})
+    );
+    assert_eq!(
         serde_json::to_value(Licence::Unknown).unwrap(),
         json!({"from": "unknown"})
     );
@@ -234,6 +265,7 @@ fn a_licence_is_written_tagged_by_where_it_was_read_beside_what_it_said() {
             file: String::from("LICENSE"),
             text: None,
         },
+        Licence::Plugin { text: text.clone() },
         Licence::Unknown,
     ] {
         assert_eq!(

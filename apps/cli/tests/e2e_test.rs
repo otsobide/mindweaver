@@ -23,8 +23,9 @@
 //! any one of them runs alone (`cargo test -p mindweaver-cli --test e2e_test
 //! <name>`). The use cases are grouped by what a person is doing: making
 //! projects and workspaces, writing skills and rules, installing them,
-//! gathering them from git, searching the skill directories for them,
-//! bringing MCP servers from the registry, keeping copies up to date,
+//! gathering them from git and from Claude Code marketplaces, searching
+//! the skill directories for them, bringing MCP servers from the
+//! registry, keeping copies up to date,
 //! reading what is where, saying which workspace a command is about,
 //! changing a project's agents, share and targets, adopting a skill
 //! somebody keeps, removing one everywhere, loading another workspace,
@@ -55,6 +56,9 @@ mod gathering;
 
 #[path = "e2e/searching.rs"]
 mod searching;
+
+#[path = "e2e/marketplaces.rs"]
+mod marketplaces;
 
 #[path = "e2e/importing.rs"]
 mod importing;

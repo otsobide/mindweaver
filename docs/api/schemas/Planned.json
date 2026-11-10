@@ -1055,6 +1055,61 @@
           ]
         },
         {
+          "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na Claude Code marketplace's catalog recorded as a source and its\nplugins listed, none gathered, read back from the JSON the line\nprints, for a front end to list the plugins and gather the ones\nticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "list_marketplace"
+            }
+          },
+          "required": [
+            "type",
+            "source",
+            "reference"
+          ]
+        },
+        {
+          "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a Claude Code marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+          "type": "object",
+          "properties": {
+            "plugins": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reference": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "gather_plugins"
+            }
+          },
+          "required": [
+            "type",
+            "source",
+            "reference",
+            "plugins"
+          ]
+        },
+        {
           "description": "`mindweaver gather update <name>...`: each source named gathered\nagain, as it was gathered, or every one, `--all`, when `names` is\nempty. Followed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]), and carrying no token, as a gather's task\ncarries none.",
           "type": "object",
           "properties": {

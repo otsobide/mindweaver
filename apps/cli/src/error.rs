@@ -15,6 +15,7 @@ use mindweaver_core::export::ExportError;
 use mindweaver_core::finder::SearchError;
 use mindweaver_core::gather::GatherError;
 use mindweaver_core::ledger::LedgerError;
+use mindweaver_core::marketplace::MarketplaceError;
 use mindweaver_core::mcp_registry::{ImportError, RegistryError};
 use mindweaver_core::sources::SourceError;
 use mindweaver_core::{
@@ -111,6 +112,8 @@ pub enum CliError {
     Backup(#[from] BackupError),
     #[error(transparent)]
     Search(#[from] SearchError),
+    #[error(transparent)]
+    Marketplace(#[from] MarketplaceError),
     #[error(transparent)]
     Registry(#[from] RegistryError),
     #[error(transparent)]
@@ -337,6 +340,7 @@ codes!(CliError {
     Self::Gather(error) => error,
     Self::Source(error) => error,
     Self::Search(error) => error,
+    Self::Marketplace(error) => error,
     Self::Registry(error) => error,
     Self::Import(error) => error,
     Self::Ledger(error) => error,

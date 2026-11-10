@@ -7,6 +7,7 @@
  * Tagged by `from`, beside what that place said, so a reader tells a
  * licence its author declared from a line read off a file:
  * `{"from": "manifest", "text": "MIT"}`, `{"from": "file", "file":
- * "LICENSE.txt", "text": "Apache License"}` or `{"from": "unknown"}`.
+ * "LICENSE.txt", "text": "Apache License"}`, `{"from": "plugin", "text":
+ * "Apache-2.0"}` or `{"from": "unknown"}`.
  */
-export type Licence = { "from": "manifest", text: string, } | { "from": "file", file: string, text: string | null, } | { "from": "unknown" };
+export type Licence = { "from": "manifest", text: string, } | { "from": "file", file: string, text: string | null, } | { "from": "plugin", text: string, } | { "from": "unknown" };
