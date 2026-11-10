@@ -275,3 +275,27 @@ fn a_watch_relayed_to_a_run_reaches_the_one_a_front_end_holds() {
     assert_eq!(written.text(), "\rexporting the library");
     assert!(run.is_cancelled());
 }
+
+/// A search's step is the finder it asks, counted by those that answered,
+/// and a cancel always still stops it, before the next.
+#[test]
+fn a_search_s_step_names_the_finder_it_asks_and_always_takes_a_cancel() {
+    use mindweaver_core::finder::{Finder, Progress as Search};
+    let progress = Progress::Search(Search::Asking {
+        finder: Finder::ClaudePlugins,
+        done: 1,
+        total: 2,
+    });
+
+    assert_eq!(said(progress), "asking claude-plugins.dev 1/2");
+    assert_eq!(
+        serde_json::to_value(Step::of(progress)).unwrap(),
+        json!({
+            "stage": "asking",
+            "done": 1,
+            "total": 2,
+            "said": "asking claude-plugins.dev 1/2",
+            "cancellable": true,
+        })
+    );
+}

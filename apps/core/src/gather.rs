@@ -915,7 +915,7 @@ fn gatherable(kind: Kind) -> Result<Finding, GatherError> {
 /// folder's address on a forge or `--path` spells it, and a folder a gather
 /// takes from is inside the clone, unless a link in the clone leads it out,
 /// which is looked for once there is a clone ([`examine`]).
-fn route_of(typed: &str) -> Option<String> {
+pub(crate) fn route_of(typed: &str) -> Option<String> {
     let mut parts = Vec::new();
     for component in Path::new(typed).components() {
         match component {

@@ -579,6 +579,7 @@ fn a_loaded_workspace_serializes_its_entry_and_its_name() {
             projects: Vec::new(),
             loaded: Vec::new(),
             known: Vec::new(),
+            finders: None,
             directories: Directories::default(),
         },
         made: true,

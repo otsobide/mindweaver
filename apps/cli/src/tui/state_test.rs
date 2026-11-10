@@ -165,6 +165,7 @@ fn page(count: usize) -> Reader {
             .map(|line| (Tone::Plain, format!("line {line}")))
             .collect(),
         scroll: 0,
+        searches: false,
     }
 }
 

@@ -665,6 +665,17 @@
           "export_mcp_unread",
           "export_read_failed",
           "export_write_failed",
+          "finder_answer_unreadable",
+          "finder_result_dropped",
+          "search_query_empty",
+          "finder_none_enabled",
+          "finder_not_enabled",
+          "finder_none_asked",
+          "finder_url_unnamed",
+          "finder_url_invalid",
+          "search_result_missing",
+          "search_cancelled",
+          "finder_unknown",
           "front_matter_missing",
           "front_matter_unterminated",
           "gathered_name_not_utf8",
@@ -713,6 +724,7 @@
           "http_too_large",
           "http_fetch_failed",
           "http_status_unsuccessful",
+          "http_rate_limited",
           "http_redirects_exceeded",
           "http_redirect_downgraded",
           "http_json_invalid",
@@ -3745,7 +3757,7 @@
         "type": "string"
       },
       "Stage": {
-        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's.",
+        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's, then a\nsearch's.",
         "oneOf": [
           {
             "const": "connecting",
@@ -3790,6 +3802,11 @@
           {
             "const": "pushing",
             "description": "A backup's push of its commit, past which a cancel is too late.",
+            "type": "string"
+          },
+          {
+            "const": "asking",
+            "description": "A search's asking a skill directory, counted by the finders that\nhave answered.",
             "type": "string"
           }
         ]
@@ -4574,6 +4591,23 @@
             },
             "required": [
               "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "type": {
+                "const": "search_skills",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "query"
             ],
             "type": "object"
           },
@@ -5507,6 +5541,24 @@
             },
             "required": [
               "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "type": {
+                "const": "search_skills",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "query"
             ],
             "type": "object"
           },
