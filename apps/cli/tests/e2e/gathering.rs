@@ -1224,6 +1224,32 @@ fn after_gather_update_an_install_from_a_source_that_moved_on_is_outdated() {
         .quiet();
 }
 
+/// A source on this machine is fetched by its path, which no token goes
+/// to: `--gh` asks `gh` for none, and the update says why that source was
+/// not gathered, beside the rest.
+#[test]
+fn gather_update_with_gh_refuses_it_for_a_source_no_token_goes_to_and_asks_gh_nothing() {
+    let scenario = acme();
+    scenario.given("~/Projects", "mindweaver gather git ../src/acme-skills");
+    gh_logged_in(&scenario, "github.com", &a_token());
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather update --all --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "warning: src-acme-skills: ../src/acme-skills: not fetched over https, the one way a \
+             token is sent: leave --token-env and --gh out, or gather its https URL\n",
+        );
+
+    assert!(!scenario.exists("~/gh-asked"));
+}
+
 #[test]
 fn gather_update_of_a_name_no_source_has_gathers_nothing() {
     let scenario = acme();
