@@ -86,6 +86,11 @@ fn an_address_to_gather_from_is_a_value_the_gather_judges() {
         assert!(source(&given).is_ok(), "{given:?}");
     }
     assert!(source("github.com:acme/skills.git").is_ok());
+    // GitHub's shorthand, which a gather reads as GitHub's address
+    // wherever it is typed, and never as a folder.
+    for given in ["acme/skills", "acme/skills@v2", "acme/skills@main"] {
+        assert!(source(given).is_ok(), "{given:?}");
+    }
 }
 
 /// A folder on this machine, as a path or behind `file://`, is held as a
@@ -110,6 +115,10 @@ fn a_folder_to_gather_from_is_held_as_a_folder_to_link_is() {
     for (given, refused) in [
         (String::from("../src/acme-skills"), "path_relative"),
         (String::from("acme-skills"), "path_relative"),
+        // No shorthand: a folder's route, or one with a third part.
+        (String::from("./acme/skills"), "path_relative"),
+        (String::from("src/acme/skills"), "path_relative"),
+        (String::from("acme/skills@"), "path_relative"),
         (String::from("./acme:skills"), "path_relative"),
         (String::from("file://acme/skills"), "path_relative"),
         (
