@@ -3265,9 +3265,10 @@ so a whole repository read as rules would take whatever documents it, a
 changelog and a guide for contributors among them, and name each rule
 after the folder its collection is kept in (`rules/git/commits`). Looking
 where repositories of rules keep them, as `LAYOUTS` does for skills, was
-the other way, and is rejected: rule collections agree on no layout, as
-the tools skills are written for do, and a walk guessing one would take
-the wrong folder's files as quietly as the whole repository's. `--path .`
+the other way, and is rejected: rule collections agree on no layout,
+where the tools skills are written for agree on one, and a walk guessing
+one would take the wrong folder's files as quietly as the whole
+repository's. `--path .`
 names the root, for a repository whose rules are all it holds. A task
 spells the line the same way: it leaves out a folder only when it is the
 kind's `default_folder`, so a task of rules from the root says `--path .`.
