@@ -624,6 +624,20 @@ impl Artifact {
         issues
     }
 
+    /// What [`validate`](Self::validate) would say of this skill once it is
+    /// filed in a folder called `folder` rather than the one it was read
+    /// from: for one gathered from the root of a source, read from the
+    /// clone's folder and filed under the name it declares
+    /// ([`crate::gather`]). Any other kind is judged as it is.
+    pub(crate) fn validate_filed_as(&self, folder: &str) -> Vec<ValidationIssue> {
+        match &self.declared {
+            Declared::Skill(manifest) if self.others.is_empty() => {
+                skill_issues(manifest, Some(folder))
+            }
+            Declared::Skill(_) | Declared::Rule(_) | Declared::Mcp(_) => self.validate(),
+        }
+    }
+
     /// Everything wrong with the copy at `path`.
     fn issues(&self) -> Vec<ValidationIssue> {
         match &self.declared {
@@ -857,7 +871,7 @@ fn read(path: &Path) -> Result<String, ArtifactError> {
 }
 
 /// The manifest file a directory-shaped kind holds.
-fn manifest_of(kind: Kind) -> &'static str {
+pub(crate) fn manifest_of(kind: Kind) -> &'static str {
     match kind.layout() {
         Layout::Directory { manifest } => manifest,
         Layout::Files { .. } | Layout::Flat { .. } => {
@@ -1639,6 +1653,34 @@ impl ArtifactError {
             | ArtifactError::FrontMatter { path, .. }
             | ArtifactError::Parse { path, .. }
             | ArtifactError::Definition { path, .. } => path,
+        }
+    }
+
+    /// The same error, its path a route from `root` when it is under it:
+    /// for a file read from a folder that is gone by the time it is said, as
+    /// a gather's dry run reads its clone ([`crate::gather::dry_run`]).
+    pub(crate) fn routed(self, root: &Path) -> Self {
+        let routed = |path: PathBuf| match path.strip_prefix(root) {
+            Ok(route) => route.to_path_buf(),
+            Err(_) => path,
+        };
+        match self {
+            ArtifactError::Read { path, source } => ArtifactError::Read {
+                path: routed(path),
+                source,
+            },
+            ArtifactError::FrontMatter { path, source } => ArtifactError::FrontMatter {
+                path: routed(path),
+                source,
+            },
+            ArtifactError::Parse { path, source } => ArtifactError::Parse {
+                path: routed(path),
+                source,
+            },
+            ArtifactError::Definition { path, source } => ArtifactError::Definition {
+                path: routed(path),
+                source,
+            },
         }
     }
 }

@@ -984,20 +984,26 @@ fn installing_and_uninstalling_one_skill_scrub_the_ledger_first() {
     assert_eq!(removed.stderr, [SCRUBBED]);
 }
 
+/// A shelf copy holding one, as a build before #101 gathered a plugin's
+/// skill: a gather leaves it out now, so it is put there by hand.
 #[test]
 fn installing_a_skill_that_holds_a_claude_plugin_folder_leaves_it_out_and_warns() {
     let dir = TempDir::new().unwrap();
     weaver(dir.path(), &["init"]).unwrap();
     with_settings(dir.path(), r#""claude", "codex""#);
-    let source = repository(&[
-        (
-            "skills/deploy/SKILL.md",
-            &skill_file("deploy", "Ship the service"),
-        ),
-        ("skills/deploy/.claude-plugin/plugin.json", "{}"),
-    ]);
+    let source = repository(&[(
+        "skills/deploy/SKILL.md",
+        &skill_file("deploy", "Ship the service"),
+    )]);
     let url = source.path().to_string_lossy().into_owned();
     weaver(dir.path(), &["gather", "git", &url]).unwrap();
+    let workspace = WeaverWorkspace::open(dir.path()).unwrap();
+    let shelved = workspace.ledger().unwrap().gathered().unwrap()[0]
+        .path
+        .clone();
+    let plugin = dir.path().join(shelved).join(".claude-plugin");
+    fs::create_dir_all(&plugin).unwrap();
+    fs::write(plugin.join("plugin.json"), "{}").unwrap();
 
     let outcome = weaver(dir.path(), &["install", "-p", "alpha", "deploy"]).unwrap();
 

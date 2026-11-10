@@ -176,7 +176,11 @@ under `apps/` with its own `Makefile`:
   other key kept (`mcp::retransported`, `lifecycle::retransport`, what
   `edit` told the options does), the
   agents and where each kind goes for them (`agent`), the catalog, gathering
-  (through `port::Remote`), reading a catalog over HTTP (through
+  (through `port::Remote`), from wherever a repository keeps its skills
+  (`gather::LAYOUTS`), a source typed as `owner/repo@ref` or a folder's
+  address on a forge read as the repository, branch and folder it names
+  (`url::located`), and what a gather would take, with nothing written
+  (`gather::dry_run`), reading a catalog over HTTP (through
   `port::Http`), the redirects core follows, a status that is no success,
   JSON read into what is asked and pages that follow one another
   (`http::Client`, `http::with_query`, `http::next_link`), and the answers a
@@ -470,7 +474,10 @@ These are easy to break from a single file without noticing.
   standard one overridden for each kind its settings name `targets` for, with
   every folder an install may use (`misplaced_target`), so code that needs
   one asks the project (`MindProject::targets`), as discovery and an install
-  (`install::targets`) do. Which agents read none of a project's targets is
+  (`install::targets`) do. Where in a repository a gather finds its skills
+  is core's (`gather::LAYOUTS`), and so is what a typed source names
+  (`url::located`), so no front end spells a layout or reads a URL's
+  branch. Which agents read none of a project's targets is
   core's too (`ProjectStatus::unreached`), and so is which read a rule it
   received nowhere (`ProjectStatus::missed`). Which kind a name typed bare
   is, to install or take out, is core's (`install::offered_typed`,
@@ -1167,7 +1174,13 @@ These are easy to break from a single file without noticing.
     rules, which never climbs out (`install::is_installable_name`).
   - Symlinks are followed only inside the source (`copy::tree`'s `within`),
     and a rule offered for install that leads out of the workspace offering
-    it is refused (`InstallError::Outside`).
+    it is refused (`InstallError::Outside`). A gather looks for skills only
+    where `gather::LAYOUTS` says, following a link only to a folder inside
+    the one it looks in, reads no manifest linked out of the clone
+    (`gathered_link_outside`), and looks in a folder `--path` or a URL names
+    only when it is inside the repository (`gather_path_outside`). Two of a
+    source's skills called the same are a failure each, never a pick
+    (`gathered_name_clash`).
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1243,10 +1256,12 @@ These are easy to break from a single file without noticing.
   Opening the ledger takes no lock: a schema migration keeps itself apart
   in its own transaction. The lock is not re-entrant: a writer never calls
   another while it holds it, and a front end never takes it. Reads
-  (`WeaverWorkspace::open`, `ledger_for_reading`) never take it, nor does
-  the HTTP cache (`http::Cache`), each answer one file replaced whole by a
-  rename (`replace_bytes_unresolved`), so reading a catalog never waits
-  for a writer. A wait is
+  (`WeaverWorkspace::open`, `ledger_for_reading`) never take it, and nor
+  does a gather's dry run (`gather::dry_run`), which writes nothing but a
+  scratch folder of its run's own, taken away after, nor the HTTP cache
+  (`http::Cache`), each answer one file replaced whole by a rename
+  (`replace_bytes_unresolved`), so reading a catalog never waits for a
+  writer. A wait is
   bounded (`lock::WAIT`), ending in a `LockError::Busy` that names the
   holder's pid, except a record drop's or carry's (`install::disown`,
   `install::carry`), which follows a change already made.
@@ -1707,7 +1722,9 @@ These are easy to break from a single file without noticing.
   (`WorkspaceMother`, `ProjectMother`, among it a project a version 1 or 2
   build made, `version_1` and `older`, one a `settings.json` marks as a
   version 3 build wrote it, `json`, and one that names a folder for MCP
-  servers, `with_mcp`, `GitRepositoryMother`, `ShelfMother`),
+  servers, `with_mcp`, `GitRepositoryMother`, among it one keeping its
+  skills in each layout a gather reads, `layouts` and `with_skills_in`, and
+  one that is one skill, `one_skill`, `ShelfMother`),
   and what a Mindflayer build left under its names (`MindflayerMother`:
   a workspace in a `.mindflayer`, and a project's blocks, exclude lines and
   rule files for Claude as that build wrote them, records included).

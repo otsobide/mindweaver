@@ -520,9 +520,10 @@ mindweaver load <path>...  # offer another workspace's own skills and rules,
                            # read live
 mindweaver unload <path>...  # stop offering them
 
-mindweaver gather git <URL> [--name NAME]
+mindweaver gather git <URL> [--path DIR] [--ref REF] [--name NAME] [--dry-run]
                            # collect skills from a repository onto the shelf,
-                           # under a name --from takes
+                           # wherever it keeps them, under a name --from
+                           # takes; with --dry-run, say what it would take
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver install         # a screen for putting skills, rules and MCP
@@ -787,17 +788,18 @@ acme-skills: https://github.com/acme/skills at a1b2c3d
 2 skills: 2 added, 0 updated, 0 unchanged
 ```
 
-The repository's `skills` folder is what gets harvested; `--path agents` takes
-another one, and `--ref v2` takes a branch or a tag instead of the default.
-The source is called `acme-skills`, after its owner and its repository, which
-is what `gather list` shows and `--from` takes; `--name team-skills` calls it
-something else, and given again with another name renames it. A name is
-letters, digits, `.`, `_` and `-`, and one source's only: one another source
-has is refused before anything is fetched. A
-repository that is a weaver workspace made by `mindweaver init` keeps its own in
-[its library](#the-workspaces-own-skills-and-rules), so it is gathered with
-`--path .mindweaver/library/skills`, or [loaded](#loading-another-workspace)
-from a clone instead.
+The skills are taken from wherever the repository keeps them; see [where a
+repository keeps its skills](#where-a-repository-keeps-its-skills). `--path
+agents` looks in that folder alone, and `--ref v2` takes a branch or a tag
+instead of the default. The source is called `acme-skills`, after its owner and
+its repository, which is what `gather list` shows and `--from` takes; `--name
+team-skills` calls it something else, and given again with another name
+renames it. A name is letters, digits, `.`, `_` and `-`, and one source's only:
+one another source has is refused before anything is fetched. A repository that
+is a weaver workspace made by `mindweaver init` keeps its own in [its
+library](#the-workspaces-own-skills-and-rules), where no repository of skills
+keeps them, so it is gathered with `--path .mindweaver/library/skills`, or
+[loaded](#loading-another-workspace) from a clone instead.
 
 With stderr on a terminal it says what it is doing while it does it
 (`connecting`, `receiving objects 120/340`, `reading folders 3/40`) on one line
@@ -977,6 +979,150 @@ note: https://github.com/acme/skills: the same repository as the source `acme-sk
 `--from https://github.com/acme/skills` still names it, with the warning
 above.
 
+### Where a repository keeps its skills
+
+A gather looks where `gh skill` and `npx skills` both look. A `SKILL.md` at the
+repository's root makes the whole repository one skill, filed under the name it
+declares. Otherwise each folder holding a `SKILL.md` is a skill when it is:
+
+- at the root, a folder of its own (`deploy/SKILL.md`);
+- in `skills/`, or in a namespace of it (`skills/<namespace>/`,
+  `skills/.curated/`, `skills/.system/`);
+- where agents read them in a project (`.agents/skills/`, `.claude/skills/`);
+- in a plugin (`plugins/<plugin>/skills/`).
+
+Nothing deeper is looked at, and neither is a folder whose name starts with `.`
+unless it is one of those, nor `node_modules`. A folder holding a `SKILL.md` is
+a skill with everything in it, so another `SKILL.md` further down, an example
+it ships, is one of its files. `--path` looks for the same places under the
+folder it names, so `--path plugins/docs` takes that plugin's skills, and
+`--path skills/review` takes that one skill. A link is followed only to a
+folder inside the one looked in, and a folder reached twice, as
+`.claude/skills` linked to `skills` is, is one skill.
+
+```
+$ mindweaver gather git https://github.com/acme/tools
+acme-tools: https://github.com/acme/tools at 5c6d7e8
+  added  commit-style  How this repo writes commit messages
+  added  lint          Tidy the code
+  added  pdf           Read PDFs
+
+3 skills: 3 added, 0 updated, 0 unchanged
+```
+
+The shelf keeps each under the name of its folder, wherever that is in the
+repository, so two skills of one repository called the same, by their folders
+or by the names they declare, are neither taken: which of them a name means is
+not a gather's to guess. Each is said where it is, and `--path` takes the one
+you want:
+
+```
+$ mindweaver gather git https://github.com/acme/ops
+acme-ops: https://github.com/acme/ops at 2b3c4d5
+  added  review  Read a change
+
+1 skill: 1 added, 0 updated, 0 unchanged
+warning: skills/ops/deploy: not taken, since skills/web/deploy in the same source is called `deploy` too; gather the one wanted with `--path`
+warning: skills/web/deploy: not taken, since skills/ops/deploy in the same source is called `deploy` too; gather the one wanted with `--path`
+```
+
+A repository that is one skill:
+
+```
+$ mindweaver gather git https://github.com/acme/deploy-skill
+acme-deploy-skill: https://github.com/acme/deploy-skill at 7a8b9c0
+  added  deploy  Ship the service
+
+1 skill: 1 added, 0 updated, 0 unchanged
+```
+
+A skill's own `.claude-plugin` folder, at its top, is left off the shelf, as
+[every install leaves it out](#where-a-project-keeps-its-artifacts), since
+Claude would load a skill holding one as a plugin; the gather says so in a note
+and does not fail:
+
+```
+$ mindweaver gather git https://github.com/acme/ops-plugin
+acme-ops-plugin: https://github.com/acme/ops-plugin at 3e4f5a6
+  added  deploy  Ship the service
+
+1 skill: 1 added, 0 updated, 0 unchanged
+note: deploy was gathered without its .claude-plugin, since Claude would load the skill as a plugin, with the hooks and MCP servers it declares
+```
+
+A repository holding no skill in any of those places is not gathered, and says
+where it was looked for:
+
+```
+$ mindweaver gather git https://github.com/acme/notes
+error: https://github.com/acme/notes: no skill found in the repository: looked for a `SKILL.md` there, in each folder there, and in each folder of `skills`, `skills/<namespace>`, `.agents/skills`, `.claude/skills` and `plugins/<plugin>/skills`; name the folder that holds them with `--path`
+```
+
+A source an older Mindweaver gathered took only the `skills` folder, which it
+looked in unless `--path` named another. Gathered again without `--path`, it
+stays the same source, called what it was, and looks through the whole
+repository from then on.
+
+### Naming a repository, a branch and a folder at once
+
+What `gh skill` and `npx skills` take for a repository is taken here too.
+`acme/skills` is the GitHub repository, as above, and `acme/skills@v2` that
+repository at the branch or tag `v2`. The address of a folder on GitHub or
+GitLab, as a browser shows it, is the repository at that branch, looked in at
+that folder, so
+
+```
+mindweaver gather git https://github.com/acme/skills/tree/main/skills/review
+```
+
+is `mindweaver gather git acme/skills --ref main --path skills/review`, and so
+is GitLab's `https://gitlab.com/acme/skills/-/tree/main/skills/review`. The
+branch is the one part after `tree`, so a branch with a `/` in it is given with
+`--ref` and `--path` instead. A branch or a folder said both ways, differently,
+is refused before anything is fetched, as is a folder outside the repository:
+
+```
+$ mindweaver gather git acme/skills@v1 --ref v2
+error: the URL names the branch `v1`, and `--ref` names `v2`: give it once
+```
+
+### What a gather would take
+
+`--dry-run` says what a gather would take, where each skill is in the
+repository, and what of it the shelf holds already, without taking anything:
+the repository is fetched into a folder of its own in `.mindweaver/tmp`, which
+goes once it has said so, and the shelf, `cache/` and `mindweaver.db` are left
+as they were.
+
+```
+$ mindweaver gather git https://github.com/acme/tools --dry-run
+acme-tools: https://github.com/acme/tools at 5c6d7e8
+  would add  commit-style  skills/commit-style      How this repo writes commit messages
+  would add  lint          .claude/skills/lint      Tidy the code
+  would add  pdf           plugins/docs/skills/pdf  Read PDFs
+
+3 skills: 3 to add, 0 to update, 0 unchanged
+nothing gathered: run it without --dry-run to gather
+```
+
+Once it is gathered, a dry run says what a gather would change:
+
+```
+$ mindweaver gather git https://github.com/acme/tools --dry-run
+acme-tools: https://github.com/acme/tools at 9d0e1f2
+  would update  lint          .claude/skills/lint      Tidy the code
+  unchanged     commit-style  skills/commit-style      How this repo writes commit messages
+  unchanged     pdf           plugins/docs/skills/pdf  Read PDFs
+
+3 skills: 0 to add, 1 to update, 2 unchanged
+nothing gathered: run it without --dry-run to gather
+```
+
+It says what the gather would warn of, and exits as the gather would, so a
+script can ask first. What it could not read it names by where it is in the
+repository, since the folder it read it from is gone. Like a gather, it makes
+the workspace in your home when that is the one it acts on and is not made yet.
+
 ### What a workspace keeps
 
 ```
@@ -999,6 +1145,8 @@ above.
   cache/<source>/ the clone, kept so a gather can be looked at afterwards
   skills/<source>/<name>/SKILL.md
   templates/      templates for every project it manages, if you add any
+  tmp/            a gather's --dry-run clone while it runs, and the text the
+                  control panel saves while its line runs
 ```
 
 `mindweaver.db` is SQLite, and it is the one thing Mindweaver writes that is

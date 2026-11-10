@@ -77,7 +77,7 @@ fn a_gather_is_told_step_by_step_until_what_it_found_is_on_the_shelf() {
     let mut stream = served.events();
     stream.opened();
     let gather = json!({"type": "gather", "url": "/home/you/src/acme-skills",
-                        "folder": "skills", "reference": null});
+                        "folder": ".", "reference": null});
     let lines = json!(["mindweaver -W /home/you/Projects gather git /home/you/src/acme-skills"]);
 
     served
