@@ -1,0 +1,351 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MarketplaceListing",
+  "description": "What a marketplace's catalog lists, as a gather of it read it: the\nsource it is, by the name it has or would be given, at the revision\nfetched, and its catalog, each plugin marked with the source it is once\ngathered.\n\nWhat `gather marketplace --list --json` prints, and what a front end\nlists entries from, read back by these names: the TUI's, and the\npanel's, which reads it through the TypeScript and the schema written\nfrom it (`MarketplaceListing`, a name of its own beside the snapshot's\n`Listing`, as each type it names has, beside the ledger's `Entry` and an\ninstall's `Place`).",
+  "type": "object",
+  "properties": {
+    "catalog": {
+      "$ref": "#/$defs/MarketplaceCatalog"
+    },
+    "name": {
+      "type": "string"
+    },
+    "reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "url": {
+      "description": "What was fetched, without a credential.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "url",
+    "reference",
+    "revision",
+    "catalog"
+  ],
+  "$defs": {
+    "MarketplaceCatalog": {
+      "description": "What a marketplace's catalog says of itself, and every plugin it lists\nthat can be read, in the order it lists them.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginEntry"
+          }
+        },
+        "name": {
+          "description": "What it calls itself, as written: what its source is called unless\n`--name` says otherwise, a name being free.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "description": "Who keeps it, by the name it gives.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "owner",
+        "entries"
+      ]
+    },
+    "PluginEntry": {
+      "description": "One plugin a catalog lists, as it says it.",
+      "type": "object",
+      "properties": {
+        "declares": {
+          "description": "What its entry declares beside skills, which is not gathered.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginExtra"
+          }
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gatherable": {
+          "description": "Whether a gather takes it: a plugin kept in git.",
+          "type": "boolean"
+        },
+        "gathered": {
+          "description": "What it is called as a source once it is gathered, after its\nmarketplace (`acme-tools.deploy`), and `None` until it is.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "headers_helper": {
+          "description": "Whether its entry names a `headersHelper`, a command that prints the\nheaders a fetch of it would send, which is never run.",
+          "type": "boolean"
+        },
+        "licence": {
+          "description": "The licence it declares, as written, which a skill of it saying\nnone is under.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "What it is called, which `--plugin` takes.",
+          "type": "string"
+        },
+        "skills": {
+          "description": "Where its skills are, each a route from its folder, when its entry\nlists them; `None` when it lists none, and a gather looks where\nClaude Code does ([`gather::plugin`]).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "Where it is.",
+          "$ref": "#/$defs/PluginPlace"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "version",
+        "source",
+        "skills",
+        "licence",
+        "declares",
+        "headers_helper",
+        "gatherable",
+        "gathered"
+      ]
+    },
+    "PluginExtra": {
+      "description": "What a plugin holds or declares beside skills, which a gather does\nnot take.",
+      "type": "string",
+      "enum": [
+        "commands",
+        "agents",
+        "hooks",
+        "mcp_servers",
+        "lsp_servers"
+      ]
+    },
+    "PluginPlace": {
+      "description": "Where a plugin a catalog lists is: what its entry's `source` says.\n\nTagged by `type`, each spelled here rather than from the variant's\nname, as Claude Code spells a source's kind, beside what it says of it:\n`{\"type\": \"relative\", \"path\": \"plugins/deploy\"}`, `{\"type\": \"github\",\n\"repo\": \"acme/deploy\", \"ref\": \"v2\", \"sha\": null}`.",
+      "oneOf": [
+        {
+          "description": "In the marketplace's own repository, at `path`, a route from its\nroot: `./path`, or a name under the catalog's `pluginRoot`.",
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "relative"
+            }
+          },
+          "required": [
+            "type",
+            "path"
+          ]
+        },
+        {
+          "description": "A GitHub repository, `owner/repo`.",
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "repo": {
+              "type": "string"
+            },
+            "sha": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "github"
+            }
+          },
+          "required": [
+            "type",
+            "repo",
+            "ref",
+            "sha"
+          ]
+        },
+        {
+          "description": "A git repository at a URL.",
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sha": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "url"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url",
+            "ref",
+            "sha"
+          ]
+        },
+        {
+          "description": "A folder of a git repository, `path` a route from its root.",
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sha": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "git-subdir"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url",
+            "path",
+            "ref",
+            "sha"
+          ]
+        },
+        {
+          "description": "An npm package, which is not gathered.",
+          "type": "object",
+          "properties": {
+            "package": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "npm"
+            }
+          },
+          "required": [
+            "type",
+            "package"
+          ]
+        },
+        {
+          "description": "An archive to download, which is not gathered.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "archive"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "A command to run, which is never run.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "command"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "A kind of source this build does not read, as the catalog names it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "other"
+            }
+          },
+          "required": [
+            "type",
+            "kind"
+          ]
+        }
+      ]
+    }
+  }
+}
