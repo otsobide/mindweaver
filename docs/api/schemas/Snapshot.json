@@ -1316,6 +1316,10 @@
         "kind": {
           "$ref": "#/$defs/SourceKind"
         },
+        "name": {
+          "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
+          "type": "string"
+        },
         "origin": {
           "description": "[`Source::origin`], which every artifact it supplied is installed\nfrom.",
           "type": "string"
@@ -1350,6 +1354,7 @@
         "subdirectory",
         "revision",
         "directory",
+        "name",
         "origin"
       ]
     },
@@ -1406,7 +1411,7 @@
       ]
     },
     "Source": {
-      "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`].",
+      "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), which moved no version.",
       "type": "object",
       "properties": {
         "directory": {
@@ -1415,6 +1420,10 @@
         },
         "kind": {
           "$ref": "#/$defs/SourceKind"
+        },
+        "name": {
+          "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
+          "type": "string"
         },
         "reference": {
           "description": "The branch or tag asked for, or `None` for whatever the remote's HEAD\npoints at.",
@@ -1445,7 +1454,8 @@
         "reference",
         "subdirectory",
         "revision",
-        "directory"
+        "directory",
+        "name"
       ]
     },
     "SourceKind": {

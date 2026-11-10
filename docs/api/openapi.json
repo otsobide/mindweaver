@@ -613,6 +613,8 @@
           "gather_cancelled",
           "credentials_in_url",
           "gather_no_such_folder",
+          "source_name_invalid",
+          "source_name_taken",
           "kind_not_gatherable",
           "gather_read_failed",
           "source_leftover",
@@ -675,6 +677,7 @@
           "foreign",
           "edited",
           "not_installed",
+          "from_spelling_deprecated",
           "rules_block_withheld",
           "rules_block_left",
           "rule_unreached",
@@ -3163,6 +3166,10 @@
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
           },
+          "name": {
+            "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
+            "type": "string"
+          },
           "origin": {
             "description": "[`Source::origin`], which every artifact it supplied is installed\nfrom.",
             "type": "string"
@@ -3197,6 +3204,7 @@
           "subdirectory",
           "revision",
           "directory",
+          "name",
           "origin"
         ],
         "type": "object"
@@ -3404,7 +3412,7 @@
         "type": "object"
       },
       "Source": {
-        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`].",
+        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), which moved no version.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
@@ -3412,6 +3420,10 @@
           },
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
+          },
+          "name": {
+            "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
+            "type": "string"
           },
           "reference": {
             "description": "The branch or tag asked for, or `None` for whatever the remote's HEAD\npoints at.",
@@ -3442,7 +3454,8 @@
           "reference",
           "subdirectory",
           "revision",
-          "directory"
+          "directory",
+          "name"
         ],
         "type": "object"
       },

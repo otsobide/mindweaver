@@ -64,7 +64,9 @@ use crate::exclude::{self, ExcludeError};
 use crate::frontmatter::FrontMatterError;
 use crate::gather::{self, GatherError, Leftover, ScrubFailure};
 use crate::http::{CacheError, FetchError};
-use crate::install::{rules, Clash, ConfigUnread, InstallError, LoadFailure, PlanError, Refused};
+use crate::install::{
+    rules, Clash, ConfigUnread, InstallError, LoadFailure, PlanError, Refused, Respelled,
+};
 use crate::kind::UnknownKind;
 use crate::ledger::LedgerError;
 use crate::lifecycle::LifecycleError;
@@ -237,6 +239,7 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("install::plan::Clash", Clash::CODES),
     ("install::plan::PlanError", PlanError::CODES),
     ("install::Refused", Refused::CODES),
+    ("install::Respelled", Respelled::CODES),
     ("install::rules::Warning", rules::Warning::CODES),
     ("install::rules::Withheld", rules::Withheld::CODES),
     ("kind::UnknownKind", UnknownKind::CODES),

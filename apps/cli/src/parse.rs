@@ -295,7 +295,8 @@ pub enum Command {
         name: String,
 
         /// Where it comes from, when two places offer that name: `workspace`,
-        /// a shelf source's URL, or a loaded workspace's path or name.
+        /// a shelf source's name (as `gather list` shows it) or URL, or a
+        /// loaded workspace's path or name.
         #[arg(long, value_name = "ORIGIN")]
         from: Option<String>,
 
@@ -828,7 +829,8 @@ pub enum WeaverCommand {
         name: Option<String>,
 
         /// Where it comes from, when two places offer that name: `workspace`,
-        /// a shelf source's URL, or a loaded workspace's path or name.
+        /// a shelf source's name (as `gather list` shows it) or URL, or a
+        /// loaded workspace's path or name.
         #[arg(long, value_name = "ORIGIN")]
         from: Option<String>,
 
@@ -1487,6 +1489,14 @@ pub enum GatherCommand {
         /// A branch or tag to take, instead of the repository's default.
         #[arg(long = "ref", value_name = "REF")]
         reference: Option<String>,
+
+        /// What to call the source, instead of its owner and repository
+        /// (`acme-skills`): what `gather list` shows and `--from` takes.
+        ///
+        /// Letters, digits, `.`, `_` and `-`. Given for a source gathered
+        /// before, it is called this from now on.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
     },
 
     /// List what can be installed from the shelf and from loaded workspaces,

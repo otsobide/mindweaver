@@ -519,8 +519,9 @@ mindweaver load <path>...  # offer another workspace's own skills and rules,
                            # read live
 mindweaver unload <path>...  # stop offering them
 
-mindweaver gather git <URL>
-                           # collect skills from a repository onto the shelf
+mindweaver gather git <URL> [--name NAME]
+                           # collect skills from a repository onto the shelf,
+                           # under a name --from takes
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver install         # a screen for putting skills, rules and MCP
@@ -771,7 +772,7 @@ workspace and belonging to no project yet.
 
 ```
 $ mindweaver gather git https://github.com/acme/skills
-https://github.com/acme/skills at a1b2c3d
+acme-skills: https://github.com/acme/skills at a1b2c3d
   added  commit-style  How this repo writes commit messages
   added  ddd-reviewer  Review a change against the DDD layering rules
 
@@ -779,7 +780,12 @@ https://github.com/acme/skills at a1b2c3d
 ```
 
 The repository's `skills` folder is what gets harvested; `--path agents` takes
-another one, and `--ref v2` takes a branch or a tag instead of the default. A
+another one, and `--ref v2` takes a branch or a tag instead of the default.
+The source is called `acme-skills`, after its owner and its repository, which
+is what `gather list` shows and `--from` takes; `--name team-skills` calls it
+something else, and given again with another name renames it. A name is
+letters, digits, `.`, `_` and `-`, and one source's only: one another source
+has is refused before anything is fetched. A
 repository that is a weaver workspace made by `mindweaver init` keeps its own in
 [its library](#the-workspaces-own-skills-and-rules), so it is gathered with
 `--path .mindweaver/library/skills`, or [loaded](#loading-another-workspace)
@@ -801,7 +807,7 @@ second time:
 
 ```
 $ mindweaver gather git https://github.com/acme/skills
-https://github.com/acme/skills at 9f8e7d6
+acme-skills: https://github.com/acme/skills at 9f8e7d6
   updated    commit-style  How this repo writes commit messages
   unchanged  ddd-reviewer  Review a change against the DDD layering rules
 
@@ -814,7 +820,7 @@ records which came from where.
 
 ```
 $ mindweaver gather git https://github.com/other/rules
-https://github.com/other/rules at 4d5e6f7
+other-rules: https://github.com/other/rules at 4d5e6f7
   added  commit-style  Conventional commits, strictly
   added  pdf--forms    Fill in PDF forms
 
@@ -822,10 +828,43 @@ https://github.com/other/rules at 4d5e6f7
 warning: /home/you/Projects/.mindweaver/skills/github.com-other-rules/pdf--forms/SKILL.md: `pdf--forms` is not usable as a name: it has to be lowercase letters and digits, joined by single hyphens
 
 $ mindweaver gather list
-commit-style  https://github.com/acme/skills  How this repo writes commit messages
-commit-style  https://github.com/other/rules  Conventional commits, strictly
-ddd-reviewer  https://github.com/acme/skills  Review a change against the DDD layering rules
-pdf--forms    https://github.com/other/rules  Fill in PDF forms
+commit-style  acme-skills  How this repo writes commit messages
+commit-style  other-rules  Conventional commits, strictly
+ddd-reviewer  acme-skills  Review a change against the DDD layering rules
+pdf--forms    other-rules  Fill in PDF forms
+```
+
+Each is listed by the name of its source, which is what `--from` takes when
+two sources offer one name:
+
+```
+$ mindweaver install -p collapse commit-style --from other-rules
+installed commit-style into collapse, from https://github.com/other/rules
+```
+
+The install records where it came from by the source's URL, as `status` and
+`gather list --json` show it (its `origin`), and `--from` takes that too.
+
+One repository is one source however its URL is spelled. On GitHub and
+GitLab, `https://github.com/acme/skills`, `https://github.com/Acme/Skills.git`,
+`git@github.com:acme/skills.git`, `ssh://git@github.com/acme/skills` and
+`acme/skills` are the same repository, so gathering it by another of them
+brings the source it already is up to date, fetched by the spelling you gave
+this time. `acme/skills` alone is GitHub's: a folder on this machine is a
+path, `./acme/skills` when it is relative. Elsewhere only a credential, the
+case of the scheme and the host, a trailing `/` and `file://` before a path
+make no other source, since another host may serve a different repository at
+`host:path` than at `ssh://host/path`, or at `x.git` than at `x`, and at
+`alice@host:skills` than at `bob@host:skills`, so the user ssh logs in as is
+kept there; a relative path is one source of its own, whatever folder it
+names. Another spelling of
+a source's URL still works as `--from`, with a warning that it is not the
+name, and the install goes ahead:
+
+```
+$ mindweaver install -p tanukeys commit-style --from https://github.com/Acme/Skills.git
+installed commit-style into tanukeys, from https://github.com/acme/skills
+warning: --from https://github.com/Acme/Skills.git names the source `acme-skills` by another spelling of its URL, which --from takes for now: name it `acme-skills`
 ```
 
 A skill that cannot be read is a warning on stderr and does not stop the ones
@@ -882,10 +921,10 @@ $ mindweaver gather git https://me:ghp_t0ken@github.com/acme/private-skills
 error: https://github.com/acme/private-skills: a password, a token or, over http(s), a user name in the URL is refused, because gathering stores and shows the URL: gather it without one, and configure a git credential helper that has it
 ```
 
-So is such a URL typed where the branch (`--ref`) or the folder (`--path`)
-goes, which the workspace would otherwise keep as that branch or folder, word
-for word, and refused with the same words, the URL said without what it
-carried.
+So is such a URL typed where the branch (`--ref`), the folder (`--path`) or
+the name (`--name`) goes, which the workspace would otherwise keep as that
+branch or folder, word for word, and refused with the same words, the URL said
+without what it carried.
 
 The user ssh logs in as is not a credential, and is kept
 (`git@github.com:acme/skills`, `ssh://git@github.com/acme/skills`). Over https
@@ -912,6 +951,23 @@ note: 2 action log entries: the user names, passwords or tokens an older Mindwea
 The install screen does it when you apply what you marked, not when it opens.
 A command that only reads, such as `mindweaver gather list`, shows the URL without
 the token and leaves the file as it is.
+
+A workspace gathered into by two spellings of one repository's URL before
+names came in (#98) held two sources of it. The first command to open it with
+this version makes them one, keeping the one gathered most recently and what
+it gathered, and moves every installation from the other to it, a command
+that only reads too. The first command that writes removes the clone and the
+shelf folder of the one that went, and says so, once (again by each command
+that writes after it while a folder will not go):
+
+```
+$ mindweaver install -p collapse ddd-reviewer
+installed ddd-reviewer into collapse, from git@github.com:acme/skills.git
+note: https://github.com/acme/skills: the same repository as the source `acme-skills` (git@github.com:acme/skills.git), so the two are one source now, and the shelf keeps what `acme-skills` gathered
+```
+
+`--from https://github.com/acme/skills` still names it, with the warning
+above.
 
 ### What a workspace keeps
 
@@ -1131,10 +1187,12 @@ mind uninstall commit-style
 ```
 
 The same rule holds: a skill or a rule somebody wrote is never overwritten or
-removed, and says so. `--from` takes `workspace`, a shelf source's URL, or a
-loaded workspace's path or name, and is only needed when two places offer the
+removed, and says so. `--from` takes `workspace`, a shelf source's name or
+URL, or a loaded workspace's path or name, and is only needed when two places offer the
 same name: which of the two lands in the project's one folder of that name is
-not something to guess.
+not something to guess. A word that is both a source's name and a loaded
+workspace's name or path names neither, and is refused as offered twice: say
+the source's URL or `load:<path>` instead.
 
 `mindweaver install` takes `-p` once for each project, to install into several
 at once, or `--all-projects` for every one the workspace links, and `mindweaver
@@ -1532,7 +1590,8 @@ warning: /home/you/Projects/collapse/skills/broken/SKILL.md: the file does not s
 - `templates`: each template, its `origin` the folder or file it is, `null`
   for one built in.
 - `gather list`: what can be installed from elsewhere, each with the `place`
-  it comes from (`loaded` or `shelf`) and its `origin`, as `--from` takes it.
+  it comes from (`loaded` or `shelf`) and its `origin`, as `--from` takes it,
+  and for one from the shelf its `source`, by its `name` among the rest.
 - `status`, `workspaces` and `scan`: the reports shown in [what each project
   has](#what-each-project-has), [the weavers this machine
   knows](#the-weavers-this-machine-knows) and [commands](#commands).

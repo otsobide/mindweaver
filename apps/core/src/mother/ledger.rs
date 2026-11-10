@@ -11,7 +11,7 @@ use crate::mother::url::UrlMother;
 use crate::mother::value::{
     ArtifactNameMother, ContentHashMother, OriginMother, RedactedMother, RevisionMother,
 };
-use crate::value::{ArtifactName, ContentHash, Origin, Redacted};
+use crate::value::{ArtifactName, ContentHash, Origin, Redacted, SourceName};
 
 /// Makes [`Source`]s, as the ledger hands one back.
 pub struct SourceMother;
@@ -33,6 +33,7 @@ impl SourceMother {
             subdirectory: String::from(crate::gather::DEFAULT_SUBDIRECTORY),
             revision: Some(RevisionMother::random()),
             directory: random::word(),
+            name: SourceName::derived(&crate::url::canonical(url)),
         }
     }
 }

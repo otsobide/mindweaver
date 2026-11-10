@@ -42,12 +42,12 @@ use crate::code::codes;
 use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
-    Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Moved, Outcome,
-    Source, SourceKind, Target,
+    Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
+    Outcome, Source, SourceKind, Target,
 };
 use crate::settings::ProjectId;
 use crate::url::carries_credentials;
-use crate::value::{Redacted, Revision};
+use crate::value::{Redacted, Revision, SourceName};
 use crate::workspace::WorkspaceError;
 
 /// Where a source's artifacts are fetched from: a repository a gather clones
@@ -591,7 +591,10 @@ pub trait LedgerStore: Debug + Send {
     /// store kept nowhere says in its place (`:memory:` for SQLite's).
     fn path(&self) -> &Path;
 
-    /// The source matching this coordinate, if it has been gathered before.
+    /// The source at this coordinate, if it has been gathered before: the
+    /// one whose URL is `url` however it was spelled
+    /// ([`crate::url::canonical`]), at the same branch, or at the remote's
+    /// HEAD when `reference` is `None`, and from the same folder.
     fn source(
         &self,
         kind: SourceKind,
@@ -600,7 +603,9 @@ pub trait LedgerStore: Debug + Send {
         subdirectory: &str,
     ) -> Result<Option<Source>, LedgerError>;
 
-    /// The source for this coordinate, registering it the first time.
+    /// The source for this coordinate, registering it the first time, as
+    /// `url` was typed, under the name its URL gives it
+    /// ([`SourceName::derived`]), numbered when another source has that.
     ///
     /// Its `directory` is chosen once, here, and never recomputed: it is where
     /// files already are.
@@ -611,6 +616,32 @@ pub trait LedgerStore: Debug + Send {
         reference: Option<&str>,
         subdirectory: &str,
     ) -> Result<Source, LedgerError>;
+
+    /// The source called `name`, if one is.
+    fn source_named(&self, name: &SourceName) -> Result<Option<Source>, LedgerError>;
+
+    /// Call the source `id` `name` from now on. Whether no other source has
+    /// it is the caller's to have asked ([`source_named`](Self::source_named)):
+    /// a store refuses a name two sources would hold as a failure.
+    fn rename_source(&self, id: i64, name: &SourceName) -> Result<(), LedgerError>;
+
+    /// The sources the step to schema 7 made one with another ([`Merged`])
+    /// whose folders are not gone yet, in the order the step made them one.
+    ///
+    /// Kept from the step until then, rather than handed back by the opening
+    /// that took it: a read takes the step as often as a write does, the
+    /// first command after an upgrade being a `status` or a `list` as often
+    /// as not, and says nothing of it, so the first command that writes is
+    /// the one to say each merge and clear its folders
+    /// ([`crate::gather::scrub`]), whichever opened the ledger first. None
+    /// once that is done, and none from a store that never had an older
+    /// schema to step from.
+    fn merged(&self) -> Result<Vec<Merged>, LedgerError>;
+
+    /// Forget the merge [`merged`](Self::merged) hands back with the folders
+    /// called `directory`, once they are gone: a folder name a source may be
+    /// given again from then on, and a merge said for the last time.
+    fn cleared_merge(&self, directory: &str) -> Result<(), LedgerError>;
 
     /// Note which revision a source was last gathered at.
     fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError>;
@@ -894,28 +925,19 @@ pub trait LedgerStore: Debug + Send {
     /// never the one it has: nothing the ledger returns carries a credential.
     fn tainted_sources(&self) -> Result<Vec<Source>, LedgerError>;
 
-    /// Store a source's URL without the credentials in it, handing back the
-    /// row that went if that made two rows one.
+    /// Store a source's URL without the credentials in it.
     ///
-    /// When another source already holds that URL, with the same branch and
-    /// folder, the two are one place gathered twice, so they become one row
-    /// rather than two with the same address: two rows would make the shelf
-    /// offer each skill twice under one origin, and `--from` could not tell
-    /// them apart. The one whose shelf was filled most recently is kept, since
-    /// its folder holds the newer files; a row whose gather failed before it
-    /// filled anything loses to one that did, however recently it was tried.
-    /// What the other one gathered goes with it, rather than moving to the
-    /// kept row: its files are in the other's folder, and a record pointing
-    /// there would outlive the folder's owner, so the next source given that
-    /// folder would gather over files the kept row still claims. An
-    /// installation that pointed at the other points at the kept one, which
-    /// is the same place. The row that went is handed back for its folders to
-    /// go too, which nothing points into any more.
+    /// Two rows it would make one are one already: the URL a source is
+    /// known by holds no credential ([`crate::url::canonical`]), so a row
+    /// whose URL only a credential told from another's was made one with it
+    /// by the step to schema 7, which kept the one whose shelf was filled
+    /// most recently ([`Merged`]). Before that step the scrub made them one
+    /// itself, by the same rule.
     ///
     /// An installation's origin is rewritten with the URL it spells: schema 3
     /// filled it in from the URL as it was stored, credentials and all, and
     /// nothing else would take them out of it.
-    fn scrub_source(&self, id: i64) -> Result<Option<Source>, LedgerError>;
+    fn scrub_source(&self, id: i64) -> Result<(), LedgerError>;
 
     /// Rewrite every action log entry without the credentials of any URL in
     /// it, returning how many there were.

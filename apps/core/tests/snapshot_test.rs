@@ -723,7 +723,8 @@ const EXPECTED: &str = r#"{
         "reference": null,
         "subdirectory": "skills",
         "revision": "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3",
-        "directory": "github.com-acme-skills"
+        "directory": "github.com-acme-skills",
+        "name": "acme-skills"
       },
       "origin": "https://github.com/acme/skills"
     }
@@ -736,6 +737,7 @@ const EXPECTED: &str = r#"{
       "subdirectory": "skills",
       "revision": "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3",
       "directory": "github.com-acme-skills",
+      "name": "acme-skills",
       "origin": "https://github.com/acme/skills"
     }
   ],

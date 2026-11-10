@@ -479,9 +479,12 @@ made only the way its rule allows:
 
 - **Held to a rule**: `ContentHash`, which only the recipes in `hash` make
   (and `ContentHash::parse`, from a digest somebody hands over, and the
-  ledger, as it holds one); `ProjectId`, generated or parsed; and
+  ledger, as it holds one); `ProjectId`, generated or parsed;
   `Redacted`, a URL or words that may quote one, made only through
-  `Redacted::new`, which takes every credential out. A function handed one
+  `Redacted::new`, which takes every credential out; and `SourceName`, what
+  a gathered source is called, parsed from what somebody typed or derived
+  from its URL ([everything is namespaced by its
+  source](#everything-is-namespaced-by-its-source)). A function handed one
   need not check it again: the rule is the type.
 - **Named apart**: `ArtifactName`, `Origin` and `Revision`, and an MCP
   server's `InputName` and `VariableName`, which hold any text, since core
@@ -2539,6 +2542,13 @@ type derives `Serialize` from the start:
   `Asking`, each install of a plan that waits for a yes, as `asks` on
   `Planned`: the task it confirms by its place, the lines it was shown
   with, and the task carrying the yes.
+- **Named by #98**: what a gathered source is called, as `name` on a
+  `ledger::Source`, and so on each shelf row's source, on each of the
+  snapshot's `sources` and in what `gather list --json` prints of an offer
+  from the shelf, and on a gather's `Report`: a name added, which moves
+  neither `ENVELOPE_VERSION` nor `view::FORMAT`. Every `origin` holds what
+  it held, which an install records ([everything is namespaced by its
+  source](#everything-is-namespaced-by-its-source)).
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3082,6 +3092,58 @@ different source is a different thing rather than a collision. This is the same
 answer `Catalog::find` gives inside a project (return both, decide nothing),
 one level up.
 
+A source is one repository however its URL is spelled, and is called by a
+name ([D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), which
+closed issue #7). It was its URL as typed, so `https://github.com/acme/skills`
+and `git@github.com:acme/skills.git` were two sources of one repository, each
+offering every skill under an origin of its own, and the `UNIQUE` the ledger
+kept held nothing at the remote's HEAD, where the branch is `NULL`, which
+SQLite never finds equal to another. A source is now found by the URL every
+spelling of it is (`url::canonical`): on GitHub and GitLab the https, ssh and
+scp-like spellings, and `owner/repo`, are `https://<host>/<owner>/<repo>` in
+lowercase without `.git`, since both forges read them as one repository;
+elsewhere only what names no other repository goes (a credential, the case
+of the scheme and the host, a trailing `/`, `file://` before a path), since
+on a host of somebody's own `host:path` starts at the login's home where
+`ssh://host/path` starts at the root, and `x.git` may be another `x`. So the
+user ssh logs in as stays there, as `url::redacted` keeps it:
+`alice@host:skills` and `bob@host:skills` are two homes' folders, and one
+repository two logins reach being two sources is the way to be wrong that
+loses nothing. A relative path is an identity of its own, as typed: which folder it
+names depends on where it was typed, which a rule of text cannot know. With the branch, empty for the remote's HEAD, and the folder, that is
+the identity a unique index holds, so a second spelling gathers into the
+source the first registered, from the URL typed this time: the spelling
+somebody asks for now, ssh where https needs a credential the helpers lack.
+`owner/repo` is fetched from GitHub (`url::fetched`), as `gh` and Claude
+Code's plugin marketplaces read it, so a folder on this machine is a path
+that says so, `./skills/repo` when it is relative: reading `owner/repo` as a
+folder whenever one of that name happened to be there would make which
+repository a command names depend on where it ran.
+
+Its name (`value::SourceName`) is `owner-repo`, the last two folders of that
+identity, numbered when another source has it, unless `gather git --name`
+gives one, which a later gather with another `--name` changes; letters,
+digits, `.`, `_` and `-`, so it is one word on a command line, none of the
+origins `--from` takes (no `:`, which `load:` has, no `/`, which a path
+has, and not `workspace`). A name another source has is refused before
+anything is registered or fetched: one name is one source. A loaded
+workspace may still be called what a source is, or be loaded from a folder
+of that name, which `--from` took for it before sources had names: such a
+word names neither, refused as offered twice, since taking it for the
+source would hand a script the source's skill unsaid, and each is still
+named by its origin (`install::Naming::Named`). It is what `gather
+list` shows of where an offer from the shelf comes from (`Offer::listed_from`)
+and what `--from` takes for it, which is what a listing showing it is for. The
+origin an install records stays the source's URL with its branch, which
+`--from` takes as before, and so does every `origin` the envelope and the
+snapshot hold: an update finds an installation's offer by it, and changing
+what it holds would have moved both their versions for a name they can carry
+beside it. A URL spelled another way than the source's, the spelling of a
+row the step to schema 7 made one with another, or one typed from memory,
+still names the source, said with a warning of its own code
+(`from_spelling_deprecated`, `install::Respelled`) that fails nothing,
+since the scripts it is for would break.
+
 The folder a skill lands in keeps the name the **source** gave it, not the name
 the skill declares. When those disagree that is something gathering warns about
 and `mindweaver validate` reports; renaming the folder on the way in would repair
@@ -3150,7 +3212,8 @@ has them. A cancel that comes later is too late, and the gather finishes.
 a cancel stops offering it when the gather stops honouring it, rather than
 knowing where the check is. Cancelled in time, the shelf and the ledger are as
 they were: the gather is not logged, and a source it registered is forgotten
-again. It is registered before the fetch because the clone needs the folder
+again, and a source a `--name` renamed is called what it was. It is
+registered before the fetch because the clone needs the folder
 name registering gives it; holding the registration in a transaction until the
 gather ends was the other way, and is rejected, because every other write to
 the ledger would wait as long as the network does. The clone is not part of the
@@ -3265,7 +3328,8 @@ So is such a URL typed where the branch or the folder goes: the ledger keeps
 a source's branch and folder word for word, since neither is a URL, and a
 `GitError` would quote the branch, so a token typed there, found by the
 suite that tries every credentialed form in every place a gather takes text,
-was stored and printed until it was refused alike. Behind that refusal the rest holds whichever caller is writing. The ledger
+was stored and printed until it was refused alike, and so is one typed as
+the name (`--name`), which a name could never hold anyway. Behind that refusal the rest holds whichever caller is writing. The ledger
 redacts every URL on the way in and again on the way out, so nothing it hands
 back carries a credential, scrubbed yet or not. Every `GitError` redacts the
 URL and what `gix` said. A clone is scrubbed as soon as it is made (the gix
@@ -3298,15 +3362,12 @@ in both screens, when what it marked is applied rather than as it opens,
 which is a read ([A read leaves the ledger as it finds
 it](#a-read-leaves-the-ledger-as-it-finds-it)): applying runs the `install`
 and `uninstall` lines its marks amount to, and the first of them opens the
-ledger to write, scrubbing it, as from the shell. A scrub can make two sources
-one row, and a mark on the row that went would install from folders the scrub
-removed, or copy the files and then fail to record them. Each install line
-names its offer by its origin (`--from`), which is shown without credentials
-before a scrub as after it, so once a scrub has taken out a source the line
-finds the row it became one with, through the lookup any `--from` goes
-through; a line for what only the row that went had gathered is refused as
-not offered, said under that line. Scrubbing as the screen opened would have
-spared that, and is rejected: opening it is a read. An edit writes
+ledger to write, scrubbing it, as from the shell. A scrub made two sources one
+row before schema 7, when a mark on the row that went would have installed
+from folders the scrub removed; since that step, two rows only a credential
+told apart are one source already, made one as the ledger was opened, the
+screen's reading included, so no scrub drops a row a mark is on. Scrubbing as
+the screen opened is still rejected: opening it is a read. An edit writes
 nothing to the ledger, since it keeps the record as it was, so `finish_edit`
 only reads it (`ledger_for_reading`) and scrubs nothing.
 
@@ -3316,25 +3377,30 @@ from the URL as it was stored, and the action log. A clone is rewritten before
 its row, so a clone that cannot be rewritten keeps its row tainted and is
 tried again next time, as a warning; what was taken out is a note, said once,
 since the command did what it was asked and an exit code that failed because
-of a fix would break a script for nothing it did. When the URL without
-credentials is already another source's, with the same branch and folder, the
-two are one place gathered twice and become one row: two rows would offer each
-skill twice under one origin, and SQLite's UNIQUE would refuse the rewrite
-outright when a branch is set. The row kept is the one whose shelf was filled
-most recently, since its folder holds the newer files, and a row whose gather
-failed before it took anything loses however recently it was tried. What the
-other row gathered goes with it, and its clone and shelf folder are removed (a
-folder that will not go is a warning), rather than its records moving to the
-kept row: they would point into a folder the ledger no longer reserves, which
-the next source with the same readable name would be given and gather over.
-The ledger turns on SQLite's `secure_delete`, so a rewritten row leaves no
-copy of its old text in the file's free space.
+of a fix would break a script for nothing it did. Two rows whose URLs only a
+credential told apart, with the same branch and folder, are one place
+gathered twice, which the step to schema 7 makes one row, as it does two
+spellings of one URL ([why the ledger is SQLite](#why-the-ledger-is-sqlite)),
+before the scrub ever sees them: the URL a source is known by holds no
+credential. Before that step the scrub made them one itself, by the rule the
+step keeps: the row kept is the one whose shelf was filled most recently,
+since its folder holds the newer files, and a row whose gather failed before
+it took anything loses however recently it was tried. What the other row
+gathered goes with it, and its clone and shelf folder are removed (a folder
+that will not go is a warning), rather than its records moving to the kept
+row: they would point into a folder the ledger no longer reserves, which the
+next source with the same readable name would be given and gather over. The
+ledger turns on SQLite's `secure_delete`, so a rewritten row leaves no copy of
+its old text in the file's free space.
 
 It runs every time rather than once, as a schema step would, because an older
 build could keep writing to the same file after a newer one had scrubbed it,
 and the schema steps are spoken for by the changes that need a new version.
 Schema 3 is a file such a build refuses, so the scrub could now be part of
-that step; whether it should is open (see the open questions). With
+that step, and schema 7, which makes rows one, could have been; whether it
+should is open (see the open questions). Schema 7 runs it again only in that
+the first command that writes after the step scrubs what the step left,
+the clones of the rows it kept among it. With
 nothing to do it still reads, every time a command writes: a scan of the
 sources and one of the action log, in a transaction. Neither can use an index,
 so the log's grows with the log, and every entry naming an ssh URL, which
@@ -3469,7 +3535,9 @@ command that writes to it makes it; a read never does, and changes an existing
 one only to migrate it ([A read leaves the ledger as it finds
 it](#a-read-leaves-the-ledger-as-it-finds-it)).
 
-Six things are recorded: the **sources** gathered from, the **artifacts** on
+Six things are recorded: the **sources** gathered from, each by its name and
+the identity of its URL ([everything is namespaced by its
+source](#everything-is-namespaced-by-its-source)), the **artifacts** on
 the shelf and which source each came from, the **installations** (which skill,
 rule or MCP server Mindweaver put into which project, from where, every copy it
 wrote and a hash of what it wrote, or for a server every entry it wrote into
@@ -3492,7 +3560,7 @@ A source's shelf folder is stored rather than derived: two URLs can reduce to
 the same readable name, and where a source's files went is a fact about the
 past that must not move when the naming rule changes.
 
-The schema has had six versions, each a block in the SQLite store's
+The schema has had seven versions, each a block in the SQLite store's
 migration (`adapter::sqlite::Sqlite::migrate`) and a
 constant beside it:
 
@@ -3530,6 +3598,17 @@ constant beside it:
    an entry is found by its key in a file every server of the project
    shares. The definition's origin is the installation's `origin`, which
    version 3 added, so the step adds nothing for it.
+7. On `sources`, a `name`, a `canonical_url` and a `reference_key`, empty
+   for the remote's HEAD, unique behind `sources_by_name` and
+   `sources_by_identity`, so a source is called by one name and is one
+   repository however its URL is spelled (#98,
+   [D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), closing
+   the hole #7 left); and `pin` and `parent_id`, for what a source is
+   pinned to (#99) and the marketplace it is listed by (#103), which
+   nothing reads or writes yet. The columns go on the end of the table
+   rather than into a new one, which would be copied in under foreign keys
+   that cascade a dropped `sources` into every artifact, and the old
+   `UNIQUE` stays, holding nothing the new index does not.
 
 An older ledger is migrated step by step, so one made two versions ago ends
 where one made today begins, and two rules hold for every step:
@@ -3576,8 +3655,41 @@ is what the projects hold, not how today's code spells something. A project
 a `mind.toml` marks, an entry that will not open and an id two linked
 directories hold are handed in for none, and their records keep their route
 alone. Version 6 fills in nothing: no build before it installed an MCP
-server. D-04's states (#47) took no step of their own:
-what tells them apart is the hash each copy was written with, which versions
+server. Version 7 is handed, as values, what no SQL can work out of a
+source's URL, as version 5 is handed each project's id: the identity it is
+(`url::canonical`, the rule a gather finds a source by), the name a gather
+would give it (`owner-repo`, `SourceName::derived`) and the URL without a
+credential (`url::redacted`), each worked out before the step
+(`spelled_sources`). Its own SQL writes each row's identity in, names each
+source by what it is handed in the order the sources were first gathered,
+the later of two that would take one name numbered, and makes rows that turn
+out to be one place one, before the identity is made unique: the one whose shelf
+was filled most recently is kept, by the rule the scrub keeps, what the
+other gathered goes with it, and every installation from it is from the kept
+one, its origin rewritten to the kept one's as version 3 spelled an origin,
+without the credential the kept one's URL may still hold, so an update finds
+where it came from offered there and no row is given one it did not hold. It
+is the second
+exception, and of another kind: what it is handed is what today's rules say
+of each row, since no SQL can tell that two URLs are one repository's, and
+once written into the row it is what a gather finds its source by. A build
+that changes a rule changes which URLs are one, and so takes a step of its
+own to write each identity again. Each row that went is kept in a table of
+the step's own, `merged_sources`, by the URL it was gathered from without a
+credential, its branch, its folder name and the source it is one with
+(`LedgerStore::merged`), until the first command that writes has said it and
+removed its clone and shelf folders, which nothing points into any more
+(`gather::scrub`, holding the workspace while it does). Kept in the file
+rather than handed back by the opening that took the step, because that is a
+read as often as not, a `status` or a `list` after an upgrade, which says
+nothing of the step and removes no folder: whichever command took it, the
+first that writes says each merge, as it says what the scrub took out, and
+says it again with each folder that will not go, which every command that
+writes tries again, until it goes. While a merge is kept its folder name is
+given to no new source, so no gather can clone into a folder about to be
+removed. A credential is left where the scrub finds it, which rewrites a
+clone before its row, and which the first command that writes runs next.
+D-04's states (#47) took no step of their own: what tells them apart is the hash each copy was written with, which versions
 3 and 4 keep, and what the place it came from offers now, which is read where
 it is offered rather than kept. A record with no hash is held to its offer
 by the code that reads it (`install::standings`), since a step has no offer
@@ -9124,7 +9236,11 @@ asked for. Every migration copies the database aside before its first step
 ([Why the ledger is SQLite](#why-the-ledger-is-sqlite)), and a read migrates
 through the same migration (`Sqlite::migrate`), so it leaves that copy too: the first
 `mindweaver gather list` after an upgrade puts `mindweaver.db.v2.bak` beside a
-ledger version 2 wrote.
+ledger version 2 wrote. The step to schema 7 is among it: on a read too it
+makes two sources of one repository one, and keeps the one that went in the
+file, for the first command that writes to say and to remove its folders
+([Why the ledger is SQLite](#why-the-ledger-is-sqlite)); a read removes no
+folder and says nothing of it.
 
 ## Agents, and where each kind reaches them
 
@@ -11701,6 +11817,11 @@ reference closes. Rejected: a `name@source` spelling, when `@` already means
 plugin@marketplace in Claude and skill@version in `gh`; and keeping URL
 strings. claude-community lists 2283 entries, so gathering a marketplace whole
 by default would clone thousands of repositories. Unblocks #98, #100 and #103.
+#98 carried out what a git source needs ([everything is namespaced by its
+source](#everything-is-namespaced-by-its-source)), the name and the identity
+among it, and the columns the marketplace's children will use; `--from`
+still takes the origin an install records beside the name, since every
+record and every `origin` the envelope and the snapshot hold spell it.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -12871,7 +12992,9 @@ it once as it closes.
   as the file is opened, before any scrub. Rewriting the copy too, or taking
   it without them, would close that, at the cost of a way back that is no
   longer the file as it was: two of its sources the rewrite makes one would
-  have to be merged in the copy, as the scrub merges them in the ledger.
+  have to be merged in the copy, as the step to schema 7 merges them in the
+  ledger. The copy that step takes holds every spelling it made one, as the
+  way back should.
 - **Seeing to a record from elsewhere.** A change sees to the record of the
   workspace its command resolved, wherever that sits, but not of any other
   workspace that links the same project: nothing in the project says which
@@ -13175,7 +13298,17 @@ it once as it closes.
   finds it](#a-read-leaves-the-ledger-as-it-finds-it)), so a scrub folded into
   that step would run on a read as well, rewriting clones as well as the file,
   and a read would then have to say what it took out, as only a command that
-  writes does now.
+  writes does now. Schema 7 (#98) left it where it was for the same reason:
+  its step makes rows one, on a read too, but leaves their folders and a
+  credential to the scrub, which rewrites a clone before its row and is the
+  one that says what it did.
+- **`owner/repo` is GitHub's.** A gather reads two plain names with one `/`
+  between them as the GitHub repository they name, so a relative path of
+  two folders has to be written `./skills/repo` to be gathered from this
+  machine, which before #98 it did not. GitLab's `owner/repo` is spelled in
+  full. Whether the shorthand should look for the folder first is the
+  owner's to say; it was rejected so that which repository a command names
+  never depends on where it runs.
 - **A user name on its own in an https URL.** #25 allows a bare user name,
   and its examples are ssh's (`git@host:...`, `ssh://git@host/...`). Only ssh
   keeps one here: over http(s) a user name is refused at gather and taken out

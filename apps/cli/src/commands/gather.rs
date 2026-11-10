@@ -29,6 +29,7 @@ pub(crate) fn run_gather(
             url,
             path,
             reference,
+            name,
         } => {
             let workspace = workspace_here(directory, lookup)?;
             let (ledger, scrub) = workspace.ledger_to_write().map_err(CliError::from)?;
@@ -36,6 +37,7 @@ pub(crate) fn run_gather(
             let request = Request::git(url.clone())
                 .from_subdirectory(path.clone())
                 .at(reference.clone())
+                .named(name.clone())
                 .watched_by(watch.clone());
             match gather::gather(&workspace, &ledger, &request) {
                 Ok(report) => Ok(said.before(gathered(url, &report))),
@@ -127,18 +129,33 @@ impl Scrubbed {
 /// person can act on: every source it scrubbed now needs its credential from
 /// a git credential helper.
 pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
+    // What the step to schema 7 made one first, which came first: the
+    // spelling that went is what a script may still name it by.
     let mut notes: Vec<Warning> = scrub
-        .sources
+        .merged
         .iter()
-        .map(|source| {
+        .map(|merged| {
+            let went = match &merged.reference {
+                Some(reference) => format!("{}#{reference}", merged.url),
+                None => merged.url.to_string(),
+            };
             format!(
-                "note: {}: the user name, password or token an older Mindweaver stored in this \
-                 URL is taken out; gathering it again needs a git credential helper that has it",
-                source.url
+                "note: {went}: the same repository as the source `{name}` ({kept}), so the two \
+                 are one source now, and the shelf keeps what `{name}` gathered",
+                name = merged.into.name,
+                kept = merged.into.origin(),
             )
             .into()
         })
         .collect();
+    notes.extend(scrub.sources.iter().map(|source| {
+        format!(
+            "note: {}: the user name, password or token an older Mindweaver stored in this \
+                 URL is taken out; gathering it again needs a git credential helper that has it",
+            source.url
+        )
+        .into()
+    }));
     match scrub.actions {
         0 => {}
         1 => notes.push(
@@ -171,8 +188,9 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
     }
 }
 
-/// What one gather did, in the order it is worth reading: the source, then
-/// every artifact and what happened to it, then the count.
+/// What one gather did, in the order it is worth reading: the source, by
+/// the name `--from` takes and the URL it was gathered from, then every
+/// artifact and what happened to it, then the count.
 ///
 /// The source is named without credentials, as everywhere a URL is shown.
 /// A gather that got this far was given none, since core refuses them, so
@@ -185,7 +203,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         .as_deref()
         .map(short)
         .map_or_else(String::new, |revision| format!(" at {revision}"));
-    let _ = writeln!(stdout, "{url}{at}");
+    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
 
     // Added first, then updated, then unchanged: a second gather is run to
     // find out what moved, and what moved should not be at the bottom.
@@ -238,7 +256,8 @@ fn gathered(url: &str, report: &Report) -> Outcome {
 }
 
 /// Everything that can be installed from elsewhere, with where each thing
-/// comes from, spelled as `--from` takes it.
+/// comes from, spelled as `--from` takes it: a source by its name
+/// ([`Offer::listed_from`]).
 ///
 /// Empty, it says how to fill it, and suggests loading only when nothing is
 /// loaded yet; `mindweaver load` on its own lists what is.
@@ -272,7 +291,7 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
                 row.push(entry.kind().slug().to_owned());
             }
             row.push(printable(entry.name()));
-            row.push(printable(&entry.origin()));
+            row.push(printable(&entry.listed_from()));
             row.push(printable(entry.summary().unwrap_or("")));
             row
         })

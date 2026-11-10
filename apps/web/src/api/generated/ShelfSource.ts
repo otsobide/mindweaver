@@ -36,4 +36,10 @@ revision: string | null,
  * name, and where a source's files went is a fact about the past that
  * must not move when the naming rule changes.
  */
-directory: string, };
+directory: string, 
+/**
+ * What it is called (D-13), one name a source: `owner-repo` unless
+ * somebody named it ([`SourceName::derived`]), what a listing shows
+ * and `--from` takes.
+ */
+name: string, };

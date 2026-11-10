@@ -1591,7 +1591,8 @@ impl WeaverWorkspace {
     ///
     /// A ledger made or migrated here is told the id of each project the
     /// workspace links (`WeaverWorkspace::known`), which the step to schema 5
-    /// names each one's records by.
+    /// names each one's records by. What the step to schema 7 made one is
+    /// left for a command that writes to say and clear ([`gather::scrub`]).
     pub fn ledger(&self) -> Result<Ledger, LedgerError> {
         if !self.made {
             return Err(LedgerError::Unmade {

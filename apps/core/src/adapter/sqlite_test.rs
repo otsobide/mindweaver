@@ -326,8 +326,10 @@ fn ledger_with_a_token_in_it() -> (tempfile::TempDir, Sqlite) {
     ledger
         .connection
         .execute_batch(
-            "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES (1, 'git', 'https://me:hunter2@h/a', NULL, 'skills', 'h-a', 0, 0);
+            "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen,
+                                  last_seen, name, canonical_url)
+                 VALUES (1, 'git', 'https://me:hunter2@h/a', NULL, 'skills', 'h-a', 0, 0, 'h-a',
+                         'https://h/a');
              INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
                  VALUES ('skill', 'deploy', 1, '.mindweaver/skills/h-a/deploy', 0);
              INSERT INTO actions (at, action, target, outcome, detail)
@@ -343,9 +345,10 @@ fn only_a_url_with_credentials_is_tainted_and_it_is_handed_back_without_them() {
     ledger
         .connection
         .execute_batch(
-            "INSERT INTO sources (kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES ('git', 'ssh://git@h/b', NULL, 'skills', 'h-b', 0, 0),
-                        ('git', 'https://h/c', NULL, 'skills', 'h-c', 0, 0);",
+            "INSERT INTO sources (kind, url, reference, subdirectory, directory, first_seen,
+                                  last_seen, name, canonical_url)
+                 VALUES ('git', 'ssh://git@h/b', NULL, 'skills', 'h-b', 0, 0, 'h-b', 'ssh://h/b'),
+                        ('git', 'https://h/c', NULL, 'skills', 'h-c', 0, 0, 'h-c', 'https://h/c');",
         )
         .unwrap();
 
@@ -377,83 +380,135 @@ fn a_scrubbed_source_leaves_no_copy_of_its_credentials_in_the_file() {
     assert_eq!(ledger.gathered().unwrap().len(), 1);
 }
 
+/// A ledger on disk at schema 6, holding what `rows` inserts, for the step
+/// to schema 7 to take when it is opened.
+fn at_six(rows: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join(LEDGER_FILE);
+    let connection = Connection::open(&path).unwrap();
+    for schema in [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+    ] {
+        connection.execute_batch(schema).unwrap();
+    }
+    connection.execute_batch(rows).unwrap();
+    connection.pragma_update(None, "user_version", 6).unwrap();
+    (dir, path)
+}
+
 #[test]
-fn a_source_scrubbed_onto_one_already_at_its_url_becomes_one_row() {
-    let (_dir, ledger) = ledger_with_a_token_in_it();
-    // Gathered first without the token, which failed and left an empty row,
-    // then with it, which worked: the kept row is the later one.
-    ledger
-        .connection
-        .execute_batch(
-            "UPDATE sources SET last_seen = 20 WHERE id = 1;
-             INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES (2, 'git', 'https://h/a', NULL, 'skills', 'h-a-2', 10, 10);
-             INSERT INTO installations (project, kind, name, source_id, installed_at)
-                 VALUES ('../p', 'skill', 'deploy', 1, 0);",
-        )
-        .unwrap();
-
-    let gone = ledger.scrub_source(1).unwrap();
-
-    let gathered = ledger.gathered().unwrap();
-    assert_eq!(gathered.len(), 1, "{gathered:?}");
-    assert_eq!(gathered[0].source.id, 1);
-    assert_eq!(gathered[0].source.url, "https://h/a");
-    assert_eq!(gathered[0].source.directory, "h-a");
-    assert_eq!(stored(&ledger, "sources").lines().count(), 1);
-    // Handed back so its folder can go too.
-    assert_eq!(
-        gone.map(|source| source.directory).as_deref(),
-        Some("h-a-2")
+fn the_step_to_seven_makes_two_spellings_of_one_url_one_source_the_fresher_kept() {
+    // Gathered first by its https URL, which failed and left an empty row,
+    // then over ssh, which worked: the kept row is the one that filled a
+    // shelf, though the other was tried later.
+    let (_dir, path) = at_six(
+        "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
+             VALUES (1, 'git', 'git@github.com:acme/skills.git', NULL, 'skills',
+                     'github.com-acme-skills', 0, 10),
+                    (2, 'git', 'https://github.com/Acme/Skills', NULL, 'skills',
+                     'github.com-acme-skills-2', 20, 20);
+         INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
+             VALUES ('skill', 'deploy', 1, '.mindweaver/skills/github.com-acme-skills/deploy', 10);
+         INSERT INTO installations (project, kind, name, source_id, installed_at, origin)
+             VALUES ('p', 'skill', 'deploy', 2, 0, 'https://github.com/Acme/Skills');",
     );
+
+    let ledger = Sqlite::open(&path).unwrap();
+
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 1, "{sources:?}");
+    assert_eq!(sources[0].id, 1);
+    assert_eq!(sources[0].name, "acme-skills");
+    assert_eq!(
+        ledger.merged().unwrap(),
+        [Merged {
+            url: Redacted::new("https://github.com/Acme/Skills"),
+            reference: None,
+            directory: String::from("github.com-acme-skills-2"),
+            into: sources[0].clone(),
+        }]
+    );
+    // An installation from the row that went is from the kept one, by the
+    // origin `--from` takes for it now.
+    let record = ledger
+        .installation("p", Kind::Skill, "deploy")
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.source_id, Some(1));
+    assert_eq!(
+        record.origin.as_deref(),
+        Some("git@github.com:acme/skills.git")
+    );
+    // Found by either spelling, or a third.
+    for spelling in [
+        "https://github.com/acme/skills",
+        "ssh://git@github.com/acme/skills.git",
+        "acme/skills",
+    ] {
+        assert_eq!(
+            ledger
+                .source(SourceKind::Git, spelling, None, "skills")
+                .unwrap()
+                .map(|source| source.id),
+            Some(1),
+            "{spelling}"
+        );
+    }
+    // Opened again, there is nothing more to make one, and the merge is
+    // kept for a command that writes to say, until it clears it.
+    drop(ledger);
+    let again = Sqlite::open(&path).unwrap();
+    assert_eq!(again.merged().unwrap().len(), 1);
+    again.cleared_merge("github.com-acme-skills-2").unwrap();
+    assert!(again.merged().unwrap().is_empty());
 }
 
 #[test]
-fn a_row_tried_later_that_filled_no_shelf_loses_to_the_one_that_did() {
-    let (_dir, ledger) = ledger_with_a_token_in_it();
-    // Gathered with the token, which worked, then tried without it, which
-    // failed before it took anything: the later row is the empty one.
-    ledger
-        .connection
-        .execute_batch(
-            "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES (2, 'git', 'https://h/a', NULL, 'skills', 'h-a-2', 30, 30);",
-        )
+fn a_folder_name_a_merge_is_kept_by_is_given_to_no_new_source_until_it_is_cleared() {
+    let (_dir, path) = at_six(
+        "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
+             VALUES (1, 'git', 'https://h/a', NULL, 'skills', 'h-a', 0, 0),
+                    (2, 'git', 'https://h/a/', NULL, 'skills', 'h-a-2', 10, 10);",
+    );
+    let ledger = Sqlite::open(&path).unwrap();
+    // The row tried earlier went, and the folder name `h-a` with it.
+    assert_eq!(ledger.merged().unwrap()[0].directory, "h-a");
+
+    // A new source whose readable name is `h-a` is given another folder.
+    let held = ledger
+        .source_for(SourceKind::Git, "https://h-a", None, "skills")
         .unwrap();
+    assert_eq!(held.directory, "h-a-3");
 
-    let gone = ledger.scrub_source(1).unwrap();
-
-    let gathered = ledger.gathered().unwrap();
-    assert_eq!(gathered.len(), 1, "{gathered:?}");
-    assert_eq!(gathered[0].name, "deploy");
-    assert_eq!(gathered[0].source.id, 1);
-    assert_eq!(gathered[0].source.url, "https://h/a");
-    assert_eq!(gone.map(|source| source.id), Some(2));
+    // Once its folders are gone it is free, for another place there.
+    ledger.cleared_merge("h-a").unwrap();
+    let freed = ledger
+        .source_for(SourceKind::Git, "https://h-a", None, "agents")
+        .unwrap();
+    assert_eq!(freed.directory, "h-a");
 }
 
 #[test]
-fn merging_keeps_the_fresher_rows_artifacts_and_lets_the_others_go_with_its_row() {
-    let (_dir, ledger) = ledger_with_a_token_in_it();
-    // A branch is part of the coordinate, so this is the case SQLite's UNIQUE
-    // would refuse if the URL were rewritten before the other row went.
-    ledger
-        .connection
-        .execute_batch(
-            "UPDATE sources SET reference = 'main' WHERE id = 1;
-             INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
-                 VALUES ('skill', 'only-here', 1, '.mindweaver/skills/h-a/only-here', 0);
-             INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES (2, 'git', 'https://h/a', 'main', 'skills', 'h-a-2', 10, 10);
-             INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
-                 VALUES ('skill', 'deploy', 2, '.mindweaver/skills/h-a-2/deploy', 10);
-             INSERT INTO installations (project, kind, name, source_id, installed_at)
-                 VALUES ('../p', 'skill', 'only-here', 1, 0);",
-        )
-        .unwrap();
+fn the_step_to_seven_keeps_the_fresher_rows_artifacts_and_lets_the_others_go_with_its_row() {
+    // A branch is part of the identity, empty at the remote's HEAD, so these
+    // two are one place, as SQLite's UNIQUE could never say at the HEAD.
+    let (_dir, path) = at_six(
+        "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
+             VALUES (1, 'git', 'https://h/a/', 'main', 'skills', 'h-a', 0, 0),
+                    (2, 'git', 'HTTPS://H/a', 'main', 'skills', 'h-a-2', 10, 10),
+                    (3, 'git', 'https://h/a', 'next', 'skills', 'h-a-3', 0, 0),
+                    (4, 'git', 'https://h/a', NULL, 'skills', 'h-a-4', 0, 0),
+                    (5, 'git', 'https://h/a/', NULL, 'skills', 'h-a-5', 0, 0);
+         INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
+             VALUES ('skill', 'only-here', 1, '.mindweaver/skills/h-a/only-here', 0),
+                    ('skill', 'deploy', 2, '.mindweaver/skills/h-a-2/deploy', 10);
+         INSERT INTO installations (project, kind, name, source_id, installed_at)
+             VALUES ('p', 'skill', 'only-here', 1, 0);",
+    );
 
-    let gone = ledger.scrub_source(1).unwrap();
+    let ledger = Sqlite::open(&path).unwrap();
 
-    // Nothing points into the folder of the row that went, so the next
+    // Nothing points into the folder of a row that went, so the next
     // source given that folder cannot gather over files a record claims.
     let gathered = ledger.gathered().unwrap();
     let names: Vec<(&str, i64, &str)> = gathered
@@ -461,9 +516,57 @@ fn merging_keeps_the_fresher_rows_artifacts_and_lets_the_others_go_with_its_row(
         .map(|g| (g.name.as_str(), g.source.id, g.path.as_str()))
         .collect();
     assert_eq!(names, [("deploy", 2, ".mindweaver/skills/h-a-2/deploy")]);
-    assert_eq!(gone.map(|source| source.directory).as_deref(), Some("h-a"));
+    let merged = ledger.merged().unwrap();
+    let merged: Vec<(&str, i64)> = merged
+        .iter()
+        .map(|merged| (merged.directory.as_str(), merged.into.id))
+        .collect();
+    // At the HEAD neither filled a shelf nor was tried later, so the later
+    // row is kept.
+    assert_eq!(merged, [("h-a-4", 5), ("h-a", 2)]);
     // An installation is about the place, which is the kept row now.
     assert!(stored(&ledger, "installations").contains("|only-here|2|"));
+    // Each kept row named in the order it was first gathered, the later
+    // of two that would take one name numbered.
+    let named: Vec<(i64, String)> = ledger
+        .sources()
+        .unwrap()
+        .into_iter()
+        .map(|source| (source.id, source.name.into_string()))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (2, String::from("a")),
+            (3, String::from("a-2")),
+            (5, String::from("a-3")),
+        ]
+    );
+}
+
+#[test]
+fn the_step_to_seven_leaves_a_credential_for_the_scrub_and_keeps_none_in_what_it_adds() {
+    let (dir, path) = at_six(
+        "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
+             VALUES (1, 'git', 'https://me:hunter2@h/a', NULL, 'skills', 'h-a', 0, 0);",
+    );
+
+    let ledger = Sqlite::open(&path).unwrap();
+
+    // The scrub rewrites the clone before the row, so the row is what says
+    // the clone still holds it.
+    assert_eq!(ledger.tainted_sources().unwrap().len(), 1);
+    let identity: String = ledger
+        .connection
+        .query_row("SELECT canonical_url || name FROM sources", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(!identity.contains("hunter2"), "{identity}");
+    ledger.scrub_source(1).unwrap();
+    drop(ledger);
+    let file = std::fs::read(dir.path().join(LEDGER_FILE)).unwrap();
+    assert!(!file.windows(7).any(|bytes| bytes == b"hunter2"));
 }
 
 #[test]
@@ -490,8 +593,9 @@ fn scrubbing_a_source_takes_the_credentials_out_of_the_origins_spelling_it() {
     ledger
         .connection
         .execute_batch(
-            "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES (2, 'git', 'ssh://git@h/b', NULL, 'skills', 'h-b', 0, 0);
+            "INSERT INTO sources (id, kind, url, reference, subdirectory, directory, first_seen,
+                                  last_seen, name, canonical_url)
+                 VALUES (2, 'git', 'ssh://git@h/b', NULL, 'skills', 'h-b', 0, 0, 'h-b', 'ssh://h/b');
              INSERT INTO installations (project, kind, name, source_id, origin, installed_at)
                  VALUES ('../p', 'skill', 'deploy', 1, 'https://me:hunter2@h/a', 0),
                         ('../p', 'skill', 'lint', 2, 'ssh://git@h/b', 0);",
@@ -1894,6 +1998,7 @@ fn gathered_from(url: &str) -> Gathered {
             subdirectory: String::from("skills"),
             revision: Some(Revision::from("4f9c2a7")),
             directory: String::from("github.com-acme-skills"),
+            name: SourceName::recorded(String::from("acme-skills")),
         },
     }
 }
@@ -1914,7 +2019,7 @@ fn a_gathered_artifact_serializes_every_field_and_its_source() {
             r#""summary":"Ship it","revision":"4f9c2a7","gathered_at":1790000000,"#,
             r#""source":{"kind":"git","url":"https://github.com/acme/skills.git","#,
             r#""reference":"main","subdirectory":"skills","revision":"4f9c2a7","#,
-            r#""directory":"github.com-acme-skills"}}"#,
+            r#""directory":"github.com-acme-skills","name":"acme-skills"}}"#,
         )
     );
 }

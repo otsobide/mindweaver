@@ -291,12 +291,18 @@ yet, such as gathering:
 ```bash
 cd ~/Projects/blog && mind init          # make a repository a project
 cd ~/Projects && mindweaver link blog    # and link it to the workspace
-mindweaver gather git https://github.com/acme/skills   # put a repository's skills on the shelf
+mindweaver gather git acme/skills        # put a repository's skills on the shelf
 mindweaver install -p blog commit-style  # install one into a project
 mindweaver status                        # what every project holds, and how it stands
 mindweaver update --all --yes            # bring every project up to date
 mindweaver                               # the TUI: all of it from the keyboard
 ```
+
+A repository gathered is one source however its URL is spelled (`acme/skills`,
+`https://github.com/acme/skills`, `git@github.com:acme/skills.git`), called
+by a name, `acme-skills` unless `--name` gives it another: what `mindweaver
+gather list` shows, and what `--from` takes when two sources offer one skill
+([#7](https://github.com/otsobide/mindweaver/issues/7)).
 
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`

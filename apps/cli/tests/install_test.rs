@@ -965,114 +965,6 @@ fn opening_the_screen_scrubs_nothing_and_applying_scrubs_first_and_says_so_witho
     assert_eq!(tainted(&workspace), 0);
 }
 
-/// What an older build could leave: the same place gathered twice, once with
-/// a token in its URL, into the folder `older`, and once, later, without.
-fn gathered_twice(workspace: &WeaverWorkspace) -> rusqlite::Connection {
-    let database = rusqlite::Connection::open(workspace.ledger_path()).unwrap();
-    database
-        .execute_batch(
-            "UPDATE sources SET url = 'https://example.com/acme/skills', last_seen = 20;
-             INSERT INTO sources (kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 SELECT kind, 'https://me:ghp_t0ken@example.com/acme/skills', reference,
-                        subdirectory, 'older', 0, 0 FROM sources;
-             INSERT INTO artifacts (kind, name, source_id, path, summary, revision, gathered_at)
-                 SELECT kind, name, (SELECT id FROM sources WHERE directory = 'older'), path,
-                        summary, revision, 0 FROM artifacts;",
-        )
-        .unwrap();
-    database
-}
-
-/// Put the cursor on the row offering `name` from the source gathered into
-/// `directory`, and mark it.
-fn mark_from(screen: &mut Screen, name: &str, directory: &str) {
-    use mindweaver_core::install::Offer;
-
-    let target = &mut screen.targets[0];
-    target.cursor = target
-        .rows
-        .iter()
-        .position(|row| {
-            row.candidate.name() == name
-                && matches!(&row.candidate.offer, Offer::Shelf(gathered)
-                    if gathered.source.directory == directory)
-        })
-        .unwrap();
-    press(screen, &[KeyCode::Right, KeyCode::Char(' ')]);
-}
-
-#[test]
-fn a_mark_on_a_source_the_scrub_makes_one_with_another_installs_from_the_one_kept_on_record() {
-    let (dir, workspace, _ledger) = shelved(&["collapse"], &["deploy"]);
-    gathered_twice(&workspace);
-    let (projects, _) = install_screen::registered(&workspace);
-    let mut screen = install_screen::open(&workspace, projects, &AgentHomes::default()).unwrap();
-    // Twice, as the file has it until a write scrubs it: a read takes the
-    // token out of what it shows, not the row out of the file.
-    assert_eq!(screen.targets[0].rows.len(), 2, "{}", rendered(&screen));
-
-    // The row the scrub drops, whose source is gone by the time it installs.
-    mark_from(&mut screen, "deploy", "older");
-    let outcome = install_screen::apply(&workspace, &screen, &Lookup::default());
-
-    // By the origin both rows showed, which the one kept still has.
-    assert!(
-        outcome
-            .stdout
-            .starts_with("$ mindweaver install -p collapse --from https://example.com/acme/skills"),
-        "{}",
-        outcome.stdout
-    );
-    assert!(outcome.ok, "{}", outcome.stdout);
-    for copy in copies(&dir.path().join("collapse"), "deploy") {
-        assert!(copy.join("SKILL.md").is_file(), "{}", copy.display());
-    }
-    assert_eq!(
-        workspace
-            .ledger_for_reading()
-            .unwrap()
-            .installations("collapse", Kind::Skill)
-            .unwrap(),
-        ["deploy"],
-        "recorded, so Mindweaver still counts the copy as its own"
-    );
-}
-
-#[test]
-fn a_mark_on_what_only_the_source_the_scrub_drops_had_is_said_and_left_undone() {
-    let (dir, workspace, _ledger) = shelved(&["collapse"], &["deploy"]);
-    gathered_twice(&workspace)
-        .execute(
-            "INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
-                 SELECT 'skill', 'lint', id, '.mindweaver/skills/older/lint', 0
-                   FROM sources WHERE directory = 'older'",
-            [],
-        )
-        .unwrap();
-    let (projects, _) = install_screen::registered(&workspace);
-    let mut screen = install_screen::open(&workspace, projects, &AgentHomes::default()).unwrap();
-
-    mark_from(&mut screen, "lint", "older");
-    let outcome = install_screen::apply(&workspace, &screen, &Lookup::default());
-
-    // Refused as not offered by the line that asks for it, once its scrub
-    // took the source that offered it out, as the command refuses it.
-    assert!(!outcome.ok);
-    assert_eq!(
-        outcome.stdout,
-        format!(
-            "$ mindweaver install -p collapse --from https://example.com/acme/skills skill:lint\n\
-             {SCRUBBED}\n\
-             error: nothing called `lint` can be installed from https://example.com/acme/skills: \
-             gather it, load a workspace that has it with `mindweaver load`, or add it to the \
-             workspace with `mindweaver add`\n"
-        )
-    );
-    for copy in copies(&dir.path().join("collapse"), "lint") {
-        assert!(!copy.exists(), "{}", copy.display());
-    }
-}
-
 #[test]
 fn installing_and_uninstalling_one_skill_scrub_the_ledger_first() {
     let (dir, workspace, _ledger) = shelved(&["collapse"], &["deploy"]);
@@ -1818,4 +1710,59 @@ fn a_confirmation_taller_than_the_screen_scrolls_and_waits_for_every_row_before_
     let last = drawn_at(&screen, 80, 14);
     assert!(last.contains("y  yes"), "{last}");
     assert_eq!(press(&mut screen, &[KeyCode::Char('y')]), Step::Apply);
+}
+
+#[test]
+fn from_takes_a_sources_name_and_another_spelling_of_its_url_with_a_warning_that_fails_nothing() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    for name in ["collapse", "tanukeys"] {
+        fs::create_dir(dir.path().join(name)).unwrap();
+        new_project(&dir.path().join(name));
+        weaver(dir.path(), &["link", name]).unwrap();
+    }
+    let team = repository(&[("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it"))]);
+    let other = repository(&[(
+        "skills/deploy/SKILL.md",
+        &skill_file("deploy", "Ship it too"),
+    )]);
+    let url = team.path().to_string_lossy().into_owned();
+    weaver(dir.path(), &["gather", "git", &url, "--name", "team"]).unwrap();
+    weaver(
+        dir.path(),
+        &["gather", "git", &other.path().to_string_lossy()],
+    )
+    .unwrap();
+
+    let named = weaver(
+        dir.path(),
+        &["install", "-p", "collapse", "deploy", "--from", "team"],
+    )
+    .unwrap();
+    let respelled = format!("{url}/");
+    let spelled = weaver(
+        dir.path(),
+        &["install", "-p", "tanukeys", "deploy", "--from", &respelled],
+    )
+    .unwrap();
+
+    assert!(named.ok, "{:?}", named.stderr);
+    assert_eq!(
+        named.stdout,
+        format!("installed deploy into collapse, from {url}\n")
+    );
+    assert!(named.stderr.is_empty(), "{:?}", named.stderr);
+    assert!(spelled.ok, "{:?}", spelled.stderr);
+    assert_eq!(
+        spelled.stdout,
+        format!("installed deploy into tanukeys, from {url}\n")
+    );
+    assert_eq!(
+        spelled.stderr,
+        [format!(
+            "warning: --from {respelled} names the source `team` by another spelling of its \
+             URL, which --from takes for now: name it `team`"
+        )]
+    );
+    assert_eq!(spelled.stderr[0].code, Some("from_spelling_deprecated"));
 }
