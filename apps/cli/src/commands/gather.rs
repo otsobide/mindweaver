@@ -11,7 +11,7 @@ use mindweaver_core::port::Token;
 use mindweaver_core::sources::{self, Again, Regathered, Removal, Renamed};
 use mindweaver_core::url::redacted;
 use mindweaver_core::view::ShelfSource;
-use mindweaver_core::{Kind, Ledger, Licence, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
+use mindweaver_core::{Kind, Ledger, Licence, SourceKind, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
 
 use super::{reading_workspace, workspace_here};
 use crate::progress::{Progress, Watch};
@@ -76,6 +76,29 @@ pub(crate) fn run_gather(
                     warnings: said.lines(),
                 }),
             }
+        }
+        GatherCommand::Marketplace {
+            source,
+            list: _,
+            plugins,
+            all,
+            yes,
+            reference,
+            name,
+            json,
+            credential,
+        } => {
+            let asked = super::marketplace::Asked {
+                source,
+                reference: reference.as_deref(),
+                name: name.as_deref(),
+                plugins,
+                all: *all,
+                yes: *yes,
+                json: *json,
+                credential,
+            };
+            super::marketplace::run_marketplace(&asked, directory, lookup, watch)
         }
         GatherCommand::List { json } => {
             let mut found = None;
@@ -187,7 +210,9 @@ fn regathered(
             "no sources yet\n  take some with `mindweaver gather git <url>`\n",
         )));
     }
-    let tokens = tokens_for(&chosen, credential)?;
+    // A marketplace's plugin is fetched through its marketplace, which is
+    // what a token is read for.
+    let tokens = tokens_for(&sources::reached(ledger, &chosen)?, credential)?;
     let again = sources::update(workspace, ledger, chosen, |source, kind| {
         let token = match tokens.get(&source.id) {
             Some(token) => Some(token.clone()),
@@ -217,7 +242,23 @@ fn regathered(
                 outcome.stderr.extend(said.stderr);
                 outcome.ok &= said.ok;
             }
+            Again::Listed(gathered) => {
+                let said = super::marketplace::marketplace_said(&gathered);
+                if !outcome.stdout.is_empty() {
+                    outcome.stdout.push('\n');
+                }
+                outcome.stdout.push_str(&said.stdout);
+                outcome.stderr.extend(said.stderr);
+                outcome.ok &= said.ok;
+            }
             Again::Failed(error) => {
+                outcome.stderr.push(Warning::coded(
+                    error.code(),
+                    format!("warning: {}: {}", printable(&source.name), error),
+                ));
+                outcome.ok = false;
+            }
+            Again::Unlisted(error) => {
                 outcome.stderr.push(Warning::coded(
                     error.code(),
                     format!("warning: {}: {}", printable(&source.name), error),
@@ -307,6 +348,43 @@ fn removal_said(removal: &Removal, yes: bool) -> Outcome {
         printable(&source.name),
         source.url
     );
+    folders_said(removal, (remove, leave), &mut stdout);
+    // A marketplace's plugins, each forgotten with it, and what each takes
+    // away and leaves, after its own.
+    for plugin in &removal.plugins {
+        let _ = writeln!(
+            stdout,
+            "{forget} its plugin {}, gathered from {}",
+            printable(&plugin.source.name),
+            plugin.source.url
+        );
+        folders_said(plugin, (remove, leave), &mut stdout);
+    }
+    let installed = removal
+        .plugins
+        .iter()
+        .chain(std::iter::once(removal))
+        .any(|removed| !removed.installed.is_empty());
+    let mut stderr = Vec::new();
+    if !yes {
+        stdout.push_str("nothing removed: add --yes to go ahead\n");
+    } else if installed {
+        stderr.push(Warning::from(String::from(
+            "note: nothing offers what was installed from it any more; `mindweaver uninstall \
+             --orphaned --all-projects` takes out what nothing offers",
+        )));
+    }
+    Outcome {
+        stdout,
+        stderr,
+        ok: true,
+    }
+}
+
+/// What forgetting the source of `removal` takes off each shelf and out of
+/// the cache, a line each, and what it leaves installed, orphaned, in the
+/// words `remove` and `leave` say them in.
+fn folders_said(removal: &Removal, (remove, leave): (&str, &str), stdout: &mut String) {
     for (kind, path) in &removal.shelves {
         let held = removal
             .shelved
@@ -334,20 +412,6 @@ fn removal_said(removal: &Removal, yes: bool) -> Outcome {
             printable(&installed.project)
         );
     }
-    let mut stderr = Vec::new();
-    if !yes {
-        stdout.push_str("nothing removed: add --yes to go ahead\n");
-    } else if !removal.installed.is_empty() {
-        stderr.push(Warning::from(String::from(
-            "note: nothing offers what was installed from it any more; `mindweaver uninstall \
-             --orphaned --all-projects` takes out what nothing offers",
-        )));
-    }
-    Outcome {
-        stdout,
-        stderr,
-        ok: true,
-    }
 }
 
 /// Every source the shelf is filled from, one a line, as `--from` takes it
@@ -369,7 +433,13 @@ fn sources_listing(listed: &[ShelfSource]) -> String {
         .iter()
         .map(|one| {
             let source = &one.source;
-            let mut row = vec![printable(&source.name), printable(&source.url)];
+            // A marketplace's plugins under it, which the ledger lists
+            // straight after it, set in as a tree reads.
+            let name = match &source.parent {
+                Some(_) => format!("  {}", printable(&source.name)),
+                None => printable(&source.name),
+            };
+            let mut row = vec![name, printable(&source.url)];
             if named_reference {
                 row.push(
                     source
@@ -397,7 +467,11 @@ fn sources_listing(listed: &[ShelfSource]) -> String {
                 .iter()
                 .map(|counted| counted_kind(counted.count, counted.kind))
                 .collect();
-            if held.is_empty() {
+            // What a marketplace is, which puts nothing on the shelf of its
+            // own: its plugins below it do.
+            if source.kind == SourceKind::Marketplace {
+                row.push(String::from("marketplace"));
+            } else if held.is_empty() {
                 row.push(String::from("nothing on the shelf"));
             } else {
                 row.push(held.join(", "));
@@ -417,7 +491,7 @@ fn sources_listing(listed: &[ShelfSource]) -> String {
 /// for the host core says the token goes to, which refuses a URL no token
 /// goes over before `gh` is asked. `None` when neither is given, and the
 /// gather logs in as git config's helpers and ssh do.
-fn handed(url: &str, credential: &Credential) -> Result<Option<Token>, CliError> {
+pub(crate) fn handed(url: &str, credential: &Credential) -> Result<Option<Token>, CliError> {
     if let Some(name) = &credential.token_env {
         return token::from_variable(name).map(Some);
     }
@@ -575,7 +649,7 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
 /// The source is named without credentials, as everywhere a URL is shown.
 /// A gather that got this far was given none, since core refuses them, so
 /// this costs nothing today and still holds if that ever changes.
-fn gathered(url: &str, report: &Report) -> Outcome {
+pub(crate) fn gathered(url: &str, report: &Report) -> Outcome {
     let mut stdout = heading(url, report);
 
     // Added first, then updated, then removed, then unchanged: a second
@@ -800,6 +874,6 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
 }
 
 /// A revision as a person refers to it.
-fn short(revision: &str) -> &str {
+pub(crate) fn short(revision: &str) -> &str {
     revision.get(..7).unwrap_or(revision)
 }

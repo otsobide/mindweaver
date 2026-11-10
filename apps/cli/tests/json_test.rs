@@ -1173,6 +1173,147 @@ fn gather_sources_as_json_holds_the_sources_the_text_lists() {
     assert!(json.ok && text.ok);
 }
 
+/// A marketplace's catalog, as `gather marketplace --list --json` prints
+/// it (#103): the source it is, by the name it has, and every plugin its
+/// catalog lists, every field of each named.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarketplaceListing {
+    name: String,
+    url: String,
+    reference: Option<String>,
+    revision: Option<String>,
+    catalog: Catalog,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Catalog {
+    name: Option<String>,
+    description: Option<String>,
+    owner: Option<String>,
+    entries: Vec<PluginEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PluginEntry {
+    name: String,
+    description: Option<String>,
+    version: Option<String>,
+    source: PluginPlace,
+    skills: Option<Vec<String>>,
+    licence: Option<String>,
+    declares: Vec<String>,
+    headers_helper: bool,
+    gatherable: bool,
+    gathered: Option<String>,
+}
+
+/// Where a plugin is, by `type`, beside what its entry says of it.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+enum PluginPlace {
+    Relative {
+        path: String,
+    },
+    Github {
+        repo: String,
+        #[serde(rename = "ref")]
+        reference: Option<String>,
+        sha: Option<String>,
+    },
+    Url {
+        url: String,
+        #[serde(rename = "ref")]
+        reference: Option<String>,
+        sha: Option<String>,
+    },
+    GitSubdir {
+        url: String,
+        path: String,
+        #[serde(rename = "ref")]
+        reference: Option<String>,
+        sha: Option<String>,
+    },
+    Npm {
+        package: Option<String>,
+    },
+    Archive,
+    Command,
+    Other {
+        kind: String,
+    },
+}
+
+#[test]
+fn gather_marketplace_list_as_json_holds_the_plugins_the_text_lists() {
+    let catalog = mindweaver_core::mother::MarketplaceMother::anthropic_skills();
+    let url = catalog.path().to_string_lossy().into_owned();
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--plugin", "document-skills"],
+    )
+    .unwrap();
+
+    let text = weaver(dir.path(), &["gather", "marketplace", &url, "--list"]).unwrap();
+    let json = weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--list", "--json"],
+    )
+    .unwrap();
+
+    let (listing, warnings): (MarketplaceListing, _) = enveloped(&json);
+    assert_eq!(
+        listing.name,
+        mindweaver_core::mother::MarketplaceMother::ANTHROPIC_SKILLS
+    );
+    assert_eq!(listing.url, url);
+    assert_eq!(listing.reference, None);
+    assert_eq!(listing.revision.as_ref().map(String::len), Some(40));
+    assert_eq!(listing.catalog.name.as_deref(), Some(listing.name.as_str()));
+    assert_eq!(listing.catalog.owner.as_deref(), Some("Keith Lazuka"));
+    assert!(listing.catalog.description.is_some());
+    let entries: Vec<(&str, Option<&str>)> = listing
+        .catalog
+        .entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.gathered.as_deref()))
+        .collect();
+    let gathered = format!("{}.document-skills", listing.name);
+    assert_eq!(
+        entries,
+        [
+            ("document-skills", Some(gathered.as_str())),
+            ("example-skills", None)
+        ]
+    );
+    let documents = &listing.catalog.entries[0];
+    assert_eq!(
+        documents.source,
+        PluginPlace::Relative {
+            path: String::from(".")
+        }
+    );
+    assert_eq!(documents.skills.as_ref().map(Vec::len), Some(4));
+    assert!(documents.gatherable && !documents.headers_helper);
+    assert!(documents.declares.is_empty());
+    assert_eq!((&documents.version, &documents.licence), (&None, &None));
+    assert!(documents.description.is_some());
+    // The text lists each plugin by the name `--plugin` takes, first.
+    for entry in &listing.catalog.entries {
+        assert!(
+            text.stdout.contains(&format!("\n  {}  ", entry.name)),
+            "{}",
+            text.stdout
+        );
+    }
+    assert!(warnings.is_empty());
+    assert!(json.ok && text.ok);
+}
+
 /// A loaded workspace that has gone is a warning beside what the rest
 /// offer, in the envelope as on stderr, and fails the JSON as the text.
 #[test]

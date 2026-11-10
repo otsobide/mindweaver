@@ -1113,10 +1113,12 @@ impl Task {
 /// it from then on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Followed {
-    /// `mindweaver gather git`, and `mindweaver gather update`, a gather of
-    /// each source in turn: the network, for as long as it takes, reported
-    /// step by step through core's `gather::Watch`, and stopped by its
-    /// cancel until it starts placing what it read on the shelf.
+    /// `mindweaver gather git`, `mindweaver gather marketplace`, a gather
+    /// of its catalog and of each plugin chosen in turn, and `mindweaver
+    /// gather update`, a gather of each source in turn: the network, for as
+    /// long as it takes, reported step by step through core's
+    /// `gather::Watch`, and stopped by its cancel until it starts placing
+    /// what it read on the shelf.
     Gather,
     /// `mindweaver backup`: the network too, through the system's `git`,
     /// reported step by step through core's `backup::Watch`, checking out,
@@ -1174,6 +1176,7 @@ impl Followed {
         match command {
             Some(WeaverCommand::Gather(
                 GatherCommand::Git { .. }
+                | GatherCommand::Marketplace { .. }
                 | GatherCommand::Update { .. }
                 | GatherCommand::Search { take: Some(_), .. },
             )) => Some(Followed::Gather),
@@ -1386,8 +1389,12 @@ impl Refusal {
                 // A search asks the skill directories over the network too,
                 // followed and stopped between finders ([`Followed::Search`]),
                 // and with `--take` is a gather.
+                // A marketplace's catalog and plugins are fetched and
+                // followed as a gather is, and nothing a catalog names is
+                // ever run.
                 | WeaverCommand::Gather(
                     GatherCommand::Git { .. }
+                    | GatherCommand::Marketplace { .. }
                     | GatherCommand::Update { .. }
                     | GatherCommand::Search { .. },
                 )
@@ -1577,6 +1584,7 @@ impl Caution {
             // offers, which no yes could keep there.
             Some(WeaverCommand::Gather(
                 GatherCommand::Git { .. }
+                | GatherCommand::Marketplace { .. }
                 | GatherCommand::List { .. }
                 | GatherCommand::Sources { .. }
                 | GatherCommand::Update { .. }
