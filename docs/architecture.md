@@ -3418,7 +3418,11 @@ commit may mend. A skill at the root that will not read, which is filed
 under the name it would declare, leaves no folder to tell, and then
 nothing is taken for gone. A name the gather took nothing of whose folder
 it placed another skill in, one renamed where it is, has its row forgotten
-and its folder kept, since that is the new name's now.
+and its folder kept, since that is the new name's now; and a skill taken
+from another folder than the one it was gathered from, moved upstream,
+leaves its old folder on the shelf, which goes alone, its row following it
+to the new one. Each is told from what the ledger recorded before the
+gather recorded anything.
 
 Only the folder one level down from the source's own folder on the shelf,
 and only where the ledger's path names exactly that, is taken away: a row

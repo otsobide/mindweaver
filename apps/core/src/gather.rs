@@ -729,9 +729,10 @@ fn foresee(
         }
     }
     if let Some(source) = known {
-        report.removed = gone(workspace, ledger, source, request.kind, &report, &folders)?
+        let before = shelved_of(ledger, source, request.kind)?;
+        report.removed = gone(workspace, source, request.kind, &report, &folders, before)
             .into_iter()
-            .map(|gone| gone.harvested)
+            .filter_map(|gone| gone.harvested)
             .collect();
     }
     Ok(ordered(report))
@@ -1079,6 +1080,9 @@ fn take(
     // change once all of it is known.
     let Examined { found, folders } =
         examine(&clone, typed, manifest, watch, &mut report.failures)?;
+    // What the shelf held of it before this gather records anything, which
+    // is what it may take off the shelf once it has ([`gone`]).
+    let before = shelved_of(ledger, source, request.kind)?;
 
     // The last moment a cancel is honoured, and the reason everything is read
     // first: past here the shelf and the ledger change, and a gather stopped
@@ -1154,7 +1158,7 @@ fn take(
     // Once what it offers is placed, what it offers no more goes: a skill
     // whose folder upstream is gone would otherwise be offered from the
     // shelf for good, and what was installed from it never found orphaned.
-    for gone in gone(workspace, ledger, source, request.kind, &report, &folders)? {
+    for gone in gone(workspace, source, request.kind, &report, &folders, before) {
         if let Some(folder) = &gone.folder {
             match fs::remove_dir_all(folder) {
                 Ok(()) => {}
@@ -1170,18 +1174,35 @@ fn take(
                 }
             }
         }
-        ledger.forget_gathered(source, request.kind, &gone.harvested.name)?;
-        report.removed.push(gone.harvested);
+        if let Some(harvested) = gone.harvested {
+            ledger.forget_gathered(source, request.kind, &harvested.name)?;
+            report.removed.push(harvested);
+        }
     }
 
     Ok(ordered(report))
 }
 
-/// One artifact the shelf holds of a source that a gather of it found no
-/// more ([`gone`]): what the report says of it, and the folder it takes
-/// off the shelf, when there is one to take.
+/// What the ledger records of `source`'s `kind` on the shelf.
+fn shelved_of(
+    ledger: &Ledger,
+    source: &ledger::Source,
+    kind: Kind,
+) -> Result<Vec<ledger::Gathered>, LedgerError> {
+    Ok(ledger
+        .gathered()?
+        .into_iter()
+        .filter(|gathered| gathered.source.id == source.id && gathered.kind == kind)
+        .collect())
+}
+
+/// What a gather of a source takes off the shelf of it ([`gone`]): an
+/// artifact it offers no more, and the folder that goes with it, or a
+/// folder alone, left behind by a skill it still offers from another.
 struct Gone {
-    harvested: Harvested,
+    /// What the report says of it, which is forgotten: `None` for a folder
+    /// alone, whose skill is offered still.
+    harvested: Option<Harvested>,
     /// Its folder on the shelf, `None` when it is to be forgotten and its
     /// folder kept: one the source holds another skill in now, or one the
     /// ledger names somewhere other than the source's own shelf folder,
@@ -1189,8 +1210,9 @@ struct Gone {
     folder: Option<PathBuf>,
 }
 
-/// What the shelf holds of `source`'s `kind` that `report`, a gather of it,
-/// did not take and it offers no more, by what the ledger records of it.
+/// What the shelf held of `source`'s `kind` before `report`, a gather of
+/// it, that the gather did not take and it offers no more, from `before`,
+/// what the ledger recorded of it then.
 ///
 /// Gone is a skill whose folder the source no longer has: its folder, by
 /// the last part of the path recorded, is none of `folders`, the folder of
@@ -1203,15 +1225,17 @@ struct Gone {
 ///
 /// Gone too, its folder kept, is a name the gather took nothing of whose
 /// folder it placed another skill in: one renamed where it is, whose old
-/// row would otherwise name the new one's folder.
+/// row would otherwise name the new one's folder. And a skill the gather
+/// took from another folder than the one it was in, moved upstream, leaves
+/// its old folder behind, which goes alone, its row the new folder's now.
 fn gone(
     workspace: &WeaverWorkspace,
-    ledger: &Ledger,
     source: &ledger::Source,
     kind: Kind,
     report: &Report,
     folders: &Option<HashSet<String>>,
-) -> Result<Vec<Gone>, LedgerError> {
+    before: Vec<ledger::Gathered>,
+) -> Vec<Gone> {
     let taken: Vec<&Harvested> = report
         .added
         .iter()
@@ -1220,43 +1244,43 @@ fn gone(
         .collect();
     let shelf = workspace.gathered_dir(kind).join(&source.directory);
     let mut gone = Vec::new();
-    for gathered in ledger.gathered()? {
-        if gathered.source.id != source.id
-            || gathered.kind != kind
-            || taken.iter().any(|one| one.name == gathered.name)
-        {
-            continue;
-        }
+    for gathered in before {
         let folder = gathered
             .path
             .rsplit('/')
             .next()
             .unwrap_or_default()
             .to_owned();
+        let offered = taken.iter().any(|one| one.name == gathered.name);
         let placed = taken.iter().any(|one| one.directory == folder);
         let still = folders
             .as_ref()
             .is_none_or(|folders| folders.contains(&folder));
-        if !placed && still {
-            continue;
-        }
         // Only the folder the ledger names as the source's own on the
         // shelf, one folder down from it.
         let own = (install::is_folder_name(&folder)
             && relative(workspace, &shelf.join(&folder)) == gathered.path)
             .then(|| shelf.join(&folder));
-        gone.push(Gone {
-            folder: own.filter(|_| !placed),
-            harvested: Harvested {
-                path: workspace.root().join(&gathered.path),
-                name: gathered.name,
-                directory: folder,
-                summary: gathered.summary,
-                route: gathered.upstream_path.unwrap_or_default(),
-            },
-        });
+        match (offered, placed || still) {
+            (true, true) => {}
+            (true, false) => gone.push(Gone {
+                harvested: None,
+                folder: own,
+            }),
+            (false, true) if !placed => {}
+            (false, _) => gone.push(Gone {
+                folder: own.filter(|_| !placed),
+                harvested: Some(Harvested {
+                    path: workspace.root().join(&gathered.path),
+                    name: gathered.name,
+                    directory: folder,
+                    summary: gathered.summary,
+                    route: gathered.upstream_path.unwrap_or_default(),
+                }),
+            }),
+        }
     }
-    Ok(gone)
+    gone
 }
 
 /// Say in `report` what is wrong with `found`, put at `destination`, and

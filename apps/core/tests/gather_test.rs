@@ -1541,6 +1541,41 @@ fn a_skill_renamed_in_its_folder_forgets_its_old_name_and_keeps_the_folder() {
 }
 
 #[test]
+fn a_skill_moved_to_another_folder_upstream_leaves_no_old_folder_behind() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let request = Request::git(url(&source));
+    gather::gather(&workspace, &ledger, &request).unwrap();
+    fs::rename(
+        source.path().join("skills/deploy"),
+        source.path().join("skills/ship"),
+    )
+    .unwrap();
+    commit(source.path());
+
+    let report = gather::gather(&workspace, &ledger, &request).unwrap();
+
+    assert!(report.removed.is_empty(), "still offered: {report:?}");
+    let shelf = workspace.gathered_dir(Kind::Skill).join(&report.directory);
+    assert!(!shelf.join("deploy").exists());
+    assert!(shelf.join("ship").join("SKILL.md").is_file());
+    let recorded: Vec<(String, String)> = ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|gathered| (gathered.name.into_string(), gathered.path))
+        .collect();
+    assert_eq!(
+        recorded,
+        [(
+            String::from("deploy"),
+            format!(".mindweaver/skills/{}/ship", report.directory)
+        )]
+    );
+}
+
+#[test]
 fn what_another_source_offers_under_the_name_stays_when_one_drops_it() {
     let (_source, _dir, workspace, ledger, request) = gathered_then_dropped();
     let other = repository(&[("skills/review/SKILL.md", &skill("review", "Elsewhere"))]);
