@@ -14,7 +14,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 38] = [
+const TAGS: [&str; 39] = [
     "init_workspace",
     "init_project",
     "link",
@@ -38,6 +38,7 @@ const TAGS: [&str; 38] = [
     "marks",
     "shelf",
     "workspaces",
+    "search_skills",
     "gather",
     "export",
     "backup",
@@ -125,6 +126,7 @@ fn every(value: &str) -> Vec<Task> {
         },
         Task::Shelf,
         Task::Workspaces,
+        Task::SearchSkills { query: owned() },
         Task::Gather {
             url: owned(),
             folder: owned(),
@@ -1736,7 +1738,10 @@ fn a_front_end_follows_a_gather_a_backup_and_a_search_and_nothing_else() {
 fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
     let values = VALUES.into_iter().filter(|value| !value.is_empty());
     for task in values.flat_map(every) {
-        let expected = matches!(task, Task::Gather { .. } | Task::Backup { .. });
+        let expected = matches!(
+            task,
+            Task::Gather { .. } | Task::Backup { .. } | Task::SearchSkills { .. }
+        );
 
         assert_eq!(task.runs_apart(), expected, "{task:?}");
     }
@@ -2405,4 +2410,25 @@ fn a_backup_is_the_line_the_cli_takes_naming_a_token_by_its_variable() {
         assert!(task.writes() && task.runs_apart(), "{task:?}");
         assert!(task.cautions().is_empty(), "{task:?}");
     }
+}
+
+/// The TUI's search reads what the line prints back as JSON, and hands no
+/// token over, nor the name of a variable holding one (D-16).
+#[test]
+fn a_search_of_the_skill_directories_is_its_json_line_with_no_token() {
+    let task = Task::SearchSkills {
+        query: String::from("pdf forms"),
+    };
+
+    let mut expected = line("mindweaver gather search --json");
+    expected.push(String::from("pdf forms"));
+    assert_eq!(task.commands(), vec![expected]);
+    assert_eq!(
+        task.describe(),
+        "mindweaver gather search --json 'pdf forms'"
+    );
+    assert!(!task.writes());
+    assert!(task.runs_apart());
+    assert_eq!(task.refusal(), None);
+    assert!(task.cautions().is_empty());
 }

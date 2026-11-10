@@ -17,13 +17,14 @@ use ratatui::Frame;
 use super::minds::{self, Minds};
 use super::state::{
     AddField, AddForm, App, BackupForm, Confirm, ExportForm, Focus, GatherForm, Input, Item,
-    LinkForm, LoadForm, Member, Mode, Reader, RenameForm, Running, Scope, SettingsForm,
-    TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS,
+    LinkForm, LoadForm, Member, Mode, Reader, RenameForm, Results, Running, Scope, SearchForm,
+    SettingsForm, TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS,
 };
 use crate::commands::project::worth_linking;
+use crate::commands::search::rows;
 use crate::install::ui::{centred, pane, selected};
 use crate::progress::said;
-use crate::render::{plural, printable};
+use crate::render::{plural, printable, table};
 use crate::task::{followed, Followed, MindsChange};
 
 /// How wide a form's labels are, so the values line up.
@@ -49,6 +50,8 @@ pub fn draw(app: &App, frame: &mut Frame) {
             Mode::Backing(form) => backing(form, frame, area),
             Mode::Confirming(confirm) => confirming(confirm, frame, area),
             Mode::Reading(reader) => reading(reader, frame, area),
+            Mode::Searching(form) => searching(form, frame, area),
+            Mode::Results(screen) => results(screen, frame, area),
             Mode::Minds(screen) => minds_screen(app, screen, frame, area),
             Mode::Settings(form) => setting(app, form, frame, area),
             Mode::Targets(form) => targeting(app, form, frame, area),
@@ -1246,11 +1249,16 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|(tone_of, text)| Line::from(Span::styled(clean(text), tone(*tone_of))))
         .collect();
+    let keys = if reader.searches {
+        " ↑↓ scroll   f search the skill directories   esc close "
+    } else {
+        " ↑↓ scroll   esc close "
+    };
     let block = Block::bordered()
         .border_type(BorderType::Thick)
         .border_style(Style::default().fg(Color::Cyan))
         .title(format!(" {} ", printable(&reader.title)))
-        .title_bottom(Line::from(" ↑↓ scroll   esc close ").right_aligned());
+        .title_bottom(Line::from(keys).right_aligned());
     let scroll = u16::try_from(reader.scroll).unwrap_or(u16::MAX);
     frame.render_widget(
         Paragraph::new(lines)
@@ -1259,6 +1267,105 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
             .scroll((scroll, 0)),
         box_,
     );
+}
+
+/// The search form: what to look for, which finders it asks, and the line
+/// it runs.
+fn searching(form: &SearchForm, frame: &mut Frame, area: Rect) {
+    let inner = popup(frame, area, "Search the skill directories", 78, 7);
+    let rows = lines(inner, 5);
+    input(frame, rows[0], "query", &form.query, true);
+    let hint = Line::from(vec![
+        Span::raw(" ".repeat(usize::from(LABEL))),
+        Span::styled(
+            "asks the finders weaver.toml enables; github needs a token",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(hint), rows[1]);
+    runs(frame, rows[2], form.task().as_ref());
+    error(frame, rows[3], form.error.as_deref());
+    keys(frame, rows[4], "enter search   esc cancel");
+}
+
+/// What a search found, over everything below the header: each result as
+/// the command lays it out, the one picked lit, what the search said under
+/// them, and the line enter runs.
+fn results(screen: &Results, frame: &mut Frame, area: Rect) {
+    let below = 1.min(area.height);
+    let box_ = Rect {
+        y: area.y + below,
+        height: area.height - below,
+        ..area
+    };
+    frame.render_widget(Clear, box_);
+    let block = Block::bordered()
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(format!(
+            " What the skill directories found for `{}` ",
+            printable(&screen.query)
+        ))
+        .title_bottom(
+            Line::from(" ↑↓ pick   enter gather it   f search again   esc close ").right_aligned(),
+        );
+    let inner = block.inner(box_);
+    frame.render_widget(block, box_);
+
+    // What the search said gets a strip of its own, as what a scan missed
+    // does, so a finder that failed is read beside what the others found.
+    // Sized without `clamp`, which panics on a screen too short for its
+    // floor.
+    let said = u16::try_from(screen.said.len())
+        .unwrap_or(u16::MAX)
+        .min(inner.height / 3);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(said),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let lines: Vec<Line> = screen
+        .said
+        .iter()
+        .map(|line| {
+            let style = if line.starts_with("hint:") {
+                dim()
+            } else {
+                warn()
+            };
+            Line::from(Span::styled(printable(line), style))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), parts[1]);
+    runs(frame, parts[2], screen.task().as_ref());
+
+    if screen.hits.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!(
+                    "no finder found a skill for `{}`; f searches for something else",
+                    printable(&screen.query)
+                ),
+                dim(),
+            ))
+            .wrap(Wrap { trim: true }),
+            parts[0],
+        );
+        return;
+    }
+    let items: Vec<ListItem> = table(&rows(&screen.hits))
+        .lines()
+        .map(|row| ListItem::new(Line::from(row.to_owned())))
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(screen.pick));
+    let list = List::new(items)
+        .highlight_style(selected(true))
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, parts[0], &mut state);
 }
 
 /// Where the screen looked for what could be linked, as its texts name it:

@@ -261,6 +261,17 @@ pub enum Task {
     /// `mindweaver workspaces`: the workspaces this machine knows, the one in
     /// use marked, to read.
     Workspaces,
+    /// `mindweaver gather search --json <query>`: the skill directories
+    /// the workspace enables asked what they find, read back from the JSON
+    /// the line prints, for a front end to list and take one from with a
+    /// [`Gather`](Task::Gather) of its repository and its folder (#108).
+    ///
+    /// No token, nor the name of a variable holding one: a front end hands
+    /// none over (D-16), so the line asks no finder that needs one, GitHub's
+    /// code search, and says so. JSON, since what a front end takes is what
+    /// it reads, by the names the envelope's `data` gives each result, never
+    /// a table's columns read back.
+    SearchSkills { query: String },
     /// `mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]
     /// <url>`.
     ///
@@ -749,6 +760,12 @@ impl Task {
                     .map_or_else(Vec::new, |batch| batch.commands())
             }
             Task::Shelf => vec![words(&["mindweaver", "gather", "list"], &[])],
+            Task::SearchSkills { query } => {
+                vec![words(
+                    &["mindweaver", "gather", "search", "--json"],
+                    &[query],
+                )]
+            }
             Task::Workspaces => vec![words(&["mindweaver", "workspaces"], &[])],
             Task::Gather {
                 url,

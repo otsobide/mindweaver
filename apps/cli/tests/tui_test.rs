@@ -4437,3 +4437,316 @@ fn x_and_b_on_a_project_on_its_own_say_they_are_a_workspace_s() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Searching the skill directories from the shelf (#108)
+// ---------------------------------------------------------------------------
+
+/// What `mindweaver gather search --json` prints for two results, the second
+/// at a folder's address on a branch, with GitHub skipped for want of a
+/// token, as the TUI, which hands none over, always has it.
+fn found_twice() -> String {
+    serde_json::json!({
+        "version": 2,
+        "data": {
+            "hits": [
+                {
+                    "name": "commit-style",
+                    "repository": "https://github.com/beta/house-rules",
+                    "path": null,
+                    "reference": null,
+                    "installs": 56,
+                    "stars": null,
+                    "finders": ["skills.sh"],
+                },
+                {
+                    "name": "slides",
+                    "repository": "https://github.com/beta/decks",
+                    "path": "skills/slides",
+                    "reference": "main",
+                    "installs": null,
+                    "stars": 7,
+                    "finders": ["claude-plugins.dev"],
+                },
+            ],
+            "asked": ["skills.sh", "claude-plugins.dev"],
+            "skipped": ["github"],
+            "failures": [],
+        },
+        "warnings": [],
+        "coded_warnings": [],
+    })
+    .to_string()
+}
+
+/// The hint the line says of GitHub, skipped.
+const SKIPPED: &str =
+    "hint: github was not asked, since its search needs a token: --token-env or --gh hands one over";
+
+/// A runner standing in for every line, which notes each, and answers the
+/// search with `found` and every other line with a word of its own.
+fn searching(found: String, heard: &Arc<Mutex<Vec<Vec<String>>>>) -> Runner {
+    let heard = Arc::clone(heard);
+    Runner::new(move |words, _, _, _| {
+        heard.lock().unwrap().push(words.to_vec());
+        let searched = words.get(..4).is_some_and(|head| {
+            head == ["mindweaver", "gather", "search", "--json"].map(String::from)
+        });
+        let stdout = if searched {
+            found.clone()
+        } else {
+            String::from("stood in\n")
+        };
+        Done {
+            command: words.join(" "),
+            stdout,
+            stderr: if searched {
+                vec![String::from(SKIPPED)]
+            } else {
+                Vec::new()
+            },
+            error: None,
+            ok: true,
+        }
+    })
+}
+
+/// The shelf's page, then `f`, the query typed and enter: the search run
+/// apart to its end.
+fn search_from_the_shelf(app: &mut App, query: &str) -> Option<Task> {
+    press_and_run(app, KeyCode::Char('s'));
+    assert!(
+        matches!(&app.mode, Mode::Reading(reader) if reader.searches),
+        "{:?}",
+        app.mode
+    );
+    assert_eq!(press_key(app, KeyCode::Char('f')), TuiStep::Stay);
+    type_text(app, query);
+    press_and_run(app, KeyCode::Enter)
+}
+
+/// The acceptance's TUI case: a result found is taken by the gather of its
+/// repository and its folder, the line `gather search --take` amounts to,
+/// which the transcript keeps so it gathers the same again.
+#[test]
+fn a_result_found_from_the_shelf_is_taken_by_the_gather_line_of_its_folder() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(searching(found_twice(), &heard));
+
+    let searched = search_from_the_shelf(&mut app, "decks");
+
+    assert_eq!(
+        searched,
+        Some(Task::SearchSkills {
+            query: String::from("decks")
+        })
+    );
+    let Mode::Results(results) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(results.hits.len(), 2);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("What the skill directories found for `decks`"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains(
+            "1  commit-style  https://github.com/beta/house-rules  .              56 installs  skills.sh"
+        ),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains(
+            "2  slides        https://github.com/beta/decks#main   skills/slides  7 stars      claude-plugins.dev"
+        ),
+        "{drawn}"
+    );
+    assert!(drawn.contains(SKIPPED), "{drawn}");
+
+    assert_eq!(press_key(&mut app, KeyCode::Down), TuiStep::Stay);
+    let take = press_and_run(&mut app, KeyCode::Enter).expect("enter takes the result picked");
+
+    let line = [
+        "mindweaver",
+        "gather",
+        "git",
+        "--path",
+        "skills/slides",
+        "--ref",
+        "main",
+        "https://github.com/beta/decks",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(take.commands(), std::slice::from_ref(&line));
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ["mindweaver", "gather", "list"].map(String::from).to_vec(),
+            ["mindweaver", "gather", "search", "--json", "decks"]
+                .map(String::from)
+                .to_vec(),
+            line,
+        ]
+    );
+    // The search changes nothing, so the transcript keeps the gather alone.
+    let transcript = app.transcript();
+    assert!(
+        transcript.starts_with(
+            "$ mindweaver gather git --path skills/slides --ref main https://github.com/beta/decks\n"
+        ),
+        "{transcript}"
+    );
+    assert!(!transcript.contains("gather search"), "{transcript}");
+}
+
+/// A result no finder named a folder for is gathered from the root of its
+/// repository: the line leaves the folder out, as a gather of the whole
+/// repository is typed.
+#[test]
+fn a_result_with_no_folder_is_taken_by_the_gather_of_its_whole_repository() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(searching(found_twice(), &heard));
+    search_from_the_shelf(&mut app, "style");
+
+    let take = press_and_run(&mut app, KeyCode::Enter).unwrap();
+
+    assert_eq!(
+        take.commands(),
+        [[
+            "mindweaver",
+            "gather",
+            "git",
+            "https://github.com/beta/house-rules"
+        ]
+        .map(String::from)
+        .to_vec()]
+    );
+}
+
+/// The search runs apart, as a gather does, so the screen draws which finder
+/// it is asking and `esc` stops it before the next.
+#[test]
+fn a_search_runs_apart_saying_which_finder_it_asks() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let (go, gate) = mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    app.runner = Some(Runner::new(move |words, _, _, watch| {
+        if words.get(2).map(String::as_str) == Some("search") {
+            watch.report(Progress::Search(
+                mindweaver_core::finder::Progress::Asking {
+                    finder: mindweaver_core::finder::Finder::SkillsSh,
+                    done: 0,
+                    total: 2,
+                },
+            ));
+            let _ = gate.lock().unwrap().recv();
+        }
+        Done {
+            command: words.join(" "),
+            stdout: found_twice(),
+            stderr: Vec::new(),
+            error: None,
+            ok: true,
+        }
+    }));
+    press_and_run(&mut app, KeyCode::Char('s'));
+    press_key(&mut app, KeyCode::Char('f'));
+    type_text(&mut app, "pdf");
+    let TuiStep::Run(task) = press_key(&mut app, KeyCode::Enter) else {
+        panic!("{:?}", app.mode);
+    };
+
+    tui::step(&mut app, task);
+    settle_until(&mut app, |app| reported(app).is_some());
+
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("mindweaver gather search --json pdf"),
+        "{drawn}"
+    );
+    assert!(drawn.contains("asking skills.sh 0/2"), "{drawn}");
+    assert!(drawn.contains("esc cancels"), "{drawn}");
+    go.send(()).unwrap();
+    settle_until(&mut app, |app| app.running.is_none());
+    assert!(matches!(app.mode, Mode::Results(_)), "{:?}", app.mode);
+}
+
+/// A search that asks nothing, every finder enabled needing a token the TUI
+/// does not hand over, keeps the form open with why, as the line says it.
+#[test]
+fn a_search_that_asks_nothing_keeps_the_form_open_saying_why() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+
+    // The real line, in a workspace that lists no finder: GitHub alone, and
+    // no token, so no service is asked.
+    search_from_the_shelf(&mut app, "pdf");
+
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some(
+            "nothing was searched: github needs a token, handed over with --token-env or --gh, \
+             and no finder that needs none is enabled"
+        )
+    );
+}
+
+#[test]
+fn a_search_finding_nothing_says_so_and_offers_another() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let nothing = serde_json::json!({
+        "version": 2,
+        "data": {"hits": [], "asked": ["skills.sh"], "skipped": [], "failures": []},
+        "warnings": [],
+        "coded_warnings": [],
+    });
+    app.runner = Some(searching(nothing.to_string(), &heard));
+    search_from_the_shelf(&mut app, "nothing-like-it");
+
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("no finder found a skill for `nothing-like-it`"),
+        "{drawn}"
+    );
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+
+    assert_eq!(press_key(&mut app, KeyCode::Char('f')), TuiStep::Stay);
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.query.text(), "nothing-like-it");
+}
+
+/// `f` searches from the shelf's page alone: on any other page it is no key.
+#[test]
+fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    press_and_run(&mut app, KeyCode::Char('w'));
+
+    assert_eq!(press_key(&mut app, KeyCode::Char('f')), TuiStep::Stay);
+
+    assert!(
+        matches!(&app.mode, Mode::Reading(reader) if !reader.searches),
+        "{:?}",
+        app.mode
+    );
+}

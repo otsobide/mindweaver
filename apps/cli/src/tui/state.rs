@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use crate::progress::{Progress, Watch};
 use mindweaver_core::create;
+use mindweaver_core::finder::Hit;
 use mindweaver_core::scan;
 use mindweaver_core::{
     paths, Agent, Kind, Layout, MarkerFile, Reason, Share, State, DEFAULT_SUBDIRECTORY,
@@ -546,6 +547,10 @@ pub enum Mode {
     Confirming(Confirm),
     /// A page of output: validate, show, the shelf, a report.
     Reading(Reader),
+    /// The skill directories about to be searched: `f` on the shelf's page.
+    Searching(SearchForm),
+    /// What a search of the skill directories found, one picked to take.
+    Results(Results),
     /// The install screen, embedded as it is.
     Installing(InstallScreen),
     /// Which minds the workspace manages, ticked, to change in one pass.
@@ -789,6 +794,8 @@ impl App {
             Mode::Backing(form) => backing(form, key),
             Mode::Confirming(confirm) => confirming(confirm, key),
             Mode::Reading(reader) => reading(reader, key),
+            Mode::Searching(form) => searching(form, key),
+            Mode::Results(screen) => results(screen, key),
             Mode::Installing(screen) => self.installing(screen, key),
             Mode::Minds(screen) => self.in_minds(screen, key),
             Mode::Settings(form) => self.setting(form, key),
@@ -1727,8 +1734,18 @@ impl App {
                 | Task::Targets { .. },
                 None,
             ) => {
-                self.mode = Mode::Reading(Reader::of(&dones));
+                let mut reader = Reader::of(&dones);
+                // The shelf's page offers a search of what is not on it yet.
+                reader.searches = *task == Task::Shelf;
+                self.mode = Mode::Reading(reader);
             }
+            // What the line printed, read back as the JSON it is, for a
+            // result to be picked from; the same words, a table's, as the
+            // command lays them out.
+            (Task::SearchSkills { query }, None) => match Results::of(query, &dones) {
+                Ok(results) => self.mode = Mode::Results(results),
+                Err(error) => self.message = Some(Message::bad(error)),
+            },
             (_, Some(error)) => {
                 // A form stays open with the reason in it, so a typo is fixed
                 // where it was made rather than typed out again.
@@ -1796,6 +1813,7 @@ impl App {
             Mode::Linking(form) => &mut form.error,
             Mode::Loading(form) => &mut form.error,
             Mode::Gathering(form) => &mut form.error,
+            Mode::Searching(form) => &mut form.error,
             Mode::Exporting(form) => &mut form.error,
             Mode::Backing(form) => &mut form.error,
             Mode::Settings(form) => &mut form.error,
@@ -1940,6 +1958,53 @@ fn gathering(mut form: GatherForm, key: KeyEvent) -> (Mode, Step) {
     (Mode::Gathering(form), Step::Stay)
 }
 
+/// The search form's keys: typing the query, and enter searches, the line
+/// running apart as a gather does, stopped by `esc` between two finders.
+fn searching(mut form: SearchForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            return match form.task() {
+                Some(task) => (Mode::Searching(form), Step::Run(task)),
+                None => {
+                    form.error = Some(String::from("say what to look for"));
+                    (Mode::Searching(form), Step::Stay)
+                }
+            };
+        }
+        _ => {
+            form.query.press(key);
+        }
+    }
+    (Mode::Searching(form), Step::Stay)
+}
+
+/// The results' keys: `↑↓` picks one, enter gathers it, `f` searches again,
+/// what was looked for already typed, and `esc` leaves.
+fn results(mut screen: Results, key: KeyEvent) -> (Mode, Step) {
+    let count = screen.hits.len();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => return (Mode::Browse, Step::Stay),
+        KeyCode::Up | KeyCode::Char('k') => screen.pick = screen.pick.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') if screen.pick + 1 < count => screen.pick += 1,
+        KeyCode::Char('f') => {
+            let form = SearchForm {
+                query: Input::with(&screen.query),
+                error: None,
+            };
+            return (Mode::Searching(form), Step::Stay);
+        }
+        KeyCode::Enter => {
+            if let Some(task) = screen.task() {
+                return (Mode::Results(screen), Step::Run(task));
+            }
+        }
+        _ => {}
+    }
+    (Mode::Results(screen), Step::Stay)
+}
+
 /// The export form's keys: typing on the folder's line, a space on a kind's
 /// or on the yes ticks it, and enter runs what it says, once asked about
 /// when it may take something away.
@@ -2036,6 +2101,9 @@ fn confirming(confirm: Confirm, key: KeyEvent) -> (Mode, Step) {
 fn reading(mut reader: Reader, key: KeyEvent) -> (Mode, Step) {
     let last = reader.lines.len().saturating_sub(1);
     match key.code {
+        KeyCode::Char('f') if reader.searches => {
+            return (Mode::Searching(SearchForm::default()), Step::Stay);
+        }
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => return (Mode::Browse, Step::Stay),
         KeyCode::Up | KeyCode::Char('k') => reader.scroll = reader.scroll.saturating_sub(1),
         KeyCode::Down | KeyCode::Char('j') => reader.scroll = (reader.scroll + 1).min(last),
@@ -2303,6 +2371,82 @@ impl GatherForm {
             folder: folder.to_owned(),
             reference,
             kind: mindweaver_core::gather::DEFAULT_KIND,
+        })
+    }
+}
+
+/// The skill directories about to be searched for what `query` finds: what
+/// `f` opens on the shelf's page.
+#[derive(Debug, Clone, Default)]
+pub struct SearchForm {
+    pub query: Input,
+    pub error: Option<String>,
+}
+
+impl SearchForm {
+    /// What it would run, if it were submitted now: nothing with no query,
+    /// which no finder answers.
+    pub fn task(&self) -> Option<Task> {
+        let query = self.query.text().trim();
+        (!query.is_empty()).then(|| Task::SearchSkills {
+            query: query.to_owned(),
+        })
+    }
+}
+
+/// What a search of the skill directories found, one of it picked to take:
+/// the screen a search from the shelf opens once it is over.
+#[derive(Debug, Clone)]
+pub struct Results {
+    /// What was looked for.
+    pub query: String,
+    /// Each result, as core listed it, numbered from 1 on the screen as on
+    /// a command line.
+    pub hits: Vec<Hit>,
+    /// What the search said beside them, a line each: a finder skipped for
+    /// want of a token, one that failed, a result dropped.
+    pub said: Vec<String>,
+    /// Which result is picked.
+    pub pick: usize,
+}
+
+impl Results {
+    /// What the search for `query` printed, read back: its results from the
+    /// JSON the line printed, by the names the envelope's `data` gives them,
+    /// and what it said on stderr; or why it could not be read.
+    ///
+    /// The JSON rather than the table, since a table's columns are for
+    /// reading, and the envelope's names are a contract a test holds.
+    pub fn of(query: &str, dones: &[Done]) -> Result<Self, String> {
+        let unreadable = || String::from("the search's answer could not be read");
+        let done = dones.last().ok_or_else(unreadable)?;
+        let envelope: serde_json::Value =
+            serde_json::from_str(&done.stdout).map_err(|_| unreadable())?;
+        let hits = envelope
+            .pointer("/data/hits")
+            .cloned()
+            .ok_or_else(unreadable)?;
+        let hits: Vec<Hit> = serde_json::from_value(hits).map_err(|_| unreadable())?;
+        Ok(Results {
+            query: query.to_owned(),
+            hits,
+            said: done.stderr.clone(),
+            pick: 0,
+        })
+    }
+
+    /// The gather that takes the result picked: `mindweaver gather git` of its
+    /// repository, at the branch a finder named, from its folder there, as
+    /// `gather search --take` takes it, but by the line it amounts to, so
+    /// the transcript gathers the same again however the finders answer by
+    /// then.
+    pub fn task(&self) -> Option<Task> {
+        let hit = self.hits.get(self.pick)?;
+        Some(Task::Gather {
+            url: hit.repository.to_string(),
+            folder: hit.folder().to_owned(),
+            reference: hit.reference.clone(),
+            kind: Kind::Skill,
         })
     }
 }
@@ -2692,6 +2836,9 @@ pub struct Reader {
     pub lines: Vec<(Tone, String)>,
     /// The first line shown.
     pub scroll: usize,
+    /// Whether `f` on it searches the skill directories: the shelf's page,
+    /// where what is not on the shelf yet is looked for.
+    pub searches: bool,
 }
 
 impl Reader {
@@ -2722,6 +2869,7 @@ impl Reader {
             title,
             lines,
             scroll: 0,
+            searches: false,
         }
     }
 
@@ -2829,7 +2977,15 @@ impl Reader {
                 "while a gather or a backup runs: stop it, until it places or pushes",
                 &[],
             ),
-            ("s", "what is on the shelf", &["mindweaver gather list"]),
+            (
+                "s",
+                "what is on the shelf; f there searches the skill directories, enter on a result gathers it",
+                &[
+                    "mindweaver gather list",
+                    "mindweaver gather search --json <query>",
+                    "mindweaver gather git [--path <folder>] [--ref <branch>] <url>",
+                ],
+            ),
             (
                 "w",
                 "the workspaces this machine knows, the one in use marked",
@@ -2894,6 +3050,7 @@ impl Reader {
             title: String::from("keys"),
             lines,
             scroll: 0,
+            searches: false,
         }
     }
 }
