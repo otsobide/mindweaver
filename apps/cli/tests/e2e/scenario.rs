@@ -174,6 +174,19 @@ impl Scenario {
         self
     }
 
+    /// The folders `folders`, each a route from the source at `at`, taken
+    /// out of it, and that committed on top of what it held: the source
+    /// moved on without them.
+    pub fn drop_from(&self, at: &str, folders: &[&str]) -> &Self {
+        let path = self.at(at);
+        for folder in folders {
+            fs::remove_dir_all(path.join(folder))
+                .unwrap_or_else(|error| panic!("take {folder} out of {at}: {error}"));
+        }
+        GitRepositoryMother::commit(&path);
+        self
+    }
+
     /// A bare repository at `at` with nothing committed, its HEAD naming
     /// `main`, as a new repository on a forge is: where a backup is sent.
     /// Made with gix, as every repository here is.

@@ -174,6 +174,7 @@ every_store![
     installations_and_records_are_in_name_order_and_copies_in_path_order_each_once,
     forgetting_an_installation_says_whether_there_was_one_and_takes_its_copies,
     an_installation_from_a_source_points_at_it_until_the_source_is_forgotten,
+    what_was_installed_from_a_source_is_listed_by_project_kind_and_name,
     forgetting_a_copy_of_a_name_never_installed_forgets_nothing,
     forgetting_a_copy_the_installation_never_wrote_forgets_nothing,
     forgetting_each_copy_in_turn_forgets_the_installation_with_the_last,
@@ -206,6 +207,7 @@ every_store![
     every_licence_a_gather_reads_comes_back_as_it_was_recorded,
     a_source_is_pinned_while_its_last_gather_was_and_followed_once_one_was_not,
     gathering_a_name_again_from_one_source_replaces_it_and_from_another_adds_it,
+    forgetting_what_a_source_gathered_forgets_its_one_and_no_other_sources,
     what_was_gathered_is_listed_by_name_then_source,
     a_shelf_moved_moves_every_path_under_it_and_nothing_else,
     no_credential_typed_into_a_url_comes_back_from_the_store,
@@ -267,12 +269,13 @@ impl Clock for Ticking {
 }
 
 /// Every action the log takes, for a test to draw from.
-const ACTIONS: [Action; 5] = [
+const ACTIONS: [Action; 6] = [
     Action::Gather,
     Action::Install,
     Action::Uninstall,
     Action::Relink,
     Action::Adopt,
+    Action::Forget,
 ];
 
 /// `record` with its copies in path order and its entries in agent order:
@@ -715,6 +718,60 @@ fn an_installation_from_a_source_points_at_it_until_the_source_is_forgotten(mut 
     assert_eq!(read.source_id, None, "{name}");
     assert_eq!(read.origin, Some(gathered_from.origin()), "{name}");
     assert_eq!(read.targets, sorted(record).targets);
+}
+
+fn what_was_installed_from_a_source_is_listed_by_project_kind_and_name(mut store: Store) {
+    let gathered_from = source(&store, &UrlMother::https());
+    let elsewhere = source(&store, &UrlMother::https());
+    let names = distinct_names(2);
+    let from = |kind: Kind, name: &ArtifactName, source: &Source| {
+        let mut record = InstallRecordMother::create(
+            kind,
+            name,
+            Some(source.origin()),
+            Some(ContentHashMother::random()),
+            vec![TargetMother::create(None, &random::word())],
+        );
+        record.source_id = Some(source.id);
+        record
+    };
+    store
+        .installed("tanukeys", &from(Kind::Skill, &names[0], &gathered_from))
+        .unwrap();
+    store
+        .installed("collapse", &from(Kind::Rule, &names[1], &gathered_from))
+        .unwrap();
+    store
+        .installed("collapse", &from(Kind::Skill, &names[1], &gathered_from))
+        .unwrap();
+    store
+        .installed("collapse", &from(Kind::Skill, &names[0], &elsewhere))
+        .unwrap();
+
+    store.reopen();
+    let listed: Vec<(String, Kind, String)> = store
+        .installed_from(&gathered_from)
+        .unwrap()
+        .into_iter()
+        .map(|installed| {
+            (
+                installed.project,
+                installed.kind,
+                installed.name.into_string(),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        listed,
+        [
+            (String::from("collapse"), Kind::Skill, names[1].to_string()),
+            (String::from("collapse"), Kind::Rule, names[1].to_string()),
+            (String::from("tanukeys"), Kind::Skill, names[0].to_string()),
+        ]
+    );
+    assert!(store.forget_source(gathered_from.id).unwrap());
+    assert!(store.installed_from(&gathered_from).unwrap().is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -1780,6 +1837,52 @@ fn gathering_a_name_again_from_one_source_replaces_it_and_from_another_adds_it(m
     assert_eq!(replaced[0].summary, None);
     assert_eq!(replaced[0].revision.as_ref(), Some(&revision));
     assert_eq!(of(&second)[0].summary.as_deref(), Some("Other"));
+}
+
+fn forgetting_what_a_source_gathered_forgets_its_one_and_no_other_sources(mut store: Store) {
+    let first = source(&store, &UrlMother::https());
+    let second = source(&store, &UrlMother::https());
+    let names = distinct_names(2);
+    for (from, name) in [
+        (&first, &names[0]),
+        (&first, &names[1]),
+        (&second, &names[0]),
+    ] {
+        store
+            .record(
+                from,
+                &TakenMother::create(Kind::Skill, name, &random::word()),
+            )
+            .unwrap();
+    }
+
+    let forgot = store
+        .forget_gathered(&first, Kind::Skill, &names[0])
+        .unwrap();
+    let again = store
+        .forget_gathered(&first, Kind::Skill, &names[0])
+        .unwrap();
+    let as_a_rule = store
+        .forget_gathered(&first, Kind::Rule, &names[1])
+        .unwrap();
+
+    assert!(forgot, "{} was gathered from the first", names[0]);
+    assert!(!again, "{} is forgotten already", names[0]);
+    assert!(!as_a_rule, "{} was gathered as a skill", names[1]);
+    store.reopen();
+    let mut left: Vec<(i64, String)> = store
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|artifact| (artifact.source.id, artifact.name.into_string()))
+        .collect();
+    left.sort();
+    let mut expected = vec![
+        (first.id, names[1].to_string()),
+        (second.id, names[0].to_string()),
+    ];
+    expected.sort();
+    assert_eq!(left, expected);
 }
 
 fn a_shelf_moved_moves_every_path_under_it_and_nothing_else(mut store: Store) {

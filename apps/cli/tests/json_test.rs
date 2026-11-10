@@ -1,5 +1,6 @@
-//! The reading commands' `--json`: `list`, `show`, `validate`, `templates`
-//! and `gather list`, read back into structs of this suite's own, each held
+//! The reading commands' `--json`: `list`, `show`, `validate`, `templates`,
+//! `gather list` and `gather sources`, read back into structs of this
+//! suite's own, each held
 //! to the entries the text lists, the warnings it says, with their codes,
 //! and on stderr as it says them, and the exit status it has.
 
@@ -1110,6 +1111,61 @@ fn gather_list_as_json_holds_the_offers_the_text_lists() {
     );
     assert_eq!(offers[0].summary(), Some("Take notes"));
     assert!(offers.iter().all(|offer| offer.kind() == "skill"));
+    assert!(warnings.is_empty());
+    assert!(json.ok && text.ok);
+}
+
+/// A source, as `gather sources --json` prints one: the ledger's row, its
+/// origin, how much of it the shelf holds of each kind, and when.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Listed {
+    #[serde(flatten)]
+    source: Source,
+    origin: String,
+    shelved: Vec<KindCount>,
+    gathered_at: Option<i64>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KindCount {
+    kind: String,
+    count: usize,
+}
+
+#[test]
+fn gather_sources_as_json_holds_the_sources_the_text_lists() {
+    let (dir, source) = workspace_offering();
+    let hub = dir.path().join("hub");
+
+    let text = weaver(&hub, &["gather", "sources"]).unwrap();
+    let json = weaver(&hub, &["gather", "sources", "--json"]).unwrap();
+
+    let (listed, warnings): (Vec<Listed>, _) = enveloped(&json);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    let one = &listed[0];
+    assert_eq!(one.origin, source.path().to_string_lossy());
+    assert_eq!(one.source.url, one.origin);
+    assert_eq!(
+        one.shelved,
+        [KindCount {
+            kind: String::from("skill"),
+            count: 1
+        }]
+    );
+    assert!(one.gathered_at.is_some());
+    // The text lists it by the name `--from` takes, first.
+    assert!(
+        text.stdout.starts_with(&format!("{}  ", one.source.name)),
+        "{}",
+        text.stdout
+    );
+    assert!(
+        text.stdout.contains("  1 skill  gathered "),
+        "{}",
+        text.stdout
+    );
     assert!(warnings.is_empty());
     assert!(json.ok && text.ok);
 }

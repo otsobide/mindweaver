@@ -43,8 +43,8 @@ use crate::code::codes;
 use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
-    Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
-    Outcome, Source, SourceKind, Taken, Target,
+    Action, Carried, Entry, Forgotten, FromSource, Gathered, InstallRecord, LedgerError, Merged,
+    Moved, Outcome, Source, SourceKind, Taken, Target,
 };
 use crate::settings::ProjectId;
 use crate::url::carries_credentials;
@@ -874,6 +874,14 @@ pub trait LedgerStore: Debug + Send {
     /// between, and this is what remembers which is which.
     fn record(&self, source: &Source, taken: &Taken) -> Result<(), LedgerError>;
 
+    /// Forget the artifact of `kind` called `name` that `source` supplied,
+    /// saying whether there was one: what a gather of it found it offers no
+    /// more (#100), once its folder is off the shelf. What another source
+    /// supplied under the name stays, as [`record`](Self::record) keeps one
+    /// source's apart from another's.
+    fn forget_gathered(&self, source: &Source, kind: Kind, name: &str)
+        -> Result<bool, LedgerError>;
+
     /// Everything gathered, ordered the way a listing reads it: by kind, then
     /// name, then source.
     fn gathered(&self) -> Result<Vec<Gathered>, LedgerError>;
@@ -899,6 +907,13 @@ pub trait LedgerStore: Debug + Send {
     /// older build stored with a credential is listed where the URL it is
     /// shown as goes.
     fn sources(&self) -> Result<Vec<Source>, LedgerError>;
+
+    /// Every installation of what `source` supplied, in any project, by
+    /// project, then kind, then name: what forgetting the source leaves
+    /// orphaned (`mindweaver gather remove`, #100), each still recorded,
+    /// its `origin` kept, once [`forget_source`](Self::forget_source) has
+    /// let go of it.
+    fn installed_from(&self, source: &Source) -> Result<Vec<FromSource>, LedgerError>;
 
     /// Record that an artifact was put into a project, replacing whatever was
     /// recorded of it before.

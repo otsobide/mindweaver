@@ -1365,12 +1365,20 @@
       ]
     },
     "ShelfSource": {
-      "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied.",
+      "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, which moved no version.",
       "type": "object",
       "properties": {
         "directory": {
           "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
           "type": "string"
+        },
+        "gathered_at": {
+          "description": "When its last gather put on the shelf what it holds there, in\nseconds since the Unix epoch: the latest of their `gathered_at`, a\ngather recording every artifact it takes, changed or not. `None`\nwhile the shelf holds nothing of it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
         },
         "kind": {
           "$ref": "#/$defs/SourceKind"
@@ -1404,6 +1412,13 @@
             "null"
           ]
         },
+        "shelved": {
+          "description": "How many of its artifacts the shelf holds, of each kind it holds\nany of, in report order: none for a source no gather has put\nanything on the shelf from.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KindCount"
+          }
+        },
         "subdirectory": {
           "description": "The folder inside the source that was harvested: `.`, the whole\nrepository, by default, and `skills` for a source an older build\nregistered with what was its default then.",
           "type": "string"
@@ -1422,7 +1437,9 @@
         "directory",
         "name",
         "pin",
-        "origin"
+        "origin",
+        "shelved",
+        "gathered_at"
       ]
     },
     "Shelved": {

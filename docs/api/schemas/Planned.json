@@ -1010,6 +1010,47 @@
           ]
         },
         {
+          "description": "`mindweaver gather update <name>...`: each source named gathered\nagain, as it was gathered, or every one, `--all`, when `names` is\nempty. Followed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]), and carrying no token, as a gather's task\ncarries none.",
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "update_sources"
+            }
+          },
+          "required": [
+            "type",
+            "names"
+          ]
+        },
+        {
+          "description": "`mindweaver gather remove [--yes] <name>`: the source called `name`\nforgotten, what it put on the shelf and its clone taken away, and\nwhat was installed from it left orphaned, which is asked about first\n([`Caution::Forgets`]). Without `yes`, the dry run, which says what\nwould go and writes nothing.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "remove_source"
+            },
+            "yes": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "yes"
+          ]
+        },
+        {
           "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
           "type": "object",
           "properties": {

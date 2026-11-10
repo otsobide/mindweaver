@@ -751,7 +751,14 @@ const EXPECTED: &str = r#"{
       "directory": "github.com-acme-skills",
       "name": "acme-skills",
       "pin": null,
-      "origin": "https://github.com/acme/skills"
+      "origin": "https://github.com/acme/skills",
+      "shelved": [
+        {
+          "kind": "skill",
+          "count": 1
+        }
+      ],
+      "gathered_at": 1790000000
     }
   ],
   "offers": [

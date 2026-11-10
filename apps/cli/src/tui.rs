@@ -494,6 +494,7 @@ pub fn load_project(directory: &Path, lookup: &Lookup) -> Result<View, CliError>
         roots: Vec::new(),
         scan_warnings: Vec::new(),
         shelf: 0,
+        sources: Vec::new(),
         // What `mind load` has put into the workspace above, so the load form
         // can show it and unload it from here too.
         loaded: above
@@ -556,6 +557,7 @@ fn workspace_view(resolved: &Resolved, lookup: &Lookup, roots: &[PathBuf]) -> Wo
         roots: roots.to_vec(),
         scan_warnings,
         shelf: snapshot.shelf.len(),
+        sources: snapshot.sources.clone(),
         loaded: snapshot.loaded.iter().map(loaded_source).collect(),
         scope: Scope::Workspace,
         above: None,

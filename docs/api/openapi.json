@@ -225,6 +225,11 @@
             "const": "forces",
             "description": "`--force`: on `install` and `uninstall`, and on `update` that is\ntold `--yes`.",
             "type": "string"
+          },
+          {
+            "const": "forgets",
+            "description": "`mindweaver gather remove --yes`: a gathered source forgotten, what\nit put on the shelf and its clone deleted, and what was installed\nfrom it left in the projects, orphaned, as `unload` leaves a loaded\nworkspace's.",
+            "type": "string"
           }
         ]
       },
@@ -685,6 +690,7 @@
           "gathered_root_unnamed",
           "gathered_unhashed",
           "gathered_route_unusable",
+          "gathered_unremoved",
           "gather_cancelled",
           "credentials_in_url",
           "gather_token_over_ssh",
@@ -877,6 +883,11 @@
           "unknown_project",
           "ambiguous_project",
           "scan_folder_unlisted",
+          "source_unknown",
+          "source_folder_unrecorded",
+          "source_folder_linked",
+          "source_folder_unread",
+          "source_unremoved",
           "template_name_invalid",
           "unknown_template",
           "template_wrong_kind",
@@ -3403,11 +3414,19 @@
         "type": "string"
       },
       "ShelfSource": {
-        "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied.",
+        "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, which moved no version.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
             "type": "string"
+          },
+          "gathered_at": {
+            "description": "When its last gather put on the shelf what it holds there, in\nseconds since the Unix epoch: the latest of their `gathered_at`, a\ngather recording every artifact it takes, changed or not. `None`\nwhile the shelf holds nothing of it.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
@@ -3441,6 +3460,13 @@
               "null"
             ]
           },
+          "shelved": {
+            "description": "How many of its artifacts the shelf holds, of each kind it holds\nany of, in report order: none for a source no gather has put\nanything on the shelf from.",
+            "items": {
+              "$ref": "#/components/schemas/KindCount"
+            },
+            "type": "array"
+          },
           "subdirectory": {
             "description": "The folder inside the source that was harvested: `.`, the whole\nrepository, by default, and `skills` for a source an older build\nregistered with what was its default then.",
             "type": "string"
@@ -3459,7 +3485,9 @@
           "directory",
           "name",
           "pin",
-          "origin"
+          "origin",
+          "shelved",
+          "gathered_at"
         ],
         "type": "object"
       },
@@ -4645,6 +4673,47 @@
             "type": "object"
           },
           {
+            "description": "`mindweaver gather update <name>...`: each source named gathered\nagain, as it was gathered, or every one, `--all`, when `names` is\nempty. Followed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]), and carrying no token, as a gather's task\ncarries none.",
+            "properties": {
+              "names": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "update_sources",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "names"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather remove [--yes] <name>`: the source called `name`\nforgotten, what it put on the shelf and its clone taken away, and\nwhat was installed from it left orphaned, which is asked about first\n([`Caution::Forgets`]). Without `yes`, the dry run, which says what\nwould go and writes nothing.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "const": "remove_source",
+                "type": "string"
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "name",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
             "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
             "properties": {
               "folder": {
@@ -5591,6 +5660,49 @@
               "type",
               "url",
               "folder"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather update <name>...`: each source named gathered\nagain, as it was gathered, or every one, `--all`, when `names` is\nempty. Followed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]), and carrying no token, as a gather's task\ncarries none.",
+            "properties": {
+              "names": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "update_sources",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "names"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather remove [--yes] <name>`: the source called `name`\nforgotten, what it put on the shelf and its clone taken away, and\nwhat was installed from it left orphaned, which is asked about first\n([`Caution::Forgets`]). Without `yes`, the dry run, which says what\nwould go and writes nothing.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "const": "remove_source",
+                "type": "string"
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "name",
+              "yes"
             ],
             "type": "object"
           },

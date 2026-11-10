@@ -18,4 +18,4 @@
  * which a line of a command that takes `--yes` is without it: it takes
  * nothing away, and says what it would.
  */
-export type Caution = "removes" | "uninstalls" | "unlinks" | "unloads" | "forces";
+export type Caution = "removes" | "uninstalls" | "unlinks" | "unloads" | "forces" | "forgets";

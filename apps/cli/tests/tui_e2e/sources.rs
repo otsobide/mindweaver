@@ -70,6 +70,43 @@ fn g_gathers_from_a_repository_and_the_header_counts_what_it_put_on_the_shelf() 
 }
 
 #[test]
+fn capital_s_lists_the_sources_and_d_forgets_the_one_picked_once_asked() {
+    let scenario = collapse_and_tanukeys();
+    scenario
+        .source(
+            "~/src/acme-skills",
+            &[("skills/lint/SKILL.md", &skill("lint", "Lint the code"))],
+        )
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills");
+    let mut terminal = scenario.open("~/Projects", "mindweaver");
+    terminal.shows("1 on the shelf");
+
+    terminal
+        .types("S")
+        .shows("Sources the shelf is filled from")
+        .shows("src-acme-skills")
+        .types("d")
+        .shows("Forget the source src-acme-skills?")
+        .types("y")
+        .shows("forgot the source src-acme-skills, gathered from ../src/acme-skills");
+    assert!(!scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills"));
+
+    terminal
+        .presses(Key::Escape)
+        .shows("nothing on the shelf")
+        .types("q");
+    let closed = terminal.exits();
+    assert_eq!(
+        closed.shown.trim_end(),
+        "$ mindweaver gather remove --yes src-acme-skills\n\
+         forgot the source src-acme-skills, gathered from ../src/acme-skills\n\
+         removed its 1 skill from the shelf, at \
+         /home/you/Projects/.mindweaver/skills/..-src-acme-skills\n\
+         removed its clone, at /home/you/Projects/.mindweaver/cache/..-src-acme-skills"
+    );
+}
+
+#[test]
 fn capital_l_loads_another_workspace_and_its_own_are_offered_from_then_on() {
     let scenario = beside_team();
     let mut terminal = scenario.open("~/Projects", "mindweaver");

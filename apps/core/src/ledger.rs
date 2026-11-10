@@ -256,6 +256,9 @@ pub enum Action {
     /// Bringing a skill somebody kept in a project into the library, its
     /// copies recorded as installed from there.
     Adopt,
+    /// Forgetting a gathered source, its clone and what it put on the
+    /// shelf (`mindweaver gather remove`, #100).
+    Forget,
 }
 
 impl Action {
@@ -266,8 +269,20 @@ impl Action {
             Action::Uninstall => "uninstall",
             Action::Relink => "relink",
             Action::Adopt => "adopt",
+            Action::Forget => "forget",
         }
     }
+}
+
+/// An installation of what a source supplied, by the project it is in and
+/// what it is called there: what forgetting the source leaves orphaned
+/// ([`LedgerStore::installed_from`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FromSource {
+    /// The project, as a route from the workspace, as its records name it.
+    pub project: String,
+    pub kind: Kind,
+    pub name: ArtifactName,
 }
 
 /// How an action ended.
