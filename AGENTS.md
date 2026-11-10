@@ -1963,15 +1963,14 @@ These are easy to break from a single file without noticing.
   and Windows (`test (macos)`, `test (windows)`, which set up Node too) run
   only by hand (`workflow_dispatch`) or on PRs labelled `full-matrix`, until
   the compatibility pass (#154) puts them back on pushes to `dev`/`main` and
-  PRs from `dev`, `main` or `release/*`. Every Linux job, both workflows',
-  runs on the repository's self-hosted runner, asked for by its labels
-  (`runs-on: [self-hosted, Linux, X64]`), and only macOS and Windows on
-  GitHub's: a step that needs what GitHub's image held installs it where it
-  is missing, since a self-hosted runner keeps what a job installed. Its
-  image holds `make` and a C compiler (`build-essential`), and it runs as a
-  user of its own with sudo, never root, which writes where a test takes the
-  permission away: `fmt and clippy` fails first thing on a runner that is
-  root.
+  PRs from `dev`, `main` or `release/*`. Every job, both workflows', runs
+  on GitHub's runners, the Linux ones named `ubuntu-latest` in the
+  workflow. The steps a self-hosted runner needed, while the account was
+  locked over billing, stay: a step that needs what an image may lack
+  installs it only where it is missing, and `fmt and clippy` fails first
+  thing on a runner that is root, which writes where a test takes the
+  permission away, so a self-hosted runner can take the jobs again by
+  changing `runs-on` alone.
 - The rulesets for `dev` and `main` require every check that runs on every
   pull request: `fmt and clippy`, `test (core)`, `test (cli)`, `test
   (server)`, `test (web)`, `types drift (web)`, `build (core)`, `build

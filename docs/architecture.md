@@ -8572,18 +8572,19 @@ CI gives the panel jobs of its own:
 The rulesets for `dev` and `main` require every check that runs on every
 pull request, the panel's three among them; AGENTS.md lists them by name.
 
-Every Linux job, `Gitflow`'s two among them, runs on the repository's own
-runner, a self-hosted one asked for by its labels (`runs-on: [self-hosted,
-Linux, X64]`), and only test-cross on GitHub's: GitHub's Linux runners
-stopped starting jobs once the account was locked over billing, and a check
-that never starts is one the rulesets wait on for ever. By its labels
-rather than its name, so a second runner given them takes jobs beside the
-first: one runner runs one job at a time, so the jobs GitHub ran side by
-side wait for each other there. A variable naming the runner was rejected:
-it would switch back without a commit, but the workflow would no longer say
-where a job runs. A self-hosted runner's image is not GitHub's, and it keeps
-what a job installed, so a step that needs what GitHub's image held
-installs it only where it is missing, as `test (cli)` does zsh and the
+Every Linux job, `Gitflow`'s two among them, runs on GitHub's runners,
+named `ubuntu-latest` in the workflow. For a while they ran on the
+repository's own runner, a self-hosted one asked for by its labels
+(`runs-on: [self-hosted, Linux, X64]`): GitHub's Linux runners stopped
+starting jobs once the account was locked over billing, and a check that
+never starts is one the rulesets wait on for ever. Once billing was settled
+they went back, since one runner runs one job at a time and the jobs
+GitHub runs side by side waited for each other there. A variable naming the
+runner was rejected both ways: it would switch without a commit, but the
+workflow would no longer say where a job runs. What the self-hosted runner
+needed stays, so it can take the jobs again by its labels alone. Its image
+is not GitHub's, and it keeps what a job installed, so a step that needs
+what an image may lack installs it only where it is missing, as `test (cli)` does zsh and the
 python3 its virtualenv is made with. What every job needs is the image's:
 `make` and a C compiler (`build-essential`), which links every binary and
 compiles the SQLite `rusqlite` bundles, and a user of its own with sudo,
@@ -13551,8 +13552,8 @@ it once as it closes.
   there, with the console's Ctrl-C on Windows.
 - **Which panel `build (cli)` embeds rests on the runner.** `make
   cli/release` embeds the downloaded panel because no pnpm is on the
-  runner's PATH. A self-hosted runner whose image has one, which nothing
-  here rules out, would have it build the panel again, from the same
+  runner's PATH. A runner whose image has one, a self-hosted one put back
+  among them, would have it build the panel again, from the same
   lockfile, on whatever Node the image has, rather than embed the one
   `test (web)` tested; a variable telling `make web/build/if-node` to take
   `dist/` as it is would settle it, at the price of a knob only CI turns.
