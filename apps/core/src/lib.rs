@@ -52,6 +52,7 @@ pub mod lifecycle;
 mod lines;
 pub mod lock;
 pub mod mcp;
+pub mod mcp_registry;
 pub mod migrate;
 #[cfg(any(test, feature = "mother"))]
 pub mod mother;

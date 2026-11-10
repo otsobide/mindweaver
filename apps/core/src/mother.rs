@@ -27,6 +27,7 @@ pub mod artifact;
 pub mod fixture;
 pub mod ledger;
 pub mod random;
+pub mod registry;
 pub mod settings;
 pub mod url;
 pub mod value;
@@ -39,6 +40,7 @@ pub use ledger::{
     EntryMother, EntryTargetMother, GatheredMother, InstallRecordMother, LicenceMother,
     MovedMother, SourceMother, TakenMother, TargetMother,
 };
+pub use registry::RegistryMother;
 pub use settings::SettingsMother;
 pub use url::{Credentialed, UrlMother};
 pub use value::{

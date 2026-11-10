@@ -357,9 +357,10 @@ pub fn with_query(url: &str, name: &str, value: &str) -> String {
     )
 }
 
-/// `text` as a query's part: unreserved bytes as they are, every other one
-/// as `%XX`.
-fn encoded(text: &str) -> String {
+/// `text` as a query's part, or a path's: unreserved bytes as they are,
+/// every other one as `%XX`, a `/` among them, so a name holding one is
+/// still one part of a path.
+pub(crate) fn encoded(text: &str) -> String {
     let mut encoded = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
