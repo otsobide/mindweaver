@@ -577,6 +577,7 @@ fn a_response_keeps_only_the_headers_core_reads_named_in_lowercase() {
             ("ETag", "\"v1\""),
             ("Set-Cookie", "session=s3cret"),
             ("X-RateLimit-Remaining", "59"),
+            ("X-Request-Id", "4f9c2a7e"),
             ("Retry-After", " 120 "),
         ],
         Vec::new(),
@@ -591,10 +592,12 @@ fn a_response_keeps_only_the_headers_core_reads_named_in_lowercase() {
             ),
             (String::from("etag"), String::from("\"v1\"")),
             (String::from("retry-after"), String::from("120")),
+            (String::from("x-ratelimit-remaining"), String::from("59")),
         ])
     );
     assert_eq!(response.header("Content-TYPE"), Some("application/json"));
     assert_eq!(response.header("set-cookie"), None);
+    assert_eq!(response.header("x-request-id"), None);
 }
 
 #[test]
