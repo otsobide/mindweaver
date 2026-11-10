@@ -10,10 +10,9 @@ import type { Stage } from "./Stage";
  * the server carries it unread: its words and its verdict worked out
  * here, from core's step, so the panel draws a bar and offers a cancel
  * without spelling a step, nor the point past which a cancel comes too
- * late, in TypeScript. Of no gather's shape but its stages: a run of
- * another command that reports steps, a backup's checking out, exporting,
- * committing and pushing, says them in the same five fields with stages
- * of its own.
+ * late, in TypeScript. Of no one run's shape but its stages: a gather's
+ * and a backup's checking out, exporting, committing and pushing are
+ * said in the same five fields, a backup's with no count.
  */
 export type Step = { 
 /**
@@ -36,6 +35,7 @@ said: string,
 /**
  * Whether a cancel asked now still stops the run, as core says of
  * the step (`Progress::cancellable`): true until a gather starts
- * putting what it read on the shelf.
+ * putting what it read on the shelf, and until a backup starts
+ * pushing.
  */
 cancellable: boolean, };

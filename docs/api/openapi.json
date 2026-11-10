@@ -318,8 +318,7 @@
           "reads_stdin",
           "prints_shell_code",
           "show_unheld",
-          "serves_panel",
-          "backup_unwatched"
+          "serves_panel"
         ],
         "type": "string"
       },
@@ -513,6 +512,7 @@
           "backup_branch_invalid",
           "backup_workspace_unmade",
           "backup_scratch_failed",
+          "backup_cancelled",
           "artifact_read_failed",
           "front_matter_invalid",
           "name_empty",
@@ -687,6 +687,7 @@
           "backup_credentials_needed",
           "backup_commit_failed",
           "backup_push_failed",
+          "backup_git_cancelled",
           "http_url_invalid",
           "http_url_credentialed",
           "http_header_invalid",
@@ -828,6 +829,7 @@
           "path_in_mindflayer",
           "switch_unlisted",
           "install_yes_unasked",
+          "token_variable_refused",
           "reapply_no_agent",
           "reapply_no_folder",
           "reapply_copy_failed",
@@ -3623,7 +3625,7 @@
         "type": "string"
       },
       "Stage": {
-        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them.",
+        "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's.",
         "oneOf": [
           {
             "const": "connecting",
@@ -3642,7 +3644,7 @@
           },
           {
             "const": "checking_out",
-            "description": "Writing the fetched revision's files into the clone.",
+            "description": "Writing the fetched revision's files into the clone; for a backup,\nchecking the repository out, which counts nothing.",
             "type": "string"
           },
           {
@@ -3653,6 +3655,21 @@
           {
             "const": "placing",
             "description": "Putting what was read on the shelf.",
+            "type": "string"
+          },
+          {
+            "const": "exporting",
+            "description": "A backup's export of the library into its check-out.",
+            "type": "string"
+          },
+          {
+            "const": "committing",
+            "description": "A backup's commit of what it exported.",
+            "type": "string"
+          },
+          {
+            "const": "pushing",
+            "description": "A backup's push of its commit, past which a cancel is too late.",
             "type": "string"
           }
         ]
@@ -3709,10 +3726,10 @@
         "type": "object"
       },
       "Step": {
-        "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no gather's shape but its stages: a run of\nanother command that reports steps, a backup's checking out, exporting,\ncommitting and pushing, says them in the same five fields with stages\nof its own.",
+        "description": "One step of a run under way, as the panel is told it: what the run is\ndoing, how far it has got, the same in the words a terminal draws it\nin, and whether a cancel asked now still stops it.\n\nWhat the panel's backend reports through the server (`progress`), as\nthe server carries it unread: its words and its verdict worked out\nhere, from core's step, so the panel draws a bar and offers a cancel\nwithout spelling a step, nor the point past which a cancel comes too\nlate, in TypeScript. Of no one run's shape but its stages: a gather's\nand a backup's checking out, exporting, committing and pushing are\nsaid in the same five fields, a backup's with no count.",
         "properties": {
           "cancellable": {
-            "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf.",
+            "description": "Whether a cancel asked now still stops the run, as core says of\nthe step (`Progress::cancellable`): true until a gather starts\nputting what it read on the shelf, and until a backup starts\npushing.",
             "type": "boolean"
           },
           "done": {
@@ -4465,6 +4482,79 @@
               "url",
               "folder",
               "reference"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
+            "properties": {
+              "folder": {
+                "type": "string"
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "export",
+                "type": "string"
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "folder",
+              "kinds",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message\n<message>] [--token-env <variable>] <url>`: that export made into a\ncheck-out of the repository at `url`, committed and pushed, on\n`branch` or the repository's own, with `message` or the command's.\n\n`token_env` is the name of an environment variable of whatever runs\nthe line, the panel's server or the TUI, holding a token, never a\ntoken: a front end enters no credential, nor sends one (D-16), and\nthe command reads the variable for the one run. Without it, `git`\nlogs in as it is configured to. Followed as it goes and stopped\nwhen asked until it pushes ([`Followed::Backup`]).",
+            "properties": {
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "token_env": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "const": "backup",
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "url",
+              "branch",
+              "kinds",
+              "message",
+              "token_env"
             ],
             "type": "object"
           },
@@ -5320,6 +5410,78 @@
               "type",
               "url",
               "folder"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
+            "properties": {
+              "folder": {
+                "type": "string"
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "export",
+                "type": "string"
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "folder",
+              "kinds",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message\n<message>] [--token-env <variable>] <url>`: that export made into a\ncheck-out of the repository at `url`, committed and pushed, on\n`branch` or the repository's own, with `message` or the command's.\n\n`token_env` is the name of an environment variable of whatever runs\nthe line, the panel's server or the TUI, holding a token, never a\ntoken: a front end enters no credential, nor sends one (D-16), and\nthe command reads the variable for the one run. Without it, `git`\nlogs in as it is configured to. Followed as it goes and stopped\nwhen asked until it pushes ([`Followed::Backup`]).",
+            "properties": {
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kinds": {
+                "items": {
+                  "$ref": "#/components/schemas/Kind"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "token_env": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "const": "backup",
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "url",
+              "kinds"
             ],
             "type": "object"
           },
