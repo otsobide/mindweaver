@@ -33,7 +33,8 @@ const KEPT: usize = 200;
 /// Tagged by `from`, beside what that place said, so a reader tells a
 /// licence its author declared from a line read off a file:
 /// `{"from": "manifest", "text": "MIT"}`, `{"from": "file", "file":
-/// "LICENSE.txt", "text": "Apache License"}` or `{"from": "unknown"}`.
+/// "LICENSE.txt", "text": "Apache License"}`, `{"from": "plugin", "text":
+/// "Apache-2.0"}` or `{"from": "unknown"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -48,7 +49,12 @@ pub enum Licence {
     /// written, when there is one to read ([`KEPT`] characters of it at
     /// most).
     File { file: String, text: Option<String> },
-    /// Neither: nothing it holds says.
+    /// Neither, for a skill gathered from a plugin a marketplace lists
+    /// (#103): the licence the plugin declares, in its catalog entry or its
+    /// own `plugin.json`, as written, every skill of it under it unless the
+    /// skill says otherwise. Added after the rest.
+    Plugin { text: String },
+    /// None of those: nothing it holds says.
     Unknown,
 }
 
@@ -90,7 +96,22 @@ impl Licence {
         match self {
             Licence::Manifest { .. } => "manifest",
             Licence::File { .. } => "file",
+            Licence::Plugin { .. } => "plugin",
             Licence::Unknown => "unknown",
+        }
+    }
+
+    /// This, or the licence `plugin` declares when this says nothing
+    /// (#103): what a skill a marketplace's plugin holds is under, its own
+    /// first, as its manifest or a file in its folder says it, since a
+    /// plugin's licence is for whatever in it declares none. A plugin's
+    /// written empty declares nothing.
+    pub fn or_plugins(self, plugin: Option<&str>) -> Licence {
+        match (self, plugin.filter(|text| !text.trim().is_empty())) {
+            (Licence::Unknown, Some(text)) => Licence::Plugin {
+                text: text.to_owned(),
+            },
+            (licence, _) => licence,
         }
     }
 
@@ -99,6 +120,7 @@ impl Licence {
     pub fn said(&self) -> &str {
         match self {
             Licence::Manifest { text }
+            | Licence::Plugin { text }
             | Licence::File {
                 text: Some(text), ..
             } => text,

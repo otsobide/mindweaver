@@ -763,7 +763,7 @@ impl LedgerStore for Sqlite {
 
     fn record(&self, source: &Source, taken: &Taken) -> Result<(), LedgerError> {
         let (licence_text, licence_file) = match &taken.licence {
-            Licence::Manifest { text } => (Some(text.as_str()), None),
+            Licence::Manifest { text } | Licence::Plugin { text } => (Some(text.as_str()), None),
             Licence::File { file, text } => (text.as_deref(), Some(file.as_str())),
             Licence::Unknown => (None, None),
         };
@@ -2243,6 +2243,11 @@ fn read_licence(
             text: text.unwrap_or_default(),
         }),
         ("file", Some(file)) => Some(Licence::File { file, text }),
+        // A plugin's, which a skill a marketplace's plugin holds is under
+        // when it declares none (#103), kept in the column a manifest's is.
+        ("plugin", _) => Some(Licence::Plugin {
+            text: text.unwrap_or_default(),
+        }),
         ("unknown", _) => Some(Licence::Unknown),
         _ => None,
     }

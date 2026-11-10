@@ -994,6 +994,7 @@ struct Source {
 enum Licence {
     Manifest { text: String },
     File { file: String, text: Option<String> },
+    Plugin { text: String },
     Unknown,
 }
 

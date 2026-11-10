@@ -1737,6 +1737,7 @@ fn every_licence_a_gather_reads_comes_back_as_it_was_recorded(mut store: Store) 
         LicenceMother::manifest(&random::text(40)),
         LicenceMother::file("LICENSE.txt", Some(&random::text(40))),
         LicenceMother::file("LICENCE", None),
+        LicenceMother::plugin(&random::text(40)),
         Licence::Unknown,
     ];
     for (n, licence) in licences.iter().enumerate() {

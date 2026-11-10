@@ -89,9 +89,10 @@ pub struct LicenceMother;
 impl LicenceMother {
     /// One read from wherever a skill says it, or none.
     pub fn random() -> Licence {
-        match random::between(0, 2) {
+        match random::between(0, 3) {
             0 => Self::manifest(&SkillMother::licence()),
             1 => Self::file("LICENSE", Some("MIT License")),
+            2 => Self::plugin(&SkillMother::licence()),
             _ => Licence::Unknown,
         }
     }
@@ -99,6 +100,14 @@ impl LicenceMother {
     /// The licence a manifest declares as `text`.
     pub fn manifest(text: &str) -> Licence {
         Licence::Manifest {
+            text: text.to_owned(),
+        }
+    }
+
+    /// The licence a marketplace's plugin declares as `text`, for a skill
+    /// of it that declares none (#103).
+    pub fn plugin(text: &str) -> Licence {
+        Licence::Plugin {
             text: text.to_owned(),
         }
     }
