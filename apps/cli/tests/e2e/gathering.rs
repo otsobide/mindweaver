@@ -6,6 +6,10 @@
 //! one by its URL: a table pads every row to its longest source, which a
 //! temporary folder's path would make as long as the system's says.
 
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
+use std::sync::{Arc, Mutex};
+
 use crate::{skill, Scenario};
 
 const SOURCE: &str = "~/src/acme-skills";
@@ -188,7 +192,8 @@ fn a_url_carrying_a_token_is_refused_before_anything_is_fetched() {
         .says(
             "error: https://github.com/acme/private-skills: a password, a token or, over \
              http(s), a user name in the URL is refused, because gathering stores and shows the \
-             URL: gather it without one, and configure a git credential helper that has it\n",
+             URL: gather it without one, and hand the token over with --token-env or --gh, or \
+             configure a git credential helper that has it\n",
         );
 
     scenario
@@ -499,4 +504,310 @@ fn a_branch_given_twice_over_is_refused_before_anything_is_fetched() {
         .says("error: the URL names the branch `v1`, and `--ref` names `v2`: give it once\n");
 
     assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+// ---------------------------------------------------------------------------
+// A private repository: the reference's paragraphs on one, in "Gathering skills
+// from elsewhere"
+// ---------------------------------------------------------------------------
+
+/// A private repository's server on loopback: whatever it is asked, it
+/// asks who is asking (`401`, `WWW-Authenticate: Basic`), and notes each
+/// login it was sent, `None` for a request that sent none. Over plain http,
+/// where a gather never sends a credential, which is what it holds.
+struct Guarded {
+    address: SocketAddr,
+    sent: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl Guarded {
+    fn listening() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let address = listener.local_addr().expect("where it listens");
+        let sent = Arc::<Mutex<Vec<Option<String>>>>::default();
+        let noted = Arc::clone(&sent);
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => request.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&request).into_owned();
+                noted.lock().unwrap().push(request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("authorization")
+                        .then(|| value.trim().to_owned())
+                }));
+                let _ = stream.write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\n\
+                      WWW-Authenticate: Basic realm=\"private\"\r\n\
+                      Content-Length: 0\r\n\
+                      Connection: close\r\n\r\n",
+                );
+            }
+        });
+        Self { address, sent }
+    }
+
+    fn url(&self) -> String {
+        format!("http://{}/acme/private-skills.git", self.address)
+    }
+}
+
+/// An https URL on loopback where nothing listens: a fetch from it fails at
+/// once, with no network, after whatever a gather does with a token first.
+fn nowhere_over_https() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("where it listened").port();
+    drop(listener);
+    format!("https://127.0.0.1:{port}/acme/private-skills.git")
+}
+
+/// A token as a front end is handed one, drawn for one test.
+fn a_token() -> String {
+    mindweaver_core::mother::random::hex(40)
+}
+
+/// `gh` as a person logged in to `host` has it: `gh auth token --hostname
+/// <host>` prints `token`, and anything else is `gh`'s error. Every line it
+/// is run with is noted in `~/gh-asked`.
+fn gh_logged_in(scenario: &Scenario, host: &str, token: &str) {
+    scenario.program(
+        "~/bin/gh",
+        &format!(
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$*\" >> \"$HOME/gh-asked\"\n\
+             if [ \"$*\" = 'auth token --hostname {host}' ]; then\n\
+             \x20 printf '%s\\n' '{token}'\n\
+             \x20 exit 0\n\
+             fi\n\
+             echo \"no oauth token found for $4\" >&2\n\
+             exit 1\n"
+        ),
+    );
+}
+
+#[test]
+fn a_private_repository_nothing_logs_into_fails_saying_how_to_hand_over_a_token() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let server = Guarded::listening();
+    // What a prompt would run, were one ever reached: it leaves a mark.
+    scenario.program(
+        "~/bin/askpass",
+        "#!/bin/sh\ntouch \"$HOME/asked\"\necho hunter2\n",
+    );
+    let askpass = scenario.at("~/bin/askpass").display().to_string();
+    let line = format!("mindweaver gather git {}", server.url());
+
+    scenario
+        .run_with(
+            "~/Projects",
+            &line,
+            &[
+                ("GIT_ASKPASS", &askpass),
+                ("SSH_ASKPASS", &askpass),
+                ("GIT_TERMINAL_PROMPT", "1"),
+            ],
+        )
+        .exits(1)
+        .prints("")
+        .says(&format!(
+            "error: {}: needs credentials, and gathering never prompts for them: configure a git \
+             credential helper, use ssh-agent for an ssh URL, or hand it a token with --token-env \
+             or --gh\n",
+            server.url()
+        ));
+
+    assert_eq!(*server.sent.lock().unwrap(), [None]);
+    assert!(!scenario.exists("~/asked"), "a prompt was reached");
+}
+
+#[test]
+fn a_token_variable_that_holds_nothing_is_said_before_anything_is_fetched() {
+    let scenario = Scenario::projects(&["collapse"]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git acme/private-skills --token-env GITHUB_TOKEN",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: $GITHUB_TOKEN holds no token: set it for this command, or leave --token-env \
+             out to log in as git does\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn a_token_for_a_repository_reached_over_ssh_is_refused_before_anything_is_fetched() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let token = a_token();
+
+    let ran = scenario.run_with(
+        "~/Projects",
+        "mindweaver gather git git@github.com:acme/private-skills.git --token-env GITHUB_TOKEN",
+        &[("GITHUB_TOKEN", &token)],
+    );
+
+    ran.exits(1).prints("").says(
+        "error: git@github.com:acme/private-skills.git: reached over ssh, which logs in with keys \
+         of its own, so a token would be for nothing: leave --token-env and --gh out, or gather \
+         its https URL\n",
+    );
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn a_token_for_a_repository_over_plain_http_is_refused_and_never_sent() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let server = Guarded::listening();
+    let token = a_token();
+    let line = format!(
+        "mindweaver gather git {} --token-env GITHUB_TOKEN",
+        server.url()
+    );
+
+    scenario
+        .run_with("~/Projects", &line, &[("GITHUB_TOKEN", &token)])
+        .exits(1)
+        .prints("")
+        .says(&format!(
+            "error: {}: not fetched over https, the one way a token is sent: leave --token-env \
+             and --gh out, or gather its https URL\n",
+            server.url()
+        ));
+
+    assert_eq!(*server.sent.lock().unwrap(), []);
+}
+
+#[test]
+fn gh_with_no_token_for_the_repository_s_host_is_said_and_nothing_is_fetched() {
+    let scenario = Scenario::projects(&["collapse"]);
+    gh_logged_in(&scenario, "gitlab.com", &a_token());
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather git acme/private-skills --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: `gh` has no token for github.com: log in with `gh auth login --hostname \
+             github.com`, or name a variable holding a token with --token-env\n",
+        );
+
+    assert_eq!(
+        scenario.read("~/gh-asked"),
+        "auth token --hostname github.com\n"
+    );
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn gh_asked_for_where_there_is_no_gh_is_said() {
+    let scenario = Scenario::projects(&["collapse"]);
+    scenario.folder("~/bin");
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather git acme/private-skills --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: --gh asks GitHub's `gh` for the token, and there is no `gh` on the PATH: \
+             install it and log in with `gh auth login`, or name a variable holding a token with \
+             --token-env\n",
+        );
+}
+
+#[test]
+fn gh_is_never_asked_for_a_repository_no_token_goes_to() {
+    let scenario = Scenario::projects(&["collapse"]);
+    gh_logged_in(&scenario, "github.com", &a_token());
+
+    scenario
+        .run_on_path(
+            "~/Projects",
+            "mindweaver gather git git@github.com:acme/private-skills.git --gh",
+            &[],
+            &["~/bin"],
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: git@github.com:acme/private-skills.git: reached over ssh, which logs in with \
+             keys of its own, so a token would be for nothing: leave --token-env and --gh out, or \
+             gather its https URL\n",
+        );
+
+    assert!(!scenario.exists("~/gh-asked"));
+}
+
+/// The token `gh` gives reaches the fetch, a dry run's too, and nothing a
+/// gather says or leaves holds it: the repository is on this machine,
+/// where nothing answers, so the fetch fails once it has the token.
+#[test]
+fn the_token_gh_gives_is_handed_to_the_fetch_and_kept_nowhere() {
+    let scenario = Scenario::projects(&["collapse"]);
+    let token = a_token();
+    gh_logged_in(&scenario, "127.0.0.1", &token);
+    let url = nowhere_over_https();
+
+    for line in [
+        format!("mindweaver gather git {url} --gh"),
+        format!("mindweaver gather git {url} --dry-run --gh"),
+    ] {
+        scenario
+            .run_on_path("~/Projects", &line, &[], &["~/bin"])
+            .exits(1)
+            .prints("")
+            .says(&format!(
+                "error: {url}: cannot be fetched: An IO error occurred when talking to the server\n"
+            ));
+    }
+
+    assert_eq!(
+        scenario.read("~/gh-asked"),
+        "auth token --hostname 127.0.0.1\nauth token --hostname 127.0.0.1\n"
+    );
+    let kept: Vec<String> = scenario
+        .files("~/Projects")
+        .into_iter()
+        .filter(|file| {
+            std::fs::read(scenario.at(&format!("~/Projects/{file}")))
+                .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(&token))
+        })
+        .collect();
+    assert_eq!(kept, Vec::<String>::new());
+}
+
+#[test]
+fn a_token_from_a_variable_and_from_gh_at_once_is_the_grammar_s_to_refuse() {
+    let scenario = Scenario::projects(&["collapse"]);
+
+    let ran = scenario.run(
+        "~/Projects",
+        "mindweaver gather git acme/private-skills --token-env GITHUB_TOKEN --gh",
+    );
+
+    ran.exits(2).prints("");
+    assert!(
+        ran.stderr
+            .starts_with("error: the argument '--token-env <VARIABLE>' cannot be used with '--gh'"),
+        "{ran}"
+    );
 }

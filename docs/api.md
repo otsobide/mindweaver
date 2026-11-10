@@ -641,7 +641,10 @@ is previewed as `cancellable`, and while it runs `/events` tells each step
 it takes ([following what happens](#following-what-happens)). Its source
 is an address, which the gather refuses when it carries a credential, or a
 folder on this machine named by its absolute path, or a `file://` URL of
-one, as a folder to link is.
+one, as a folder to link is. It carries no token either, nor the name of a
+variable holding one: a private repository logs in as git config's
+credential helpers and ssh do on the server's machine, and a token for a
+gather is handed over from a shell alone (`--token-env`, `--gh`).
 
 A backup is the network too. A `backup` task, `{"type": "backup", "url":
 ..., "branch": null, "kinds": [], "message": null, "token_env": null}`, is

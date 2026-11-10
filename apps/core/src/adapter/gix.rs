@@ -20,10 +20,13 @@ use std::thread;
 use std::time::Duration;
 
 use credentials::{Shortfall, Shortfalls};
+use gix::credentials::helper::Action;
+use gix::credentials::protocol;
 use gix::progress::{self as gix_progress, tree};
+use gix::prompt;
 
 use crate::gather::{Progress, Watch};
-use crate::port::{Cloned, GitError, Remote};
+use crate::port::{Cloned, GitError, Remote, Token};
 use crate::url::redacted;
 use crate::value::Revision;
 use crate::workspace::{replace_file, WorkspaceError};
@@ -45,8 +48,16 @@ impl Remote for Gix {
         reference: Option<&str>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
-        clone(url, reference, into, watch)
+        clone(
+            url,
+            reference,
+            into,
+            watch,
+            credentials::Offered::for_url(token, url),
+            credentials::configured,
+        )
     }
 
     fn scrub(&self, clone: &Path) -> Result<bool, GitError> {
@@ -55,19 +66,29 @@ impl Remote for Gix {
 }
 
 /// Clone `url` into `into`, replacing whatever was there, telling `watch`
-/// what `gix` counts as it goes.
+/// what `gix` counts as it goes, logging in with `offered` where it is
+/// asked for and with the credential `helpers` (built for each connection
+/// from the repository it configures) give elsewhere.
+///
+/// `helpers` is handed in rather than named here so that a test can stand
+/// in a cascade whose prompt panics, and still clone over a real transport.
 ///
 /// A fetch into the existing clone is the obvious optimisation and is
 /// deliberately not done: the clone is shallow, so re-cloning costs about what
 /// a fetch would, and it is one code path rather than three (clone, fetch,
 /// reconcile a checkout that someone may have edited). Gathering is not
 /// something anybody runs in a loop.
-fn clone(
+fn clone<H>(
     url: &str,
     reference: Option<&str>,
     into: &Path,
     watch: &Watch,
-) -> Result<Cloned, GitError> {
+    offered: Option<credentials::Offered>,
+    helpers: fn(gix::Repository) -> H,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
     // Before the clone already there is removed, which a cancel should not
     // cost.
     if watch.is_cancelled() {
@@ -107,7 +128,7 @@ fn clone(
             move |connection| {
                 let repository = connection.remote().repo().clone();
                 connection.set_credentials(credentials::never_prompting(
-                    credentials::configured(repository),
+                    credentials::offering(offered.clone(), helpers(repository)),
                     shortfalls.clone(),
                 ));
                 Ok(())

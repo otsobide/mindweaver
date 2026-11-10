@@ -65,12 +65,20 @@ pub trait Remote: Debug + Send + Sync {
     ///
     /// What is left at `into` holds no credential once this returns, whoever
     /// asked: a caller that forgot to refuse one is not trusted to.
+    ///
+    /// `token`, when a front end handed one over for this run (D-16), is
+    /// offered only to the host [`token_host`](crate::url::token_host) says
+    /// it is for, when that host asks who is fetching, and never asked of
+    /// anyone, kept, nor told to whatever else answers for credentials.
+    /// Without one, or where it is not offered, the remote logs in as it
+    /// would anyway: git config's credential helpers, then ssh's own keys.
     fn fetch(
         &self,
         url: &str,
         reference: Option<&str>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError>;
 
     /// Take out of the clone at `clone` every credential an older build left
@@ -269,8 +277,9 @@ pub enum GitError {
     /// The server asked who is fetching, and nothing that may answer had a
     /// credential it would take. `url` is shown without its credentials.
     #[error(
-        "{url}: needs credentials, and gathering never prompts for them: \
-         configure a git credential helper, or use ssh-agent for an ssh URL"
+        "{url}: needs credentials, and gathering never prompts for them: configure a git \
+         credential helper, use ssh-agent for an ssh URL, or hand it a token with --token-env \
+         or --gh"
     )]
     Credentials { url: String },
     #[error("{url}: cloned, but its files could not be checked out: {detail}")]

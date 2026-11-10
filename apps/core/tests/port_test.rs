@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use common::{skill, workspace};
 use mindweaver_core::gather::{self, GatherError, Request, Watch};
 use mindweaver_core::ledger::{Action, Ledger, Outcome};
-use mindweaver_core::port::{Clock, Cloned, GitError, Remote};
+use mindweaver_core::port::{Clock, Cloned, GitError, Remote, Token};
 use mindweaver_core::settings::ProjectId;
 use mindweaver_core::value::Revision;
 use mindweaver_core::Kind;
@@ -32,6 +32,7 @@ impl Remote for Written {
         reference: Option<&str>,
         into: &Path,
         watch: &Watch,
+        _token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         if watch.is_cancelled() {
             return Err(GitError::Cancelled);

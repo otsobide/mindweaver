@@ -534,8 +534,8 @@ fn removing_an_install_scrubs_the_ledger_it_drops_the_record_from_and_says_so() 
         outcome.stderr,
         [
             "note: https://example.com/acme/skills: the user name, password or token an older \
-             Mindweaver stored in this URL is taken out; gathering it again needs a git \
-             credential helper that has it"
+             Mindweaver stored in this URL is taken out; gathering it again needs it from --token-env, --gh or a git \
+             credential helper"
         ]
     );
     assert_eq!(ledger.tainted_sources().unwrap(), []);

@@ -514,3 +514,44 @@ fn a_path_is_neither_an_address_nor_scp_like() {
         assert!(!is_path(url), "{url}");
     }
 }
+
+#[test]
+fn a_token_goes_to_the_host_of_an_https_url() {
+    for (url, host) in [
+        ("https://github.com/acme/private", "github.com"),
+        ("HTTPS://GitHub.COM/acme/private.git", "github.com"),
+        (
+            "https://ghe.example.com:8443/acme/private",
+            "ghe.example.com",
+        ),
+        ("https://git@gitlab.com/acme/private", "gitlab.com"),
+        ("https://github.com?tab=x", "github.com"),
+        ("https://[2001:db8::1]:8443/acme/private", "[2001:db8::1]"),
+    ] {
+        assert_eq!(token_host(url).as_deref(), Some(host), "{url}");
+    }
+}
+
+#[test]
+fn a_token_goes_over_nothing_else() {
+    for url in [
+        // Plain http, to another machine or this one, as `gix` refuses any
+        // credential over it.
+        "http://github.com/acme/private",
+        "http://127.0.0.1:3000/acme/private.git",
+        "http://localhost/acme/private.git",
+        "ssh://git@github.com/acme/private.git",
+        "git+ssh://github.com/acme/private",
+        "git@github.com:acme/private.git",
+        "git://github.com/acme/private.git",
+        "file:///srv/git/private",
+        "/srv/git/private",
+        "../private",
+        "acme/private",
+        "https://",
+        "https:///acme/private",
+        "https://[]/acme/private",
+    ] {
+        assert_eq!(token_host(url), None, "{url}");
+    }
+}

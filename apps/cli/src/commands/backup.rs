@@ -9,12 +9,12 @@ use std::fmt::Write as _;
 
 use mindweaver_core::adapter::git::SystemGit;
 use mindweaver_core::backup::{self, Request};
-use mindweaver_core::port::{Published, Token};
+use mindweaver_core::port::Published;
 use mindweaver_core::{Kind, WeaverWorkspace};
 
 use crate::commands::export::listed;
 use crate::progress::{Progress, Watch};
-use crate::{CliError, Failure, Outcome};
+use crate::{token, CliError, Failure, Outcome};
 
 /// What `mindweaver backup <url>` was told, beside the workspace.
 pub(crate) struct Backing<'a> {
@@ -39,7 +39,7 @@ pub(crate) fn backup_to(
     asked: &Backing,
     watch: &Watch,
 ) -> Result<Outcome, Failure> {
-    let token = asked.token_env.map(token_from).transpose()?;
+    let token = asked.token_env.map(token::from_variable).transpose()?;
     let watch = watch.relaying(Progress::Backup);
     let request = Request {
         url: asked.url,
@@ -70,14 +70,4 @@ pub(crate) fn backup_to(
         }
     }
     Ok(Outcome::plain(stdout))
-}
-
-/// The token the variable `name` holds, refused when it is unset or empty:
-/// a token asked for and not there is a mistake to say, never a reason to
-/// log in some other way unasked.
-fn token_from(name: &str) -> Result<Token, CliError> {
-    match std::env::var(name) {
-        Ok(token) if !token.trim().is_empty() => Ok(Token::new(token.trim())),
-        _ => Err(CliError::TokenUnset(name.to_owned())),
-    }
 }

@@ -38,8 +38,8 @@ use crate::kind::{Kind, Layout};
 use crate::ledger::{self, Action, Ledger, LedgerError, Merged, Outcome, SourceKind};
 use crate::lock::LockError;
 use crate::paths;
-use crate::port::{Cloned, GitError, Remote};
-use crate::url::{carries_credentials, located, redacted};
+use crate::port::{Cloned, GitError, Remote, Token};
+use crate::url::{carries_credentials, located, over_ssh, redacted};
 use crate::value::{ArtifactName, Origin, Redacted, Revision, SourceName};
 use crate::workspace::WeaverWorkspace;
 
@@ -140,6 +140,11 @@ pub struct Request {
     /// none is given ([`SourceName::derived`]), and a source gathered
     /// before called this from now on when one is.
     pub name: Option<String>,
+    /// A token the front end was handed for this gather (D-16), which the
+    /// remote offers the repository's host as the login, before git
+    /// config's credential helpers; refused for a URL it would not be sent
+    /// over ([`token_host`]). `None` logs in as the helpers and ssh do.
+    pub token: Option<Token>,
 }
 
 impl Request {
@@ -155,6 +160,7 @@ impl Request {
             watch: Watch::new(),
             remote: Arc::new(Gix),
             name: None,
+            token: None,
         }
     }
 
@@ -193,6 +199,45 @@ impl Request {
         self.remote = remote;
         self
     }
+
+    /// Log in with `token`, when one is given, rather than as the
+    /// credential helpers and ssh do.
+    pub fn with_token(mut self, token: Option<Token>) -> Self {
+        self.token = token;
+        self
+    }
+}
+
+/// The host a token for a gather of `typed` goes to, as a front end asks
+/// before it fetches one for that host alone (`gh auth token --hostname`):
+/// the host of the repository [`located`] reads `typed` as, refused when
+/// that is fetched over nothing a token goes over
+/// ([`token_host`](crate::url::token_host)), and when `typed` carries a
+/// credential of its own, which a gather refuses first whatever it is
+/// handed.
+///
+/// The same refusal a gather handed a token makes, so a front end that
+/// asks here first runs nothing to fetch a token no gather would take.
+pub fn token_host(typed: &str) -> Result<String, GatherError> {
+    if carries_credentials(typed) {
+        return Err(GatherError::CredentialsInUrl {
+            url: redacted(typed).into_owned(),
+        });
+    }
+    sent_to(&located(typed).url)
+}
+
+/// The host a token for a fetch of `url`, as [`located`] reads it, goes
+/// to, or why it goes to none.
+fn sent_to(url: &str) -> Result<String, GatherError> {
+    crate::url::token_host(url).ok_or_else(|| {
+        let url = redacted(url).into_owned();
+        if over_ssh(&url) {
+            GatherError::TokenOverSsh { url }
+        } else {
+            GatherError::TokenNotHttps { url }
+        }
+    })
 }
 
 /// One artifact that reached the workspace.
@@ -653,8 +698,9 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
     // Refused before anything is registered or fetched, rather than used for
     // this one fetch and dropped from what is stored: a token on the command
     // line is already where `ps` and the shell history show it, and every
-    // report names the URL. A git credential helper, or the front end once
-    // #110 lands, keeps it off the command line altogether.
+    // report names the URL. A git credential helper, or a token the front
+    // end hands over ([`Request::token`]), keeps it off the command line
+    // altogether.
     //
     // So is a URL typed where the branch, the folder or the name goes,
     // which the ledger keeps as that branch or folder, word for word, and an
@@ -679,6 +725,12 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
     // for them: one of each, since which of two a gather is of is not a
     // thing to guess.
     let at = located(request.source.url());
+    // A token is refused for a repository it would not be sent to, rather
+    // than kept unused: one handed over for an ssh URL, or a path, says the
+    // gather is not logging in the way somebody thinks it is.
+    if request.token.is_some() {
+        sent_to(&at.url)?;
+    }
     let reference = match (at.reference, request.source.reference()) {
         (Some(named), Some(given)) if named != given => {
             return Err(GatherError::ReferenceTwice {
@@ -887,7 +939,13 @@ fn fetch(request: &Request, typed: &Typed, into: &Path) -> Result<Cloned, Gather
     match &request.source {
         Source::Git { .. } => request
             .remote
-            .fetch(&typed.url, typed.reference.as_deref(), into, &request.watch)
+            .fetch(
+                &typed.url,
+                typed.reference.as_deref(),
+                into,
+                &request.watch,
+                request.token.as_ref(),
+            )
             .map_err(|error| match error {
                 GitError::Cancelled => GatherError::Cancelled,
                 error => error.into(),
@@ -1549,14 +1607,30 @@ pub enum GatherError {
     /// stand in for one, which the message names as a user name: calling it a
     /// password would send somebody looking for one that is not there. `url` is shown without it, which is the URL to
     /// gather instead. A URL typed as the branch or the folder is refused
-    /// the same way, and is the one `url` names. A provider the front end supplies (#110) will be a
-    /// second way to give the credential.
+    /// the same way, and is the one `url` names. A token the front end
+    /// hands over ([`Request::token`]) is the other way to give it.
     #[error(
         "{url}: a password, a token or, over http(s), a user name in the URL is refused, because \
-         gathering stores and shows the URL: gather it without one, and configure a git \
-         credential helper that has it"
+         gathering stores and shows the URL: gather it without one, and hand the token over with \
+         --token-env or --gh, or configure a git credential helper that has it"
     )]
     CredentialsInUrl { url: String },
+    /// A token was handed over for a repository reached over ssh, which
+    /// logs in with keys of its own. `url` is what would be fetched.
+    #[error(
+        "{url}: reached over ssh, which logs in with keys of its own, so a token would be for \
+         nothing: leave --token-env and --gh out, or gather its https URL"
+    )]
+    TokenOverSsh { url: String },
+    /// A token was handed over for a repository fetched over something
+    /// other than https: plain http, which would carry it across the
+    /// network as it is, and over which `gix` sends no credential, or a
+    /// path, which asks nobody for one.
+    #[error(
+        "{url}: not fetched over https, the one way a token is sent: leave --token-env and --gh \
+         out, or gather its https URL"
+    )]
+    TokenNotHttps { url: String },
     #[error("{url}: has no `{subdirectory}` folder to gather from")]
     NoSuchFolder { subdirectory: String, url: String },
     /// Not one skill where any of [`LAYOUTS`] looks, in the folder looked
@@ -1609,6 +1683,8 @@ pub enum GatherError {
 codes!(GatherError {
     Self::Cancelled => "gather_cancelled",
     Self::CredentialsInUrl { .. } => "credentials_in_url",
+    Self::TokenOverSsh { .. } => "gather_token_over_ssh",
+    Self::TokenNotHttps { .. } => "gather_token_not_https",
     Self::NoSuchFolder { .. } => "gather_no_such_folder",
     Self::NothingFound { .. } => "gather_nothing_found",
     Self::PathOutside { .. } => "gather_path_outside",

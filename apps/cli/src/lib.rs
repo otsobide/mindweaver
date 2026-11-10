@@ -31,6 +31,7 @@ pub mod routes;
 #[cfg(feature = "schema")]
 pub mod schema;
 pub mod task;
+pub(crate) mod token;
 pub mod tui;
 #[cfg(feature = "ts")]
 pub mod typescript;
@@ -42,8 +43,9 @@ pub use homes::{agent_homes, default_home, Lookup};
 #[cfg(feature = "ui")]
 pub use parse::UiOptions;
 pub use parse::{
-    AgentHomeOptions, AgentNames, AgentsChange, Cli, Command, Editing, GatherCommand, Given,
-    Migrated, ServerOptions, ShareMode, TargetsChange, WeaverCli, WeaverCommand, WorkspacesCommand,
+    AgentHomeOptions, AgentNames, AgentsChange, Cli, Command, Credential, Editing, GatherCommand,
+    Given, Migrated, ServerOptions, ShareMode, TargetsChange, WeaverCli, WeaverCommand,
+    WorkspacesCommand,
 };
 pub use progress::ProgressLine;
 pub use render::{Failure, Outcome, Warning};

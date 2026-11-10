@@ -520,10 +520,12 @@ mindweaver load <path>...  # offer another workspace's own skills and rules,
                            # read live
 mindweaver unload <path>...  # stop offering them
 
-mindweaver gather git <URL> [--path DIR] [--ref REF] [--name NAME] [--dry-run]
+mindweaver gather git <URL> [--path DIR] [--ref REF] [--name NAME] [--dry-run] [--token-env VAR|--gh]
                            # collect skills from a repository onto the shelf,
                            # wherever it keeps them, under a name --from
-                           # takes; with --dry-run, say what it would take
+                           # takes; with --dry-run, say what it would take;
+                           # with --token-env or --gh, log in over https
+                           # with a token for this run
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver install         # a screen for putting skills, rules and MCP
@@ -908,13 +910,52 @@ error: `pdf--forms` cannot be installed: `pdf--forms` is not usable as a name: i
 
 A private repository is fetched with whatever your git credential helpers
 already know, or, over ssh, with the keys ssh already uses (your ssh-agent's,
-or one in `~/.ssh`). Mindweaver itself never stops to ask for a username or a
-password, so a source that needs one nobody has fails, and says what to set
-up:
+or one in `~/.ssh`). Over https a gather can be handed a token for that one
+run instead: `--token-env VAR` reads it from the variable `VAR`, and `--gh`
+asks GitHub's `gh` for the one it holds for the repository's host (`gh auth
+token --hostname github.com` for a GitHub repository), so a GitHub token
+never reaches another forge. The token goes to that host alone, as the login
+GitHub takes any token with (`x-access-token`), before any credential helper
+is asked, and is never written down, printed or kept; a `--dry-run` takes it
+too:
+
+```
+$ mindweaver gather git acme/private-skills --gh
+acme-private-skills: https://github.com/acme/private-skills at a1b2c3d
+  added  deploy  Deploy the service the way this team does
+
+1 skill: 1 added, 0 updated, 0 unchanged
+```
+
+A token asked for and not there is said before anything is fetched, and
+nothing logs in some other way in its place:
+
+```
+$ mindweaver gather git acme/private-skills --token-env GITHUB_TOKEN
+error: $GITHUB_TOKEN holds no token: set it for this command, or leave --token-env out to log in as git does
+
+$ mindweaver gather git acme/private-skills --gh
+error: `gh` has no token for github.com: log in with `gh auth login --hostname github.com`, or name a variable holding a token with --token-env
+```
+
+So is a token for a repository it would not be sent to: one reached over
+ssh, which logs in with keys of its own, or over plain http, where the token
+would cross the network as it is, or a path. `gh` is not even asked:
+
+```
+$ mindweaver gather git git@github.com:acme/private-skills.git --token-env GITHUB_TOKEN
+error: git@github.com:acme/private-skills.git: reached over ssh, which logs in with keys of its own, so a token would be for nothing: leave --token-env and --gh out, or gather its https URL
+```
+
+Both are the command line's: a gather from the TUI or the panel hands over
+no token, and logs in as git config's helpers and ssh do.
+
+Mindweaver itself never stops to ask for a username or a password, so a
+source that needs one nobody handed over fails, and says what to set up:
 
 ```
 $ mindweaver gather git https://github.com/acme/private-skills
-error: https://github.com/acme/private-skills: needs credentials, and gathering never prompts for them: configure a git credential helper, or use ssh-agent for an ssh URL
+error: https://github.com/acme/private-skills: needs credentials, and gathering never prompts for them: configure a git credential helper, use ssh-agent for an ssh URL, or hand it a token with --token-env or --gh
 ```
 
 ssh is a program of its own and can still ask on the terminal: for the
@@ -923,12 +964,13 @@ server accepts one, or whether to trust a host it has not seen before.
 
 A URL with a password or a token in it is refused before anything is fetched.
 What is gathered is stored, listed and reported by its URL, and a token typed
-into a command line is already where `ps` and your shell history show it. Give
-the token to a git credential helper, and gather the URL without it:
+into a command line is already where `ps` and your shell history show it.
+Hand the token over with `--token-env` or `--gh`, or give it to a git
+credential helper, and gather the URL without it:
 
 ```
 $ mindweaver gather git https://me:ghp_t0ken@github.com/acme/private-skills
-error: https://github.com/acme/private-skills: a password, a token or, over http(s), a user name in the URL is refused, because gathering stores and shows the URL: gather it without one, and configure a git credential helper that has it
+error: https://github.com/acme/private-skills: a password, a token or, over http(s), a user name in the URL is refused, because gathering stores and shows the URL: gather it without one, and hand the token over with --token-env or --gh, or configure a git credential helper that has it
 ```
 
 So is such a URL typed where the branch (`--ref`), the folder (`--path`) or
@@ -954,7 +996,7 @@ it:
 ```
 $ mindweaver install -p collapse deploy
 installed deploy into collapse, from https://github.com/acme/private-skills
-note: https://github.com/acme/private-skills: the user name, password or token an older Mindweaver stored in this URL is taken out; gathering it again needs a git credential helper that has it
+note: https://github.com/acme/private-skills: the user name, password or token an older Mindweaver stored in this URL is taken out; gathering it again needs it from --token-env, --gh or a git credential helper
 note: 2 action log entries: the user names, passwords or tokens an older Mindweaver stored in URLs in them are taken out
 ```
 
