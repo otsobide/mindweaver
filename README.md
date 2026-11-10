@@ -201,7 +201,7 @@ what it read, and says what it did once it is over.
 
 ![The shelf: three gathered skills, each with its origin, revision and when it was gathered](docs/images/shelf.png)
 
-![Sources: a repository to add, what a gather of it would take, and the repository the shelf is filled from, with its licences](docs/images/sources.png)
+![Sources: the team's repository typed into the form adding a source, and what a gather of it would take, said before anything is gathered](docs/images/sources.png)
 
 ### Assign
 
