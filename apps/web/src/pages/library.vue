@@ -7,7 +7,9 @@ import type { Snapshot } from '@/api/generated/Snapshot'
 import { useSnapshot } from '@/api/snapshot'
 import { first, useQueryChange } from '@/address'
 import AppHeader from '@/components/AppHeader.vue'
+import BackupForm from '@/components/BackupForm.vue'
 import CommandHint, { weaver, making } from '@/components/CommandHint.vue'
+import ExportForm from '@/components/ExportForm.vue'
 import IssueList from '@/components/IssueList.vue'
 import SnapshotGate from '@/components/SnapshotGate.vue'
 import StateBadge from '@/components/StateBadge.vue'
@@ -306,6 +308,32 @@ function folder(snapshot: Snapshot, kind: Kind): string | undefined {
               />
             </div>
           </template>
+        </section>
+
+        <!--
+          The library as a whole, every kind of it, whichever kind is shown
+          above: what no gather brings back, kept elsewhere.
+        -->
+        <section
+          aria-labelledby="copies-heading"
+          class="flex flex-col gap-3 border-t border-default pt-4"
+          data-testid="copies"
+        >
+          <div>
+            <h2
+              id="copies-heading"
+              class="text-base font-semibold text-highlighted"
+            >
+              A copy of the library elsewhere
+            </h2>
+            <p class="text-sm text-muted">
+              What you wrote yourself is the one thing in the workspace no gather brings back. Each line is shown before it runs.
+            </p>
+          </div>
+          <div class="grid gap-6 lg:grid-cols-2">
+            <ExportForm :kinds="snapshot.kinds" />
+            <BackupForm :kinds="snapshot.kinds" />
+          </div>
         </section>
 
         <p
