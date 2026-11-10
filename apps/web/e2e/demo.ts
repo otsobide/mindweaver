@@ -26,6 +26,9 @@ export const WORKSPACE = 'Projects'
 /** The workspace beside the demo's that the tour loads, by its folder's name. */
 export const LOADED = 'platform'
 
+/** The team's repository beside the workspace, by its folder's name: what the shelf is gathered from. */
+export const TEAM = 'team'
+
 /** The project whose page the tour shows, and whose unlink it asks about. */
 export const SHOWN = 'mobile-app'
 
@@ -164,7 +167,7 @@ export function build(at: Places): void {
 
   // The team's skills, in a repository of their own: two of the examples,
   // and the release notes.
-  const team = join(at.scratch, 'team')
+  const team = join(at.scratch, TEAM)
   repository(at, team)
   for (const skill of ['code-review', 'commit-style']) {
     cpSync(join(EXAMPLES, 'skills', skill), join(team, 'skills', skill), { recursive: true })
