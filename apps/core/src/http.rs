@@ -22,8 +22,9 @@
 //! what the cache could not do is a warning beside an answer
 //! ([`CacheError`]), never a reason to withhold it.
 //!
-//! Nothing here calls a catalog yet: the MCP Registry (#106) and the skill
-//! directories (#108) are the first to.
+//! The official MCP Registry is the first catalog read through it
+//! ([`crate::mcp_registry`], #106), and the skill directories (#108) the
+//! next.
 
 mod cache;
 
