@@ -1,4 +1,5 @@
-//! The registry's times, read so that two can be told apart in order.
+//! The registry's times, read so that two can be told apart in order, and
+//! the clock's written as the registry writes one.
 //!
 //! The registry writes RFC 3339 as Go does, its fraction of a second as
 //! long as it needs and no longer (`2026-10-26T20:15:18.12136Z` beside
@@ -66,6 +67,21 @@ pub(crate) fn instant(text: &str) -> Option<(i64, u32)> {
     Some((seconds - offset, nanos))
 }
 
+/// `seconds` since the Unix epoch, in UTC, to the second, as RFC 3339
+/// writes them: what a definition says it was fetched at, and a TOML date
+/// and time as it is.
+pub(crate) fn written(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        of_day / 3600,
+        of_day % 3600 / 60,
+        of_day % 60
+    )
+}
+
 /// ASCII digits as the number they write.
 fn number(digits: &[u8]) -> Option<i64> {
     digits.iter().all(u8::is_ascii_digit).then(|| {
@@ -85,6 +101,24 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let of_year = (153 * from_march + 2) / 5 + day - 1;
     let of_era_days = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
     era * 146_097 + of_era_days - 719_468
+}
+
+/// The date `days` after 1970-01-01, the other way round.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let days = days + 719_468;
+    let era = days.div_euclid(146_097);
+    let of_era = days - era * 146_097;
+    let year_of_era = (of_era - of_era / 1460 + of_era / 36_524 - of_era / 146_096) / 365;
+    let of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let from_march = (5 * of_year + 2) / 153;
+    let day = of_year - (153 * from_march + 2) / 5 + 1;
+    let month = if from_march < 10 {
+        from_march + 3
+    } else {
+        from_march - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    (year, month, day)
 }
 
 #[cfg(test)]

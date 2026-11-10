@@ -325,7 +325,8 @@ fn upstream_names_are_drawn_as_a_registry_names_a_server_and_the_ill_formed_are_
     }
 }
 
-/// What the registry mother draws reads as the registry's answer does.
+/// What the registry mother draws reads as the registry's answer does,
+/// and makes a definition, as a package the import starts.
 #[test]
 fn registry_answers_are_drawn_as_the_registry_writes_them() {
     for _ in 0..DRAWS {
@@ -339,6 +340,10 @@ fn registry_answers_are_drawn_as_the_registry_writes_them() {
             crate::mcp_registry::time::instant(entry.updated_at.as_deref().unwrap()).is_some(),
             "{answer}"
         );
+        assert!(matches!(
+            entry.ways()[..],
+            [crate::mcp_registry::Way::Package { .. }]
+        ));
     }
 }
 

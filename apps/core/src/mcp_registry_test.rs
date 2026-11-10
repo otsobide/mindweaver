@@ -64,6 +64,7 @@ fn null_lists_read_as_empty_and_fields_unknown_are_read_past() {
     }))
     .unwrap();
 
+    assert_eq!(entry.ways(), []);
     assert_eq!(entry.description, "");
     assert_eq!(entry.status, Status::Active, "no registry's word for it");
     assert_eq!(entry.updated_at, None);

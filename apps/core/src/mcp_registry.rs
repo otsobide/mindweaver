@@ -1,5 +1,6 @@
-//! Reading the official MCP Registry (#106): what it lists, what changed
-//! since, and one version of one server.
+//! Reading the official MCP Registry (#106), and what one of its servers is
+//! made into: a definition of the library's ([`crate::mcp`]), saying where
+//! it came from.
 //!
 //! The registry (`registry.modelcontextprotocol.io`) lists MCP servers as
 //! their publishers describe them, in the `server.json` format, and serves
@@ -19,6 +20,9 @@
 //!   what the listing held of its server.
 //! - **One version** ([`Registry::server`]), or the latest, by the name the
 //!   registry gives the server ([`UpstreamName`]).
+//! - **An import** ([`Registry::import`]) makes one of the ways a server is
+//!   started or reached into a definition's text ([`import`]), with the
+//!   registry, the server's name and its version as its provenance.
 //!
 //! Failures are collected, as everywhere in core: a server in a page that
 //! does not read is a warning beside the rest
@@ -28,17 +32,22 @@
 //! Nothing here writes a definition, nor is called from a command yet:
 //! `mindweaver gather mcp` (#107) is the first front end to.
 
+mod import;
 pub(crate) mod time;
 mod wire;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use thiserror::Error;
 
+use crate::adapter::SystemClock;
 use crate::code::codes;
 use crate::http::{encoded, with_query, CacheError, Client, FetchError, Fetched};
-use crate::port::HttpRequest;
+use crate::port::{Clock, HttpRequest};
 use crate::value::{Redacted, UpstreamName};
+
+pub use import::{ImportError, Imported, Manual, Note, Way};
 
 /// The official registry's address, the one a front end reads unless it is
 /// told another (a mirror, or a test's own server on loopback).
@@ -68,10 +77,15 @@ pub struct Registry {
     /// Where it is, with no `/` at the end: every path asked follows it.
     base: String,
     client: Client,
+    clock: Arc<dyn Clock>,
     page_limit: usize,
 }
 
 /// What a registry says of one version of one server.
+///
+/// Its packages and remotes are kept as the registry wrote them, and read
+/// one at a time when they are asked for ([`Entry::ways`]), so that one
+/// that does not read hides neither the server nor the others.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     /// What the registry names it, `io.github.owner/server`.
@@ -95,6 +109,8 @@ pub struct Entry {
     pub updated_at: Option<String>,
     /// Whether it is the server's latest version.
     pub latest: bool,
+    packages: Vec<serde_json::Value>,
+    remotes: Vec<serde_json::Value>,
 }
 
 /// Whether a version stands, as the registry says it.
@@ -196,8 +212,15 @@ impl Registry {
         Ok(Registry {
             base: base.to_owned(),
             client,
+            clock: Arc::new(SystemClock),
             page_limit: PAGE_LIMIT,
         })
+    }
+
+    /// This registry telling the time an import was fetched at by `clock`,
+    /// in place of the system's.
+    pub fn with_clock(self, clock: Arc<dyn Clock>) -> Self {
+        Registry { clock, ..self }
     }
 
     /// This registry asking for `limit` servers a page, from one to
@@ -311,6 +334,30 @@ impl Registry {
             via: fetched.via,
             warnings: fetched.warnings,
         })
+    }
+
+    /// `entry` made into a definition, from the way `way` names among
+    /// [`Entry::ways`], or the first that can be when none is named, and
+    /// named `name`, or after the server when none is given ([`import`]).
+    ///
+    /// Its provenance is this registry, the server's name and its version,
+    /// fetched now, as this registry's clock says.
+    pub fn import(
+        &self,
+        entry: &Entry,
+        way: Option<usize>,
+        name: Option<&str>,
+    ) -> Result<Imported, ImportError> {
+        let fetched_at = time::written(self.clock.now());
+        import::import(
+            entry,
+            &import::Provenance {
+                registry: &self.base,
+                fetched_at: &fetched_at,
+            },
+            way,
+            name,
+        )
     }
 
     /// Read `listed`'s query into its listing, page after page: whole when
@@ -433,7 +480,16 @@ impl Entry {
             status_message,
             updated_at,
             latest,
+            packages: server.packages,
+            remotes: server.remotes,
         })
+    }
+
+    /// Every way the server is started or reached, as the registry lists
+    /// them: its packages, then its remotes, in the order written. What
+    /// [`Registry::import`] is told one of by its place here.
+    pub fn ways(&self) -> Vec<Way> {
+        import::ways(self)
     }
 }
 
