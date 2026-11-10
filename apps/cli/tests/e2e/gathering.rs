@@ -829,7 +829,11 @@ fn gather_list_says_the_kind_of_each_once_rules_are_on_the_shelf_beside_skills()
             SOURCE,
             &[(
                 "skills/commit-style/SKILL.md",
-                &skill("commit-style", "How this repo writes commit messages"),
+                &licensed(
+                    "commit-style",
+                    "How this repo writes commit messages",
+                    "MIT",
+                ),
             )],
         )
         .given("~/Projects", "mindweaver gather git ../src/acme-skills")
@@ -842,7 +846,7 @@ fn gather_list_says_the_kind_of_each_once_rules_are_on_the_shelf_beside_skills()
         .run("~/Projects", "mindweaver gather list")
         .succeeds()
         .prints(concat!(
-            "skill  commit-style  src-acme-skills  unknown      How this repo writes commit \
+            "skill  commit-style  src-acme-skills  MIT          How this repo writes commit \
              messages\n",
             "rule   git/commits   src-acme-rules   MIT License  Commit one coherent step at a \
              time\n",
