@@ -18,9 +18,9 @@ use ratatui::Frame;
 use super::minds::{self, Minds};
 use super::state::{
     AddField, AddForm, App, BackupForm, Confirm, ExportForm, Focus, GatherForm, Input, Item,
-    LinkForm, LoadForm, Member, Mode, Reader, RenameForm, Results, Running, Scope, SearchForm,
-    SettingsForm, SourcesScreen, TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS,
-    GATHER_FIELDS,
+    LinkForm, LoadForm, MarketplaceForm, Member, Mode, PluginsScreen, Reader, RenameForm, Results,
+    Running, Scope, SearchForm, SettingsForm, SourcesScreen, TargetsForm, Task, Tone, View,
+    Workspace, BACKUP_FIELDS, GATHER_FIELDS, MARKETPLACE_FIELDS,
 };
 use crate::commands::project::worth_linking;
 use crate::commands::search::rows;
@@ -55,6 +55,8 @@ pub fn draw(app: &App, frame: &mut Frame) {
             Mode::Sources(screen) => sources_screen(app, screen, frame, area),
             Mode::Searching(form) => searching(form, frame, area),
             Mode::Results(screen) => results(screen, frame, area),
+            Mode::Marketplace(form) => marketplace(form, frame, area),
+            Mode::Plugins(screen) => plugins(screen, frame, area),
             Mode::Minds(screen) => minds_screen(app, screen, frame, area),
             Mode::Settings(form) => setting(app, form, frame, area),
             Mode::Targets(form) => targeting(app, form, frame, area),
@@ -1122,7 +1124,7 @@ fn sources_screen(app: &App, screen: &SourcesScreen, frame: &mut Frame, area: Re
     keys(
         frame,
         rows[2],
-        "u gather it again   U gather every one again   d forget it   ↑↓ pick   esc back",
+        "u gather it again   U every one   d forget it   m its marketplace   ↑↓ pick   esc back",
     );
 }
 
@@ -1321,7 +1323,7 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
         .map(|(tone_of, text)| Line::from(Span::styled(clean(text), tone(*tone_of))))
         .collect();
     let keys = if reader.searches {
-        " ↑↓ scroll   f search the skill directories   esc close "
+        " ↑↓ scroll   f search the skill directories   m list a marketplace   esc close "
     } else {
         " ↑↓ scroll   esc close "
     };
@@ -1428,6 +1430,140 @@ fn results(screen: &Results, frame: &mut Frame, area: Rect) {
         return;
     }
     let items: Vec<ListItem> = table(&rows(&screen.hits))
+        .lines()
+        .map(|row| ListItem::new(Line::from(row.to_owned())))
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(screen.pick));
+    let list = List::new(items)
+        .highlight_style(selected(true))
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, parts[0], &mut state);
+}
+
+/// The marketplace form: its repository, its branch, and the line it runs.
+fn marketplace(form: &MarketplaceForm, frame: &mut Frame, area: Rect) {
+    let inner = popup(
+        frame,
+        area,
+        "List a Claude Code marketplace's plugins",
+        78,
+        8,
+    );
+    let rows = lines(inner, 6);
+    for (index, name) in MARKETPLACE_FIELDS.iter().enumerate() {
+        input(
+            frame,
+            rows[index],
+            name,
+            form.input(index),
+            form.field == index,
+        );
+    }
+    let hint = Line::from(vec![
+        Span::raw(" ".repeat(usize::from(LABEL))),
+        Span::styled(
+            "owner/repo, a git URL or a folder; empty ref: its default branch",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(hint), rows[2]);
+    runs(frame, rows[3], form.task().as_ref());
+    error(frame, rows[4], form.error.as_deref());
+    keys(
+        frame,
+        rows[5],
+        "enter list its plugins   tab next   esc cancel",
+    );
+}
+
+/// What a marketplace's catalog lists, over everything below the header:
+/// each plugin ticked or not, as the command lays it out, the one picked
+/// lit, what the listing said under them, and the line enter runs.
+fn plugins(screen: &PluginsScreen, frame: &mut Frame, area: Rect) {
+    let below = 1.min(area.height);
+    let box_ = Rect {
+        y: area.y + below,
+        height: area.height - below,
+        ..area
+    };
+    frame.render_widget(Clear, box_);
+    let block = Block::bordered()
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(format!(
+            " The plugins {} lists ",
+            printable(&screen.listing.name)
+        ))
+        .title_bottom(
+            Line::from(" ↑↓ pick   space tick   enter gather the ticked   esc close ")
+                .right_aligned(),
+        );
+    let inner = block.inner(box_);
+    frame.render_widget(block, box_);
+
+    // Sized without `clamp`, as the results' strip is, which panics on a
+    // screen too short for its floor.
+    let said = u16::try_from(screen.said.len())
+        .unwrap_or(u16::MAX)
+        .min(inner.height / 3);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(said),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let notes: Vec<Line> = screen
+        .said
+        .iter()
+        .map(|line| {
+            let style = if line.starts_with("warning:") {
+                warn()
+            } else {
+                dim()
+            };
+            Line::from(Span::styled(printable(line), style))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(notes), parts[1]);
+    runs(frame, parts[2], screen.task().as_ref());
+    error(frame, parts[3], screen.error.as_deref());
+
+    let entries = screen.entries();
+    if entries.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled("its catalog lists no plugins", dim())),
+            parts[0],
+        );
+        return;
+    }
+    let rows: Vec<Vec<String>> = entries
+        .iter()
+        .zip(&screen.ticked)
+        .map(|(entry, ticked)| {
+            let tick = match (entry.gatherable, ticked) {
+                (false, _) => "   ",
+                (true, true) => "[x]",
+                (true, false) => "[ ]",
+            };
+            let standing = match &entry.gathered {
+                Some(name) => format!("gathered as {}", printable(name)),
+                None if entry.gatherable => String::new(),
+                None => String::from("not gathered"),
+            };
+            vec![
+                tick.to_owned(),
+                printable(&entry.name),
+                printable(&entry.source.said()),
+                standing,
+                printable(entry.description.as_deref().unwrap_or("")),
+            ]
+        })
+        .collect();
+    let items: Vec<ListItem> = table(&rows)
         .lines()
         .map(|row| ListItem::new(Line::from(row.to_owned())))
         .collect();

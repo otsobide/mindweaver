@@ -289,6 +289,29 @@ pub enum Task {
         #[serde(default = "gathered_kind")]
         kind: Kind,
     },
+    /// `mindweaver gather marketplace --list --json [--ref <ref>] <source>`:
+    /// a Claude Code marketplace's catalog recorded as a source and its
+    /// plugins listed, none gathered, read back from the JSON the line
+    /// prints, for a front end to list the plugins and gather the ones
+    /// ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).
+    ///
+    /// Followed as it goes and stopped when asked, as a gather is
+    /// ([`Followed::Gather`]): it fetches the catalog's repository. No
+    /// token, as a gather's task carries none.
+    ListMarketplace {
+        source: String,
+        reference: Option<String>,
+    },
+    /// `mindweaver gather marketplace [--ref <ref>] --plugin <name>...
+    /// <source>`: the plugins of a Claude Code marketplace called `plugins`
+    /// in its catalog gathered, each as a source of its own, in the order
+    /// given (#103). Never `--all`, which a front end asks for by naming
+    /// every plugin it lists, so the line says what was gathered.
+    GatherPlugins {
+        source: String,
+        reference: Option<String>,
+        plugins: Vec<String>,
+    },
     /// `mindweaver gather update <name>...`: each source named gathered
     /// again, as it was gathered, or every one, `--all`, when `names` is
     /// empty. Followed as it goes and stopped when asked, as a gather is
@@ -801,6 +824,29 @@ impl Task {
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[url])]
             }
+            Task::ListMarketplace { source, reference } => {
+                let mut head = owned(&["mindweaver", "gather", "marketplace", "--list", "--json"]);
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[source])]
+            }
+            Task::GatherPlugins {
+                source,
+                reference,
+                plugins,
+            } => {
+                let mut head = owned(&["mindweaver", "gather", "marketplace"]);
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                for plugin in plugins {
+                    head.extend(option("--plugin", plugin));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[source])]
+            }
             Task::UpdateSources { names } if names.is_empty() => {
                 vec![words(&["mindweaver", "gather", "update", "--all"], &[])]
             }
@@ -1000,6 +1046,8 @@ impl Task {
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
                 | Task::Gather { .. }
+                | Task::ListMarketplace { .. }
+                | Task::GatherPlugins { .. }
                 | Task::UpdateSources { .. }
                 | Task::RemoveSource { yes: true, .. }
                 | Task::Export { .. }
