@@ -638,7 +638,7 @@ pub fn dry_run(
     if request.watch.is_cancelled() {
         return Err(GatherError::Cancelled);
     }
-    let known = known(ledger, request.source.kind(), &typed, request.kind)?;
+    let known = known(ledger, request.source.kind(), &typed)?;
     if let Some(name) = &typed.name {
         taken(ledger, name, known.as_ref().map(|(source, _)| source))?;
     }
@@ -882,9 +882,8 @@ enum Finding {
     /// folder with everything in it: a skill.
     Folders { manifest: &'static str },
     /// Each file ending in `extension` at any depth, named by its route
-    /// from there as a project's are ([`Catalog::route`]): a rule (#111).
-    ///
-    /// [`Catalog::route`]: crate::catalog::route
+    /// from there as a project's are ([`crate::catalog::route`]): a rule
+    /// (#111).
     Files { extension: &'static str },
 }
 
@@ -947,13 +946,12 @@ fn known(
     ledger: &Ledger,
     kind: SourceKind,
     typed: &Typed,
-    taking: Kind,
 ) -> Result<Option<(ledger::Source, bool)>, LedgerError> {
     let reference = typed.reference.as_deref();
     if let Some(found) = ledger.source(kind, &typed.url, reference, &typed.path)? {
         return Ok(Some((found, false)));
     }
-    if typed.path != DEFAULT_SUBDIRECTORY || taking != Kind::Skill {
+    if typed.path != DEFAULT_SUBDIRECTORY || typed.kind != Kind::Skill {
         return Ok(None);
     }
     Ok(ledger
@@ -998,7 +996,7 @@ fn harvest(
     // and registered as fetched. A name is refused before anything is
     // registered.
     let kind = request.source.kind();
-    let found = known(ledger, kind, &typed, request.kind)?;
+    let found = known(ledger, kind, &typed)?;
     if let Some(name) = &typed.name {
         taken(ledger, name, found.as_ref().map(|(source, _)| source))?;
     }
