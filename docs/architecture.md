@@ -3201,6 +3201,33 @@ the callback to arrive through anyway. That other half is
 if they were carried, tying its version to gix's, so `GitError` keeps what they
 said and not what they were.
 
+### Private repositories, as they were checked
+
+#109 gathered a private GitHub repository on 2026-11-09, with gix 0.87.1, gh
+2.102.1, git 2.56.0 and OpenSSH 10.6p1 on Linux, through `mindweaver gather
+git` and #26's callback, each run with its own workspace (`--home` and `-W`)
+and with no display, so no askpass could be shown:
+
+- **HTTPS, no helper:** refused at once as `git_credentials_needed`, with the
+  two ways to give a credential, also with a terminal attached (a pty), where
+  it returned in under a second rather than waiting for a prompt.
+- **HTTPS, gh's helper:** cloned, given `!gh auth git-credential` for
+  `https://github.com` either as `gh auth setup-git` writes it into a global
+  config file (`GIT_CONFIG_GLOBAL`) or through `GIT_CONFIG_COUNT`, so `gix`
+  reads the helper wherever git config puts it, and runs it with the prompt
+  off.
+- **HTTPS, a helper with a refused token:** `git_credentials_needed`, no
+  retry and no prompt.
+- **SSH, no agent:** cloned with the account's own key, which needs no
+  passphrase; the system `ssh` authenticated it without the callback. A key
+  that needs one, with no agent holding it, is ssh's question on the
+  terminal, the open question below, and was not tried. Nor was ssh-agent
+  itself, which this machine's session did not run.
+
+So the callback keeps what was promised: a helper git config names still
+authenticates, and nothing asks. A token handed over for one run (D-16) is
+#110's.
+
 ### A URL is kept without its credentials
 
 A source is stored, logged, listed and named in errors by its URL, so a token
@@ -8675,18 +8702,19 @@ CI gives the panel jobs of its own:
 The rulesets for `dev` and `main` require every check that runs on every
 pull request, the panel's three among them; AGENTS.md lists them by name.
 
-Every Linux job, `Gitflow`'s two among them, runs on the repository's own
-runner, a self-hosted one asked for by its labels (`runs-on: [self-hosted,
-Linux, X64]`), and only test-cross on GitHub's: GitHub's Linux runners
-stopped starting jobs once the account was locked over billing, and a check
-that never starts is one the rulesets wait on for ever. By its labels
-rather than its name, so a second runner given them takes jobs beside the
-first: one runner runs one job at a time, so the jobs GitHub ran side by
-side wait for each other there. A variable naming the runner was rejected:
-it would switch back without a commit, but the workflow would no longer say
-where a job runs. A self-hosted runner's image is not GitHub's, and it keeps
-what a job installed, so a step that needs what GitHub's image held
-installs it only where it is missing, as `test (cli)` does zsh and the
+Every Linux job, `Gitflow`'s two among them, runs on GitHub's runners,
+named `ubuntu-latest` in the workflow. For a while they ran on the
+repository's own runner, a self-hosted one asked for by its labels
+(`runs-on: [self-hosted, Linux, X64]`): GitHub's Linux runners stopped
+starting jobs once the account was locked over billing, and a check that
+never starts is one the rulesets wait on for ever. Once billing was settled
+they went back, since one runner runs one job at a time and the jobs
+GitHub runs side by side waited for each other there. A variable naming the
+runner was rejected both ways: it would switch without a commit, but the
+workflow would no longer say where a job runs. What the self-hosted runner
+needed stays, so it can take the jobs again by its labels alone. Its image
+is not GitHub's, and it keeps what a job installed, so a step that needs
+what an image may lack installs it only where it is missing, as `test (cli)` does zsh and the
 python3 its virtualenv is made with. What every job needs is the image's:
 `make` and a C compiler (`build-essential`), which links every binary and
 compiles the SQLite `rusqlite` bundles, and a user of its own with sudo,
@@ -13116,8 +13144,9 @@ it once as it closes.
   be given is decided in
   [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt): a
   provider the front end supplies, through that same callback. #110 carries it
-  out, and #109 checks the helpers and ssh-agent against a real private
-  repository. ssh's own questions are still open: a passphrase for a key the
+  out. #109 checked the helpers against a real private repository
+  ([as they were checked](#private-repositories-as-they-were-checked)):
+  they do get through, and nothing prompts. ssh's own questions are still open: a passphrase for a key the
   agent does not hold, a password when the server accepts password
   authentication, or whether to trust a host seen for the first time, is asked
   by ssh on the terminal, out of the callback's reach. `BatchMode=yes` in
@@ -13691,8 +13720,8 @@ it once as it closes.
   there, with the console's Ctrl-C on Windows.
 - **Which panel `build (cli)` embeds rests on the runner.** `make
   cli/release` embeds the downloaded panel because no pnpm is on the
-  runner's PATH. A self-hosted runner whose image has one, which nothing
-  here rules out, would have it build the panel again, from the same
+  runner's PATH. A runner whose image has one, a self-hosted one put back
+  among them, would have it build the panel again, from the same
   lockfile, on whatever Node the image has, rather than embed the one
   `test (web)` tested; a variable telling `make web/build/if-node` to take
   `dist/` as it is would settle it, at the price of a knob only CI turns.
