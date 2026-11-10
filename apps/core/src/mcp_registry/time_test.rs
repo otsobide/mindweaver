@@ -79,14 +79,20 @@ fn what_is_no_rfc_3339_time_is_no_time() {
 #[test]
 fn a_second_written_is_read_back_as_that_second() {
     for _ in 0..500 {
-        // From 1900 to 2200, either side of the epoch and every leap rule.
-        let seconds = random::between(0, 9_467_107_200) as i64 - 2_208_988_800;
+        // From the epoch to 2200, through every leap rule.
+        let seconds = random::between(0, 7_258_118_400) as i64;
         let text = written(seconds);
 
         assert_eq!(instant(&text), Some((seconds, 0)), "{text}");
         assert_eq!(text.len(), 20, "{text}");
     }
     assert_eq!(written(0), "1970-01-01T00:00:00Z");
+    assert_eq!(
+        written(-1),
+        "1970-01-01T00:00:00Z",
+        "no clock writes before"
+    );
+    assert_eq!(written(i64::MAX), "9999-12-31T23:59:59Z");
     assert_eq!(written(951_825_600), "2000-02-29T12:00:00Z");
     assert_eq!(written(1_794_308_447), "2026-11-10T11:00:47Z");
 }

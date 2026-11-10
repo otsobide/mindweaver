@@ -67,10 +67,19 @@ pub(crate) fn instant(text: &str) -> Option<(i64, u32)> {
     Some((seconds - offset, nanos))
 }
 
+/// The last second RFC 3339 writes, 9999-12-31T23:59:59Z: its year has
+/// four digits.
+const LAST: i64 = 253_402_300_799;
+
 /// `seconds` since the Unix epoch, in UTC, to the second, as RFC 3339
 /// writes them: what a definition says it was fetched at, and a TOML date
 /// and time as it is.
+///
+/// Held between the epoch and the last second a year of four digits
+/// writes, so a clock set past either still writes a time the definition
+/// reads, rather than a year TOML takes for no date at all.
 pub(crate) fn written(seconds: i64) -> String {
+    let seconds = seconds.clamp(0, LAST);
     let days = seconds.div_euclid(86_400);
     let of_day = seconds.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
