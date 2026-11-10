@@ -34,9 +34,11 @@ function asksToBeRead(ran: Ran): boolean {
 const transcript = { label: 'Transcript', icon: 'i-lucide-scroll-text', onClick: () => (shell.transcriptOpen = true) }
 
 const say: Say = {
-  ran(ran) {
+  // What a line printed, unless the page that asked draws it itself, as a
+  // search's results are: then only why a line did not run.
+  ran(ran, drawn) {
     const failed = ran.outcome.runs.find(run => !run.ok)
-    const output = ran.outcome.runs.map(run => (run.error?.message ?? run.stdout).trim()).filter(Boolean)
+    const output = ran.outcome.runs.map(run => (run.error?.message ?? (drawn ? '' : run.stdout)).trim()).filter(Boolean)
     let title = `Ran ${ran.lines.length} commands`
     if (failed) {
       title = `Failed: ${failed.command}`
