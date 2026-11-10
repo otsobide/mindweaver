@@ -15,6 +15,7 @@ use std::fmt;
 use serde::Serialize;
 
 use crate::config_entry::Value;
+use crate::mcp::Transport;
 
 /// The program an agent starts, or the address it reaches.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +43,23 @@ impl Runs {
             command: command.to_owned(),
             args: words(member(entry, "args"))?,
         })
+    }
+
+    /// What `transport` starts or reaches as a definition writes it, each
+    /// input between its braces where it goes: what a front end shows of a
+    /// definition no agent holds yet, an import from a registry before it
+    /// is written (#107). What an agent is given is its own entry's, read
+    /// by [`of`](Self::of), since each agent spells an input its own way.
+    pub fn of_transport(transport: &Transport) -> Runs {
+        match transport {
+            Transport::Stdio(stdio) => Runs::Program {
+                command: stdio.command.clone(),
+                args: stdio.args.clone(),
+            },
+            Transport::Http(endpoint) | Transport::Sse(endpoint) => Runs::Address {
+                url: endpoint.url.to_string(),
+            },
+        }
     }
 
     /// What the object `entry` holds as a program whose command and

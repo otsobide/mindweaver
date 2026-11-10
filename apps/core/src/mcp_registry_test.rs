@@ -129,11 +129,144 @@ fn a_registry_is_at_an_address_a_request_can_ask_with_no_slash_after_it() {
             "https://registry.example.com/#top",
             "mcp_registry_base_invalid",
         ),
+        ("http://registry.example.com", "mcp_registry_base_insecure"),
+        ("HTTP://10.0.0.7:8080/mirror", "mcp_registry_base_insecure"),
     ] {
         let error = Registry::at(refused, Client::new()).unwrap_err();
         assert_eq!(error.code(), code, "{refused}");
         assert!(!error.to_string().contains("secret"), "{error}");
     }
+}
+
+/// What a registry answers is a program agents start, so plain http is
+/// taken only from one on this machine, a test's or a person's own.
+#[test]
+fn a_registry_on_this_machine_may_be_asked_over_plain_http() {
+    for here in [
+        "http://127.0.0.1:8080",
+        "http://localhost/registry",
+        "http://[::1]:9/",
+        "http://127.3.4.5",
+    ] {
+        assert!(Registry::at(here, Client::new()).is_ok(), "{here}");
+    }
+}
+
+/// A status goes out as the registry's word, and reads back from any word,
+/// one this build does not know kept as it was written.
+#[test]
+fn a_status_goes_out_as_its_word_and_reads_back_from_it() {
+    for status in [
+        Status::Active,
+        Status::Deprecated,
+        Status::Deleted,
+        Status::Other(String::from("quarantined")),
+    ] {
+        let written = serde_json::to_value(&status).unwrap();
+
+        assert_eq!(written, json!(status.slug()));
+        assert_eq!(serde_json::from_value::<Status>(written).unwrap(), status);
+    }
+}
+
+/// Each way by the word a front end says it by: a package by its registry
+/// type, a remote by the `type` a definition writes for its transport.
+#[test]
+fn a_way_is_said_by_its_registry_type_or_its_transport() {
+    let url = Redacted::new("https://example.com/mcp");
+    for (way, word) in [
+        (
+            Way::Package {
+                registry_type: String::from("npm"),
+                identifier: String::from("@acme/tools"),
+                version: None,
+                transport: String::from("stdio"),
+            },
+            "npm",
+        ),
+        (
+            Way::Remote {
+                transport: String::from("streamable-http"),
+                url: url.clone(),
+            },
+            "http",
+        ),
+        (
+            Way::Remote {
+                transport: String::from("sse"),
+                url: url.clone(),
+            },
+            "sse",
+        ),
+        (
+            Way::Remote {
+                transport: String::from("websocket"),
+                url,
+            },
+            "websocket",
+        ),
+        (
+            Way::Unreadable {
+                detail: String::from("missing field `url`"),
+            },
+            "unreadable",
+        ),
+    ] {
+        assert_eq!(way.word(), word, "{way:?}");
+    }
+}
+
+/// What `gather mcp search --json` prints is a contract: each name pinned,
+/// an entry's packages and remotes said only as the words of its ways, and
+/// a server read back as it went out, as the TUI reads it.
+#[test]
+fn a_listing_goes_out_by_its_names_each_server_as_its_summary() {
+    let name = UpstreamNameMother::random();
+    let version = RegistryMother::version();
+    let answer = RegistryMother::answered(
+        &name,
+        &version,
+        vec![RegistryMother::package(
+            "npm",
+            "@acme/tools",
+            Some(&version),
+        )],
+        vec![RegistryMother::remote(
+            "streamable-http",
+            "https://example.com/mcp",
+        )],
+        "deprecated",
+    );
+    let entry = Entry::read(answer).unwrap();
+    let listing = Listing {
+        query: String::from("acme"),
+        entries: vec![entry.clone()],
+        as_of: entry.updated_at.clone(),
+        whole: true,
+    };
+
+    let written = serde_json::to_value(&listing).unwrap();
+
+    assert_eq!(
+        written,
+        json!({
+            "query": "acme",
+            "servers": [{
+                "name": name.as_str(),
+                "version": version,
+                "title": null,
+                "description": entry.description,
+                "status": "deprecated",
+                "status_message": null,
+                "updated_at": entry.updated_at,
+                "ways": ["npm", "http"],
+            }],
+            "as_of": entry.updated_at,
+            "whole": true,
+        })
+    );
+    let read: Vec<Summary> = serde_json::from_value(written["servers"].clone()).unwrap();
+    assert_eq!(read, [entry.summary()]);
 }
 
 #[test]

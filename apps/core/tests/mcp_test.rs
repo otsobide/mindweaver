@@ -844,6 +844,103 @@ fn add_from_a_template_holds_what_it_writes_to_what_validate_would_say() {
     );
 }
 
+/// What an import from a registry makes is a definition's text whole,
+/// written through `add`'s own path: its name and description set to those
+/// given, every other byte kept, and held to what any server added is.
+#[test]
+fn add_from_a_definition_given_whole_sets_its_name_and_description_and_keeps_the_rest() {
+    let (_dir, project, folder) = authoring();
+    let text = format!(
+        "# Imported, by hand.\n{}",
+        McpMother::http("upstream").replacen(
+            "name = \"upstream\"\n",
+            "name = \"upstream\" # what agents key it by\n",
+            1,
+        )
+    );
+    let description = SkillMother::description();
+
+    let foreseen = lifecycle::would_add(
+        &project,
+        Kind::Mcp,
+        "billing",
+        &description,
+        Start::Definition(&text),
+    )
+    .unwrap();
+    assert_eq!(foreseen, folder.join("billing.toml"));
+    assert_eq!(held(&folder), [], "a dry run writes nothing");
+
+    let added = lifecycle::add(
+        None,
+        &project,
+        Kind::Mcp,
+        "billing",
+        &description,
+        Start::Definition(&text),
+    )
+    .unwrap();
+
+    let was = McpDefinition::parse(&text).unwrap().description;
+    assert_eq!(added.artifact.file(), foreseen);
+    assert_eq!(
+        fs::read_to_string(&foreseen).unwrap(),
+        text.replacen("name = \"upstream\" #", "name = \"billing\" #", 1)
+            .replacen(
+                &format!("description = {}", toml::Value::String(was)),
+                &format!("description = {}", toml::Value::String(description.clone())),
+                1
+            )
+    );
+    assert_eq!(added.artifact.validate(), []);
+}
+
+/// Whatever `add` refuses, `would_add` refuses by the same code, before
+/// anything is written: a file already where it goes, a name beside one
+/// that differs only by case, a definition `validate` would call invalid,
+/// and a definition given for a kind no agent starts.
+#[test]
+fn would_add_refuses_what_add_refuses_and_writes_nothing() {
+    let (_dir, project, folder) = authoring();
+    let name = McpMother::name();
+    let twin = McpMother::twin(&name);
+    write(
+        &folder,
+        &[(&format!("{name}.toml"), &McpMother::http(&name))],
+    );
+    let before = held(&folder);
+    let (_, token) = McpMother::token();
+    let (leaky, _) = McpMother::with_literal("leaky", "env", &token);
+    let plain = McpMother::http("plain");
+
+    for (kind, named, text, code) in [
+        (Kind::Mcp, name.as_str(), plain.as_str(), "add_exists"),
+        (Kind::Mcp, twin.as_str(), plain.as_str(), "add_name_unfit"),
+        (Kind::Mcp, "leaky", leaky.as_str(), "add_mcp_unfit"),
+        (
+            Kind::Mcp,
+            "broken",
+            "format = 1\n",
+            "add_manifest_unwritable",
+        ),
+        (
+            Kind::Skill,
+            "deploy",
+            plain.as_str(),
+            "add_definition_not_mcp",
+        ),
+    ] {
+        let foreseen = lifecycle::would_add(&project, kind, named, "Ours", Start::Definition(text))
+            .unwrap_err();
+        let refused = lifecycle::add(None, &project, kind, named, "Ours", Start::Definition(text))
+            .unwrap_err();
+
+        assert_eq!(foreseen.code(), code, "{named}: {foreseen}");
+        assert_eq!(refused.code(), code, "{named}: {refused}");
+        assert_eq!(held(&folder), before, "{named}");
+    }
+}
+
 #[test]
 fn add_is_refused_in_a_project_that_keeps_no_servers_before_anything_else() {
     let dir = TempDir::new().unwrap();

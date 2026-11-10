@@ -7,6 +7,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod contract;
+pub mod mcp_registry;
 pub mod mother;
 pub mod panel;
 

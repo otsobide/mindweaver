@@ -75,6 +75,11 @@ impl Admission<'_> {
             // A query names nothing on the disk, and the line asks only the
             // finders the workspace enables, with no token.
             Task::SearchSkills { .. } => {}
+            // A query, a server's name and a version name nothing on the
+            // disk: the registry is the official one, which the lines name
+            // no other than, and core holds a name to the registry's rule
+            // before anything is asked.
+            Task::SearchServers { .. } | Task::ImportServer { .. } => {}
             // An address is the gather's to judge, a credential in it among
             // what it refuses; a folder is held as a folder to link is. The
             // folder in the source and the reference are values, which the

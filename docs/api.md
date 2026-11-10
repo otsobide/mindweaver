@@ -670,6 +670,29 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
 }
 ```
 
+So is the MCP Registry, the official one, since a task names no other. A
+`search_servers` task, `{"type": "search_servers", "query": ...}`, is
+`mindweaver gather mcp search --json`, the servers it lists in the
+envelope's `data`; an `import_server` task, `{"type": "import_server",
+"server": ..., "version": null, "yes": false}`, is `mindweaver gather mcp
+add`, which says what the server would be written as and writes nothing
+until it is sent again with `"yes": true` ([the
+reference](reference.md#from-the-mcp-registry)). Neither starts anything,
+nor takes a cancel:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "import_server", "server": "ai.clawfetch/mcp", "version": "0.4.0", "yes": true}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather mcp add --version 0.4.0 --yes ai.clawfetch/mcp"
+  ],
+  "confirm": [],
+  "cancellable": false
+}
+```
+
 A backup is the network too. A `backup` task, `{"type": "backup", "url":
 ..., "branch": null, "kinds": [], "message": null, "token_env": null}`, is
 `mindweaver backup`: its repository is named as a gather's source is, and

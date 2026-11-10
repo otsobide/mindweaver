@@ -14,7 +14,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 41] = [
+const TAGS: [&str; 43] = [
     "init_workspace",
     "init_project",
     "link",
@@ -39,6 +39,8 @@ const TAGS: [&str; 41] = [
     "shelf",
     "workspaces",
     "search_skills",
+    "search_servers",
+    "import_server",
     "gather",
     "update_sources",
     "remove_source",
@@ -129,6 +131,17 @@ fn every(value: &str) -> Vec<Task> {
         Task::Shelf,
         Task::Workspaces,
         Task::SearchSkills { query: owned() },
+        Task::SearchServers { query: owned() },
+        Task::ImportServer {
+            server: owned(),
+            version: Some(owned()),
+            yes: false,
+        },
+        Task::ImportServer {
+            server: owned(),
+            version: None,
+            yes: true,
+        },
         Task::Gather {
             url: owned(),
             folder: owned(),
@@ -1827,6 +1840,25 @@ fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
     }
 }
 
+/// A registry is asked a page at a time, which a search narrow enough to
+/// choose from reads in one request, and core reports no step of it: no
+/// line of `gather mcp` is followed, so none runs apart, and none is
+/// refused a front end without a terminal.
+#[test]
+fn no_line_of_gather_mcp_is_followed_or_refused() {
+    for said in [
+        "mindweaver gather mcp search airtable",
+        "mindweaver gather mcp search --json --registry http://127.0.0.1:9 airtable",
+        "mindweaver gather mcp add ai.clawfetch/mcp",
+        "mindweaver gather mcp add --version 0.4.0 --name claw --way 2 --yes ai.clawfetch/mcp",
+        "mind weaver gather mcp add --yes ai.clawfetch/mcp",
+    ] {
+        assert_eq!(followed(&line(said)), None, "{said}");
+        assert_eq!(refused(&line(said)), None, "{said}");
+        assert!(cautions(&line(said)).is_empty(), "{said}");
+    }
+}
+
 /// `edit` opens an editor, or reads standard input, each of which only a
 /// terminal gives, unless it is given a file to take the contents from:
 /// that line runs, wherever it is spelled and however it names the file,
@@ -2498,6 +2530,60 @@ fn a_backup_is_the_line_the_cli_takes_naming_a_token_by_its_variable() {
     ] {
         assert_eq!(task.commands(), [words_of(said)], "{task:?}");
         assert!(task.writes() && task.runs_apart(), "{task:?}");
+        assert!(task.cautions().is_empty(), "{task:?}");
+    }
+}
+
+/// The TUI's search of the registry reads what the line prints back as
+/// JSON, and names no registry: the official one is the only one a front
+/// end asks.
+#[test]
+fn a_search_of_the_registry_is_its_json_line_naming_no_registry() {
+    let task = Task::SearchServers {
+        query: String::from("air table"),
+    };
+
+    let mut expected = line("mindweaver gather mcp search --json");
+    expected.push(String::from("air table"));
+    assert_eq!(task.commands(), vec![expected]);
+    assert_eq!(
+        task.describe(),
+        "mindweaver gather mcp search --json 'air table'"
+    );
+    assert!(!task.writes() && !task.runs_apart());
+    assert_eq!(task.refusal(), None);
+    assert!(task.cautions().is_empty());
+}
+
+/// An add is its dry run until it is told yes, which is the one that
+/// writes, and neither starts anything nor takes anything away.
+#[test]
+fn an_import_from_the_registry_is_its_dry_run_until_it_is_told_yes() {
+    let dry = Task::ImportServer {
+        server: String::from("io.github.buildkite/buildkite-mcp-server"),
+        version: Some(String::from("0.7.0")),
+        yes: false,
+    };
+    let yes = Task::ImportServer {
+        server: String::from("ai.clawfetch/mcp"),
+        version: None,
+        yes: true,
+    };
+
+    assert_eq!(
+        dry.commands(),
+        [line(
+            "mindweaver gather mcp add --version 0.7.0 io.github.buildkite/buildkite-mcp-server"
+        )]
+    );
+    assert_eq!(
+        yes.commands(),
+        [line("mindweaver gather mcp add --yes ai.clawfetch/mcp")]
+    );
+    assert!(!dry.writes() && yes.writes());
+    for task in [dry, yes] {
+        assert!(!task.runs_apart(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
         assert!(task.cautions().is_empty(), "{task:?}");
     }
 }

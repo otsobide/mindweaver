@@ -24,12 +24,12 @@
 //! <name>`). The use cases are grouped by what a person is doing: making
 //! projects and workspaces, writing skills and rules, installing them,
 //! gathering them from git, searching the skill directories for them,
-//! keeping copies up to date, reading what is
-//! where, saying which workspace a command is about, changing a project's
-//! agents, share and targets, adopting a skill somebody keeps, removing
-//! one everywhere, loading another workspace, exporting the library
-//! elsewhere, upgrading what an older
-//! Mindweaver made, and reading it all as JSON.
+//! bringing MCP servers from the registry, keeping copies up to date,
+//! reading what is where, saying which workspace a command is about,
+//! changing a project's agents, share and targets, adopting a skill
+//! somebody keeps, removing one everywhere, loading another workspace,
+//! exporting the library elsewhere, upgrading what an older Mindweaver
+//! made, and reading it all as JSON.
 //!
 //! Unix alone: the reference's paths are a Unix home's, which a Windows
 //! path, its drive and its backslashes, never reads as, so every use case
@@ -55,6 +55,12 @@ mod gathering;
 
 #[path = "e2e/searching.rs"]
 mod searching;
+
+#[path = "e2e/importing.rs"]
+mod importing;
+
+#[path = "common/mcp_registry.rs"]
+mod mcp_registry;
 
 #[path = "e2e/updating.rs"]
 mod updating;

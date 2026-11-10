@@ -161,6 +161,30 @@ pub fn add(
     })
 }
 
+/// Where [`add`] would write `kind` `name`, described as `description`,
+/// from what `start` says, into `project`, worked out and nothing written:
+/// every check `add` makes before it writes, and then whether something is
+/// where it would go already, which `add` leaves alone and refuses.
+///
+/// What a command that writes only once it is told yes says beforehand
+/// (`mindweaver gather mcp add` without `--yes`), so the dry run refuses
+/// what the write would, by the same checks rather than a copy of them.
+/// What a write alone can tell it tells when it writes: a name taken a
+/// moment later is still refused then.
+pub fn would_add(
+    project: &MindProject,
+    kind: Kind,
+    name: &str,
+    description: &str,
+    start: Start<'_>,
+) -> Result<PathBuf, CreateError> {
+    let scaffold = create::plan(project, kind, name, description, start)?;
+    match scaffold.taken() {
+        Some(taken) => Err(taken),
+        None => Ok(scaffold.path().to_path_buf()),
+    }
+}
+
 /// The one artifact in `project` a reference names.
 ///
 /// By what it declares first, then by where the name would put it, so a

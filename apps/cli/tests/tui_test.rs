@@ -4894,6 +4894,196 @@ fn a_search_finding_nothing_says_so_and_offers_another() {
     assert_eq!(form.query.text(), "nothing-like-it");
 }
 
+// ---------------------------------------------------------------------------
+// The MCP Registry, from the shelf's page (#107)
+// ---------------------------------------------------------------------------
+
+/// A runner that runs each line the TUI hands it for real, the registry on
+/// loopback named after `gather mcp <command>`, since a front end names no
+/// registry and the official one is the network; each line noted as the
+/// TUI handed it.
+fn asking(
+    registry: &common::mcp_registry::Registry,
+    heard: &Arc<Mutex<Vec<Vec<String>>>>,
+) -> Runner {
+    let heard = Arc::clone(heard);
+    let url = registry.url();
+    Runner::new(move |handed, base, lookup, watch| {
+        heard.lock().unwrap().push(handed.to_vec());
+        let mut words = handed.to_vec();
+        if words.get(1..3) == Some(&[String::from("gather"), String::from("mcp")][..]) {
+            words.splice(4..4, [String::from("--registry"), url.clone()]);
+        }
+        // Said as the line handed, which is what the transcript keeps.
+        let mut done = tui::execute(&words, base, lookup, watch);
+        done.command = mindweaver_cli::task::shell(handed);
+        done
+    })
+}
+
+/// The acceptance's TUI case: `r` on the shelf's page searches the
+/// registry, enter on a server runs the add's dry run, which writes
+/// nothing, and `y` on the page it shows runs the same line told yes; each
+/// a line of the command's, the last alone kept in the transcript.
+#[test]
+fn a_server_found_from_the_shelf_is_added_once_what_it_writes_is_read_and_y_said() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let registry = common::mcp_registry::Registry::recorded();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let mut app = tui_in(dir.path());
+    app.runner = Some(asking(&registry, &heard));
+    let file = own_directory_for(dir.path(), Kind::Mcp).join("clawfetch-mcp.toml");
+
+    press_and_run(&mut app, KeyCode::Char('s'));
+    let drawn = tui_drawn_at(&app, 120, 30);
+    assert!(drawn.contains("r search the MCP Registry"), "{drawn}");
+    assert_eq!(press_key(&mut app, KeyCode::Char('r')), TuiStep::Stay);
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("Search the MCP Registry"), "{drawn}");
+    type_text(&mut app, "clawfetch");
+    let searched = press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        searched,
+        Some(Task::SearchServers {
+            query: String::from("clawfetch")
+        })
+    );
+    let Mode::Servers(results) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(results.servers.len(), 1);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("What the MCP Registry lists for `clawfetch`"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains("ai.clawfetch/mcp  0.4.0  active  npm"),
+        "{drawn}"
+    );
+    assert!(drawn.contains("Web intelligence for AI agents"), "{drawn}");
+
+    let foreseen = press_and_run(&mut app, KeyCode::Enter).expect("enter says what it writes");
+    let dry = [
+        "mindweaver",
+        "gather",
+        "mcp",
+        "add",
+        "--version",
+        "0.4.0",
+        "ai.clawfetch/mcp",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(foreseen.commands(), std::slice::from_ref(&dry));
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(reader.writes.is_some());
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("runs: npx -y @clawfetch/mcp@0.4.0"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains("nothing written: add --yes to go ahead"),
+        "{drawn}"
+    );
+    assert!(drawn.contains("y write it into the library"), "{drawn}");
+    assert!(!file.exists(), "the dry run writes nothing");
+
+    let written = press_and_run(&mut app, KeyCode::Char('y')).expect("y writes it");
+
+    let yes = [
+        "mindweaver",
+        "gather",
+        "mcp",
+        "add",
+        "--version",
+        "0.4.0",
+        "--yes",
+        "ai.clawfetch/mcp",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(written.commands(), std::slice::from_ref(&yes));
+    assert!(file.exists(), "{file:?}");
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("created mcp clawfetch-mcp at "), "{drawn}");
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ["mindweaver", "gather", "list"].map(String::from).to_vec(),
+            [
+                "mindweaver",
+                "gather",
+                "mcp",
+                "search",
+                "--json",
+                "clawfetch"
+            ]
+            .map(String::from)
+            .to_vec(),
+            dry,
+            yes,
+        ]
+    );
+    let transcript = app.transcript();
+    assert_eq!(
+        transcript.lines().next(),
+        Some("$ mindweaver gather mcp add --version 0.4.0 --yes ai.clawfetch/mcp"),
+        "{transcript}"
+    );
+    assert!(!transcript.contains("mcp search"), "{transcript}");
+}
+
+/// A search the registry refuses keeps the form open with why, in core's
+/// words, as the line says it; `r` searches again from the results with
+/// what was looked for typed already.
+#[test]
+fn a_registry_search_refused_keeps_the_form_open_and_r_searches_again() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let registry = common::mcp_registry::Registry::recorded();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let mut app = tui_in(dir.path());
+    app.runner = Some(asking(&registry, &heard));
+    press_and_run(&mut app, KeyCode::Char('s'));
+    press_key(&mut app, KeyCode::Char('r'));
+    type_text(&mut app, "ab");
+
+    press_and_run(&mut app, KeyCode::Enter);
+
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some("`ab` is too short to search for: the registry takes 3 characters or more")
+    );
+    assert!(registry.asked().is_empty(), "{:?}", registry.asked());
+
+    press_key(&mut app, KeyCode::Char('l'));
+    press_and_run(&mut app, KeyCode::Enter);
+    let Mode::Servers(results) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(results.servers.is_empty());
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("the registry lists no server whose name holds `abl`"),
+        "{drawn}"
+    );
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    assert_eq!(press_key(&mut app, KeyCode::Char('r')), TuiStep::Stay);
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.query.text(), "abl");
+}
+
 /// `f` searches from the shelf's page alone: on any other page it is no key.
 #[test]
 fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
