@@ -94,7 +94,7 @@ impl Admission<'_> {
             // folder climbing out of the repository among what it refuses.
             // The rest of what the result says reaches no line.
             Task::TakeSkill { hit } => {
-                policy::source(&hit.repository.to_string())?;
+                policy::source(hit.repository.as_ref())?;
             }
             // A marketplace's repository is a source as a gather's is; the
             // reference and the plugins' names are values the gather holds
