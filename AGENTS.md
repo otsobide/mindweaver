@@ -180,7 +180,10 @@ under `apps/` with its own `Makefile`:
   (`gather::LAYOUTS`), a source typed as `owner/repo@ref` or a folder's
   address on a forge read as the repository, branch and folder it names
   (`url::located`), and what a gather would take, with nothing written
-  (`gather::dry_run`), reading a catalog over HTTP (through
+  (`gather::dry_run`), a source pinned to a commit (`value::Pin`, fetched
+  through `Remote::fetch`) and the licence each artifact gathered says it
+  is under (`licence`), kept with where in its source it was and the hash of
+  its shelf copy (`ledger::Taken`), reading a catalog over HTTP (through
   `port::Http`), the redirects core follows, a status that is no success,
   JSON read into what is asked and pages that follow one another
   (`http::Client`, `http::with_query`, `http::next_link`), and the answers a
@@ -250,7 +253,8 @@ under `apps/` with its own `Makefile`:
   front end judging what is typed (`draft`). Every record, report and view
   it builds is an aggregate of the value objects in `value` (a copy's
   `ContentHash`, a `Redacted` URL or message, an `Origin`, an
-  `ArtifactName`, a `Revision`, a `ProjectId`), each of which, and each
+  `ArtifactName`, a `Revision`, a `ProjectId`, a source's `Pin`), each of
+  which, and each
   record, a test builds through its object mother in `mother`, compiled only
   for tests (`cfg(test)`, or the `mother` feature a dev-dependency turns
   on). Its only I/O beyond files
@@ -508,7 +512,8 @@ These are easy to break from a single file without noticing.
 - **Values are value objects, and the world is reached through ports.**
   A field that holds a hash, a URL or words quoting one, an origin, an
   artifact's name or a revision holds the value in `value`, never a
-  `String`: one held to a rule (`ContentHash`, `ProjectId`, `Redacted`) is
+  `String`: one held to a rule (`ContentHash`, `ProjectId`, `Redacted`,
+  `SourceName`, `Pin`) is
   made only the way its rule allows, so no `From<String>`, and one named
   apart (`ArtifactName`, `Origin`, `Revision`, and an MCP server's
   `InputName` and `VariableName`) holds any text, since core reads
@@ -653,6 +658,14 @@ These are easy to break from a single file without noticing.
   origin an install records and the JSON holds, unchanged. Another spelling
   of its URL still names it, said with `install::Respelled`'s warning,
   which fails nothing. No front end spells a source's identity or its name.
+  A pin (`gather git --pin`, a `value::Pin`, 40 hex digits) is no part of
+  that identity: it is what the source's last gather took, written with
+  its revision once the shelf has changed (`saw_source`), so moving it, or
+  gathering with none, gathers into the same source. Each artifact gathered
+  is recorded with its `upstream_path` (the harvest's route), the
+  `hash::tree` of its shelf copy, the recipe an install keeps, and its
+  licence as it says it (`licence::Licence::of`), all core's to read, and
+  `gather list` only shows them.
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -1340,7 +1353,11 @@ These are easy to break from a single file without noticing.
     keeps the rows that went (schema 7's `merged_sources`,
     `LedgerStore::merged`) until the first command that writes has said
     them and removed their folders (`gather::scrub`), since a read takes
-    the step as often as a write does and says nothing.
+    the step as often as a write does and says nothing. What only a later
+    write can know is left empty rather than made up: schema 8's
+    provenance of each artifact gathered (`upstream_path`, `content_hash`,
+    the licence) is read off what a gather fetched, so a row from before it
+    keeps none until its source is gathered again.
 - **What is written outside the code is Mindweaver's, and a Mindflayer
   build's is read beside it, in one constant each.** Mindweaver was
   Mindflayer (D-26, in `docs/architecture.md`): what a build writes on the
@@ -1705,11 +1722,15 @@ These are easy to break from a single file without noticing.
 - What a test needs is built by an object mother (`mindweaver_core::mother`,
   `apps/core/src/mother/`), never by hand where a mother makes it: one per
   value object (`ContentHashMother`, `RedactedMother`, `OriginMother`,
-  `ArtifactNameMother`, `RevisionMother`, `ProjectIdMother`), per record the
+  `ArtifactNameMother`, `RevisionMother`, `ProjectIdMother`, `PinMother`,
+  with `not_pins`), per record the
   ledger keeps (`InstallRecordMother`, `TargetMother`, `EntryTargetMother`,
-  `SourceMother`, `GatheredMother`, `MovedMother`, `EntryMother`), for a
+  `SourceMother`, among it a source `pinned`, `GatheredMother`,
+  `TakenMother`, an artifact as a gather tells the ledger of it,
+  `LicenceMother`, `MovedMother`, `EntryMother`), for a
   skill's and a
-  rule's text (`SkillMother`, `RuleMother`), an MCP server's definition,
+  rule's text (`SkillMother`, a skill declaring its licence among it,
+  `licensed`, `RuleMother`), an MCP server's definition,
   one for each transport and one for each shape a rule or an agent is
   about (`McpMother`: `misnamed`, `secret_without_variable`, a token of each
   shape drawn from parts at run time, `tokens` and `with_literal`, never a

@@ -5,7 +5,7 @@ use crate::hash;
 use crate::mother::random;
 use crate::mother::url::UrlMother;
 use crate::value::{
-    ArtifactName, ContentHash, InputName, Origin, ProjectId, Redacted, Revision, VariableName,
+    ArtifactName, ContentHash, InputName, Origin, Pin, ProjectId, Redacted, Revision, VariableName,
 };
 
 /// Makes [`ContentHash`]es, through the recipe or the parser, the only ways
@@ -246,6 +246,49 @@ impl RevisionMother {
     /// Exactly `text`.
     pub fn create(text: &str) -> Revision {
         Revision::from(text)
+    }
+}
+
+/// Makes [`Pin`]s, through the parser, the one way one is made, and the
+/// texts it refuses.
+pub struct PinMother;
+
+impl PinMother {
+    /// A commit nobody chose, in full.
+    pub fn random() -> Pin {
+        Self::create(&random::hex(Pin::LEN))
+    }
+
+    /// The pin `digits` spells, which must be one.
+    pub fn create(digits: &str) -> Pin {
+        Pin::parse(digits).unwrap_or_else(|| panic!("{digits:?} is no pin"))
+    }
+
+    /// The pin a gather at `revision` takes, which must be a commit in full.
+    pub fn of(revision: &Revision) -> Pin {
+        Self::create(revision)
+    }
+
+    /// Texts that are no pin, each beside why: what `parse` refuses, and
+    /// what a person types for a commit that is not one in full.
+    pub fn not_pins() -> Vec<(&'static str, String)> {
+        let digits = random::hex(Pin::LEN);
+        vec![
+            ("empty", String::new()),
+            ("a commit shortened as git shows it", digits[..7].to_owned()),
+            ("one digit short", digits[1..].to_owned()),
+            ("one digit over", format!("{digits}0")),
+            ("a SHA-256 commit", random::hex(64)),
+            ("a letter past f", format!("g{}", &digits[1..])),
+            ("a leading space", format!(" {}", &digits[1..])),
+            ("a trailing newline", format!("{}\n", &digits[1..])),
+            ("a branch", String::from("main")),
+            ("a tag", String::from("v1.2.0")),
+            ("HEAD", String::from("HEAD")),
+            ("a full reference", String::from("refs/heads/main")),
+            ("a 0x prefix", format!("0x{}", &digits[2..])),
+            ("a non-ASCII digit", format!("{}\u{e9}", &digits[2..])),
+        ]
     }
 }
 

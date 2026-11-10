@@ -14,6 +14,7 @@ use tempfile::TempDir;
 
 use crate::mother::random;
 use crate::mother::{SkillMother, SourceMother, UrlMother, WorkspaceMother};
+use crate::value::Pin;
 
 const DRAWS: usize = 200;
 
@@ -34,6 +35,7 @@ impl Remote for Unreached {
         &self,
         _url: &str,
         _reference: Option<&str>,
+        _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
         _token: Option<&Token>,
@@ -126,7 +128,7 @@ fn a_request_fetches_through_the_remote_it_is_handed() {
 
     let _ = request
         .remote
-        .fetch("u", None, Path::new("/nowhere"), &request.watch, None);
+        .fetch("u", None, None, Path::new("/nowhere"), &request.watch, None);
 
     assert_eq!(*remote.asked.lock().unwrap(), 1);
 }
@@ -361,6 +363,7 @@ fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
             }],
             warnings: Vec::new(),
             left_out: Vec::new(),
+            pin: None,
         };
 
         assert_eq!(report.total(), added + updated + unchanged);
@@ -773,6 +776,17 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
         "/w/.mindweaver/skills/s/deploy: cannot be copied into the workspace: full"
     );
     assert_eq!(unusable.path(), Path::new("/w/.mindweaver/cache/s/x"));
+    let unhashed = Failure::Unhashed {
+        path: PathBuf::from("/w/.mindweaver/skills/s/deploy"),
+        source: io::Error::other("denied"),
+    };
+    assert_eq!(unhashed.code(), "gathered_unhashed");
+    assert_eq!(unhashed.path(), Path::new("/w/.mindweaver/skills/s/deploy"));
+    assert_eq!(
+        unhashed.to_string(),
+        "/w/.mindweaver/skills/s/deploy: put on the shelf, but cannot be read back to be hashed: \
+         denied"
+    );
     assert_eq!(
         Failure::CODES,
         [
@@ -781,6 +795,7 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
             "gathered_name_clash",
             "gathered_link_outside",
             "gathered_root_unnamed",
+            "gathered_unhashed",
         ]
     );
 }
@@ -944,6 +959,12 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
                 origin: SourceMother::random().origin(),
             },
             "source_name_taken",
+        ),
+        (
+            GatherError::PinInvalid {
+                pin: String::from("4f9c2a7"),
+            },
+            "source_pin_invalid",
         ),
         (
             GatherError::NotGatherable { kind: Kind::Rule },

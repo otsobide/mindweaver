@@ -8,7 +8,7 @@ use mindweaver_core::gather::{self, Report, Request, Scrub};
 use mindweaver_core::install::{offered_by_loads, Offer};
 use mindweaver_core::port::Token;
 use mindweaver_core::url::redacted;
-use mindweaver_core::{Kind, WeaverWorkspace};
+use mindweaver_core::{Kind, Licence, WeaverWorkspace};
 
 use super::{reading_workspace, workspace_here};
 use crate::progress::{Progress, Watch};
@@ -32,6 +32,7 @@ pub(crate) fn run_gather(
             path,
             reference,
             name,
+            pin,
             dry_run,
             credential,
         } => {
@@ -42,6 +43,7 @@ pub(crate) fn run_gather(
                 .from_subdirectory(path.clone())
                 .at(reference.clone())
                 .named(name.clone())
+                .pinned(pin.clone())
                 .watched_by(watch.relaying(Progress::Gather))
                 .with_token(handed(url, credential)?);
             if *dry_run {
@@ -228,14 +230,7 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
 /// A gather that got this far was given none, since core refuses them, so
 /// this costs nothing today and still holds if that ever changes.
 fn gathered(url: &str, report: &Report) -> Outcome {
-    let url = redacted(url);
-    let mut stdout = String::new();
-    let at = report
-        .revision
-        .as_deref()
-        .map(short)
-        .map_or_else(String::new, |revision| format!(" at {revision}"));
-    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
+    let mut stdout = heading(url, report);
 
     // Added first, then updated, then unchanged: a second gather is run to
     // find out what moved, and what moved should not be at the bottom.
@@ -277,14 +272,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
 /// It exits as the gather would, on what could not be taken and on what is
 /// wrong with what would be, so a script can ask before it gathers.
 fn foreseen(url: &str, report: &Report) -> Outcome {
-    let url = redacted(url);
-    let mut stdout = String::new();
-    let at = report
-        .revision
-        .as_deref()
-        .map(short)
-        .map_or_else(String::new, |revision| format!(" at {revision}"));
-    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
+    let mut stdout = heading(url, report);
 
     let mut rows: Vec<Vec<String>> = Vec::new();
     for (label, harvested) in [
@@ -316,6 +304,20 @@ fn foreseen(url: &str, report: &Report) -> Outcome {
         );
     }
     said(stdout, report, "would be")
+}
+
+/// The line a gather's report starts with: the source by its name and the
+/// URL it was gathered from, the revision it was gathered at, and whether
+/// that was a pin, which the source is pinned to from now on (#99).
+fn heading(url: &str, report: &Report) -> String {
+    let url = redacted(url);
+    let at = report
+        .revision
+        .as_deref()
+        .map(short)
+        .map_or_else(String::new, |revision| format!(" at {revision}"));
+    let pinned = if report.pin.is_some() { ", pinned" } else { "" };
+    format!("{}: {url}{at}{pinned}\n", printable(&report.name))
 }
 
 /// `stdout`, with what `report` has to say beside it on stderr: what could
@@ -363,7 +365,16 @@ fn said(stdout: String, report: &Report, was: &str) -> Outcome {
 
 /// Everything that can be installed from elsewhere, with where each thing
 /// comes from, spelled as `--from` takes it: a source by its name
-/// ([`Offer::listed_from`]).
+/// ([`Offer::listed_from`]), and what it says of its licence, as a gather
+/// read it ([`Licence::said`]), with nothing there for one a gather has not
+/// read since it was kept (#99), nor for a workspace's own, which no gather
+/// read.
+///
+/// A source's pin, when it has one, goes beside its name, the name being
+/// what `--from` takes, so the pin is not written into it. Each of the two
+/// is a column that earns its place, as the kind's does, only once
+/// something listed has one: a listing of what loaded workspaces offer
+/// reads as it did.
 ///
 /// Empty, it says how to fill it, and suggests loading only when nothing is
 /// loaded yet; `mindweaver load` on its own lists what is.
@@ -388,6 +399,22 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
     kinds.sort();
     kinds.dedup();
     let name_kind = kinds.len() > 1;
+    let pin = |entry: &Offer| match entry {
+        Offer::Shelf(gathered) => gathered
+            .source
+            .pin
+            .as_ref()
+            .map(|pin| format!("pinned {}", short(pin))),
+        Offer::Workspace { .. } | Offer::Loaded { .. } => None,
+    };
+    let name_pin = shelf.iter().any(|entry| pin(entry).is_some());
+    fn licence(entry: &Offer) -> Option<&str> {
+        match entry {
+            Offer::Shelf(gathered) => gathered.licence.as_ref().map(Licence::said),
+            Offer::Workspace { .. } | Offer::Loaded { .. } => None,
+        }
+    }
+    let name_licence = shelf.iter().any(|entry| licence(entry).is_some());
 
     let rows: Vec<Vec<String>> = shelf
         .iter()
@@ -398,6 +425,12 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
             }
             row.push(printable(entry.name()));
             row.push(printable(&entry.listed_from()));
+            if name_pin {
+                row.push(pin(entry).unwrap_or_default());
+            }
+            if name_licence {
+                row.push(printable(licence(entry).unwrap_or("")));
+            }
             row.push(printable(entry.summary().unwrap_or("")));
             row
         })

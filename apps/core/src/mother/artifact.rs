@@ -37,6 +37,28 @@ impl SkillMother {
         )
     }
 
+    /// `name`'s file, declaring the licence `license`, written after the
+    /// key as YAML takes it: `MIT`, or `""` for one written empty.
+    pub fn licensed(name: &str, description: &str, license: &str) -> String {
+        format!(
+            "---\nname: {name}\ndescription: {description}\nlicense: {license}\n---\n\n# \
+             {name}\n\nSteps.\n"
+        )
+    }
+
+    /// A licence as a skill's author names one: an SPDX name, or words
+    /// pointing at a file it bundles, as Anthropic's own skills write.
+    pub fn licence() -> String {
+        random::pick(&[
+            "MIT",
+            "Apache-2.0",
+            "MPL-2.0",
+            "Proprietary. LICENSE.txt has complete terms",
+            "Complete terms in LICENSE.txt",
+        ])
+        .to_owned()
+    }
+
     /// `name`'s file with front matter that names no description.
     pub fn without_description(name: &str) -> String {
         format!("---\nname: {name}\n---\n\n# {name}\n")

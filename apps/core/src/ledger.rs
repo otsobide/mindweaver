@@ -35,12 +35,13 @@ use crate::adapter::sqlite::Sqlite;
 use crate::agent::Agent;
 use crate::code::codes;
 use crate::kind::Kind;
+use crate::licence::Licence;
 use crate::port::{Clock, LedgerStore};
 use crate::settings::ProjectId;
 // What the docs link to, which no code here calls since the store redacts.
 #[cfg(doc)]
 use crate::url::redacted;
-use crate::value::{ArtifactName, ContentHash, Origin, Redacted, Revision, SourceName};
+use crate::value::{ArtifactName, ContentHash, Origin, Pin, Redacted, Revision, SourceName};
 
 /// The schema version this build writes, and the copy kept of an older
 /// one before a step: the SQLite store's, named here where they always were.
@@ -98,7 +99,8 @@ crate::described::words! {
 ///
 /// What it serializes to is a contract, as a status report's is: each field
 /// by its name, but the row id, and the URL only through [`redacted`]. Its
-/// `name` was added after the rest (#98), which moved no version.
+/// `name` was added after the rest (#98), and its `pin` after that (#99),
+/// neither of which moved a version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -133,6 +135,11 @@ pub struct Source {
     /// somebody named it ([`SourceName::derived`]), what a listing shows
     /// and `--from` takes.
     pub name: SourceName,
+    /// The commit its last gather was pinned to (`gather git --pin`, #99),
+    /// which its `revision` is then: `None` while it follows its branch,
+    /// or the remote's HEAD. Not part of what the source is: moving the
+    /// pin, or gathering it with none, gathers into the same source.
+    pub pin: Option<Pin>,
 }
 
 impl Source {
@@ -176,7 +183,10 @@ pub struct Merged {
 /// One gathered artifact, and the source it came from.
 ///
 /// What it serializes to is a contract, as a status report's is: each field
-/// by its name.
+/// by its name. Its `upstream_path`, `content_hash` and `licence` were
+/// added after the rest (#99), which moved no version: each `None` for an
+/// artifact a build from before them gathered, until its source is
+/// gathered again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -187,11 +197,49 @@ pub struct Gathered {
     pub path: String,
     /// The one line a listing shows, as it read when it was gathered.
     pub summary: Option<String>,
-    /// The revision it was taken at.
+    /// The commit it was taken at, as the fetch resolved it: the pin, when
+    /// its source is pinned.
     pub revision: Option<Revision>,
     /// When it was gathered, in seconds since the Unix epoch.
     pub gathered_at: i64,
     pub source: Source,
+    /// Its folder in its source, from the repository's root, `/`
+    /// separated: where an update looks for it again, and what an audit
+    /// reads it at.
+    pub upstream_path: Option<String>,
+    /// [`crate::hash::tree`] of what was put on the shelf, the recipe an
+    /// install keeps of its copies: whether the shelf still holds what was
+    /// gathered, and whether two gathers took the same thing.
+    pub content_hash: Option<ContentHash>,
+    /// The licence it says it is under, as it says it ([`Licence::of`]).
+    pub licence: Option<Licence>,
+}
+
+/// One artifact a gather put on the shelf, as the ledger is told of it
+/// ([`LedgerStore::record`]): what [`Gathered`] reads back of it, beside
+/// the source it came from.
+///
+/// A record of its own rather than more arguments to `record`, so a store
+/// is handed one value the gather built, and a field added to it is added
+/// in one place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Taken {
+    pub kind: Kind,
+    pub name: ArtifactName,
+    /// Where it sits on the shelf, relative to the workspace root, `/`
+    /// separated.
+    pub path: String,
+    /// The one line a listing shows.
+    pub summary: Option<String>,
+    /// The commit it was taken at.
+    pub revision: Option<Revision>,
+    /// Its folder in the source, from the repository's root, `/` separated.
+    pub upstream_path: String,
+    /// [`crate::hash::tree`] of its copy on the shelf, `None` when the copy
+    /// could not be read back to be hashed.
+    pub content_hash: Option<ContentHash>,
+    /// The licence it says it is under.
+    pub licence: Licence,
 }
 
 /// Something the user asked for, whether or not it worked.

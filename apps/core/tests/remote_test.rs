@@ -17,11 +17,11 @@ use mindweaver_core::adapter::gix::Gix;
 use mindweaver_core::gather::{self, GatherError, Progress, Request, Watch};
 use mindweaver_core::ledger::{Action, Outcome};
 use mindweaver_core::mother::{
-    random, GitRepositoryMother, RevisionMother, SkillMother, UrlMother, WorkspaceMother,
+    random, GitRepositoryMother, PinMother, RevisionMother, SkillMother, UrlMother, WorkspaceMother,
 };
 use mindweaver_core::port::{Cloned, GitError, Remote, Token};
 use mindweaver_core::url::redacted;
-use mindweaver_core::value::Revision;
+use mindweaver_core::value::{Pin, Revision};
 use mindweaver_core::{Kind, SourceKind, WeaverWorkspace};
 use tempfile::TempDir;
 
@@ -109,6 +109,9 @@ type Files = BTreeMap<String, String>;
 struct Forge {
     url: String,
     branches: Mutex<BTreeMap<String, (Revision, Files)>>,
+    /// Every revision a branch has been at, which a pin is found among, as
+    /// GitHub hands out any commit it has by its id.
+    commits: Mutex<Vec<(Revision, Files)>>,
 }
 
 impl Remote for Forge {
@@ -116,6 +119,7 @@ impl Remote for Forge {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
         _token: Option<&Token>,
@@ -131,9 +135,28 @@ impl Remote for Forge {
         if url != self.url {
             return Err(failed(String::from("no repository there")));
         }
-        let branch = reference.unwrap_or(DEFAULT_BRANCH);
-        let Some((revision, files)) = self.branches.lock().unwrap().get(branch).cloned() else {
-            return Err(failed(format!("no ref matched '{branch}'")));
+        let (revision, files) = match pin {
+            Some(pin) => {
+                let commits = self.commits.lock().unwrap();
+                let found = commits
+                    .iter()
+                    .find(|(revision, _)| *revision == pin.revision());
+                let Some(found) = found.cloned() else {
+                    return Err(GitError::PinUnreachable {
+                        url: redacted(url).into_owned(),
+                        pin: pin.clone(),
+                        reference: reference.map(str::to_owned),
+                    });
+                };
+                found
+            }
+            None => {
+                let branch = reference.unwrap_or(DEFAULT_BRANCH);
+                let Some(found) = self.branches.lock().unwrap().get(branch).cloned() else {
+                    return Err(failed(format!("no ref matched '{branch}'")));
+                };
+                found
+            }
         };
         watch.report(Progress::CheckingOut {
             done: 0,
@@ -180,12 +203,14 @@ impl Upstream for Arc<Forge> {
             .iter()
             .map(|(path, text)| (path.to_string(), text.to_string()))
             .collect();
+        let revision = RevisionMother::random();
         Arc::new(Forge {
             url: UrlMother::https(),
             branches: Mutex::new(BTreeMap::from([(
                 String::from(DEFAULT_BRANCH),
-                (RevisionMother::random(), files),
+                (revision.clone(), files.clone()),
             )])),
+            commits: Mutex::new(vec![(revision, files)]),
         })
     }
 
@@ -208,6 +233,10 @@ impl Upstream for Arc<Forge> {
             held.insert(path.to_string(), text.to_string());
         }
         *revision = RevisionMother::random();
+        self.commits
+            .lock()
+            .unwrap()
+            .push((revision.clone(), held.clone()));
     }
 
     fn branch(&self, name: &str) {
@@ -253,6 +282,8 @@ every_remote![
     a_fetch_into_a_folder_whose_parents_are_not_made_yet_makes_them,
     a_fetch_after_a_new_commit_moves_the_revision_and_the_tree,
     a_fetch_at_a_branch_takes_that_branch_rather_than_the_default,
+    a_fetch_at_a_pin_takes_that_commit_whatever_its_branch_is_at_now,
+    a_fetch_at_a_pin_the_repository_lacks_fails_with_a_code_and_leaves_nothing,
     a_fetch_leaves_the_repository_it_fetched_from_as_it_was,
     a_fetch_of_a_branch_the_repository_lacks_fails_with_a_code_and_leaves_nothing,
     a_fetch_of_a_repository_that_is_not_there_fails_with_a_code_and_leaves_nothing,
@@ -377,7 +408,7 @@ fn a_fetch_writes_the_tree_where_it_was_asked_and_names_its_root_and_revision<U:
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, &into, &Watch::new(), None)
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_eq!(
@@ -396,7 +427,7 @@ fn a_fetch_replaces_whatever_was_at_its_destination<U: Upstream>() {
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, &into, &Watch::new(), None)
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_eq!(tree_of(&cloned.root), tree(&files));
@@ -415,7 +446,7 @@ fn a_fetch_into_a_folder_whose_parents_are_not_made_yet_makes_them<U: Upstream>(
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, &into, &Watch::new(), None)
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_eq!(tree_of(&cloned.root), tree(&files));
@@ -427,7 +458,7 @@ fn a_fetch_after_a_new_commit_moves_the_revision_and_the_tree<U: Upstream>() {
     let (_cache, into) = destination();
     let remote = upstream.remote();
     let first = remote
-        .fetch(&upstream.url(), None, &into, &Watch::new(), None)
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
     let changed = vec![
         (
@@ -442,7 +473,7 @@ fn a_fetch_after_a_new_commit_moves_the_revision_and_the_tree<U: Upstream>() {
 
     upstream.commit(&borrowed(&changed));
     let second = remote
-        .fetch(&upstream.url(), None, &into, &Watch::new(), None)
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_ne!(second.revision, first.revision, "{first:?}");
@@ -468,6 +499,7 @@ fn a_fetch_at_a_branch_takes_that_branch_rather_than_the_default<U: Upstream>() 
         .fetch(
             &upstream.url(),
             Some("next"),
+            None,
             &into.join("next"),
             &Watch::new(),
             None,
@@ -476,6 +508,7 @@ fn a_fetch_at_a_branch_takes_that_branch_rather_than_the_default<U: Upstream>() 
     let at_default = remote
         .fetch(
             &upstream.url(),
+            None,
             None,
             &into.join("default"),
             &Watch::new(),
@@ -500,6 +533,7 @@ fn a_fetch_leaves_the_repository_it_fetched_from_as_it_was<U: Upstream>() {
         .fetch(
             &upstream.url(),
             None,
+            None,
             &into.join("first"),
             &Watch::new(),
             None,
@@ -508,6 +542,7 @@ fn a_fetch_leaves_the_repository_it_fetched_from_as_it_was<U: Upstream>() {
     let second = remote
         .fetch(
             &upstream.url(),
+            None,
             None,
             &into.join("second"),
             &Watch::new(),
@@ -529,11 +564,71 @@ fn a_fetch_of_a_branch_the_repository_lacks_fails_with_a_code_and_leaves_nothing
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), Some(&branch), &into, &Watch::new(), None)
+        .fetch(
+            &upstream.url(),
+            Some(&branch),
+            None,
+            &into,
+            &Watch::new(),
+            None,
+        )
         .unwrap_err();
 
     assert!(is_a_coded_failure(&error), "{branch}: {error:?}");
     assert_eq!(error.code(), "git_fetch_failed", "{error}");
+    assert!(!into.exists(), "{error}");
+}
+
+fn a_fetch_at_a_pin_takes_that_commit_whatever_its_branch_is_at_now<U: Upstream>() {
+    let (names, files) = skills();
+    let upstream = U::create(&borrowed(&files));
+    let pin = PinMother::of(&upstream.head());
+    upstream.commit(&[(
+        &format!("skills/{}/SKILL.md", names[0]),
+        &SkillMother::create(&names[0], "Changed upstream"),
+    )]);
+    let (_cache, into) = destination();
+    left_there(&into);
+
+    let cloned = upstream
+        .remote()
+        .fetch(
+            &upstream.url(),
+            None,
+            Some(&pin),
+            &into,
+            &Watch::new(),
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(cloned.revision, Some(pin.revision()));
+    assert_ne!(cloned.revision, Some(upstream.head()));
+    assert_eq!(tree_of(&cloned.root), tree(&files));
+}
+
+fn a_fetch_at_a_pin_the_repository_lacks_fails_with_a_code_and_leaves_nothing<U: Upstream>() {
+    let (_, files) = skills();
+    let upstream = U::create(&borrowed(&files));
+    let (_cache, into) = destination();
+    left_there(&into);
+    let pin = PinMother::random();
+
+    let error = upstream
+        .remote()
+        .fetch(
+            &upstream.url(),
+            None,
+            Some(&pin),
+            &into,
+            &Watch::new(),
+            None,
+        )
+        .unwrap_err();
+
+    assert!(is_a_coded_failure(&error), "{pin}: {error:?}");
+    assert_eq!(error.code(), "git_pin_unreachable", "{error}");
+    assert!(error.to_string().contains(pin.as_str()), "{error}");
     assert!(!into.exists(), "{error}");
 }
 
@@ -545,7 +640,7 @@ fn a_fetch_of_a_repository_that_is_not_there_fails_with_a_code_and_leaves_nothin
 
     let error = upstream
         .remote()
-        .fetch(&nowhere, None, &into, &Watch::new(), None)
+        .fetch(&nowhere, None, None, &into, &Watch::new(), None)
         .unwrap_err();
 
     assert!(is_a_coded_failure(&error), "{nowhere}: {error:?}");
@@ -563,7 +658,7 @@ fn a_fetch_cancelled_before_it_starts_stops_and_leaves_its_destination_alone<U: 
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), None, &into, &watch, None)
+        .fetch(&upstream.url(), None, None, &into, &watch, None)
         .unwrap_err();
 
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
@@ -585,7 +680,7 @@ fn a_fetch_cancelled_at_its_first_step_stops_and_leaves_nothing_of_the_clone<U: 
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), None, &into, &watch, None)
+        .fetch(&upstream.url(), None, None, &into, &watch, None)
         .unwrap_err();
 
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
@@ -600,7 +695,7 @@ fn a_fetch_tells_its_watch_only_the_steps_of_a_fetch<U: Upstream>() {
 
     upstream
         .remote()
-        .fetch(&upstream.url(), None, &into, &watch, None)
+        .fetch(&upstream.url(), None, None, &into, &watch, None)
         .unwrap();
 
     let seen = seen.lock().unwrap();
@@ -628,7 +723,7 @@ fn a_fresh_clone_has_nothing_to_scrub_and_neither_has_a_folder_never_cloned<U: U
     let (cache, into) = destination();
     let remote = upstream.remote();
     remote
-        .fetch(&upstream.url(), None, &into, &Watch::new(), None)
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
     let before = tree_of(&into);
 
@@ -698,6 +793,7 @@ impl Remote for Recording {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
         token: Option<&Token>,
@@ -708,7 +804,7 @@ impl Remote for Recording {
             into.to_path_buf(),
         ));
         self.tokens.lock().unwrap().push(token.cloned());
-        self.inner.fetch(url, reference, into, watch, token)
+        self.inner.fetch(url, reference, pin, into, watch, token)
     }
 
     fn scrub(&self, clone: &Path) -> Result<bool, GitError> {
@@ -858,6 +954,7 @@ impl Remote for Refusing {
         &self,
         url: &str,
         _reference: Option<&str>,
+        _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
         _token: Option<&Token>,
@@ -919,6 +1016,7 @@ impl Remote for Cancelling {
         &self,
         _url: &str,
         _reference: Option<&str>,
+        _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
         _token: Option<&Token>,
@@ -975,6 +1073,7 @@ impl Remote for Reshaped {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
         token: Option<&Token>,
@@ -982,7 +1081,7 @@ impl Remote for Reshaped {
         let at = self
             .inside
             .map_or_else(|| into.to_path_buf(), |inside| into.join(inside));
-        let cloned = self.inner.fetch(url, reference, &at, watch, token)?;
+        let cloned = self.inner.fetch(url, reference, pin, &at, watch, token)?;
         Ok(Cloned {
             root: cloned.root,
             revision: cloned.revision.filter(|_| self.revision),
@@ -1061,7 +1160,7 @@ fn gix_names_a_revision_by_the_full_commit_id_the_repository_holds() {
     let (_cache, into) = destination();
 
     let cloned = Gix
-        .fetch(&repository.url(), None, &into, &Watch::new(), None)
+        .fetch(&repository.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     let revision = cloned.revision.expect("a commit to resolve");
@@ -1087,7 +1186,14 @@ fn gix_fetches_a_tag_as_it_fetches_a_branch() {
     let (_cache, into) = destination();
 
     let cloned = Gix
-        .fetch(&repository.url(), Some("v1"), &into, &Watch::new(), None)
+        .fetch(
+            &repository.url(),
+            Some("v1"),
+            None,
+            &into,
+            &Watch::new(),
+            None,
+        )
         .unwrap();
 
     assert_eq!(cloned.revision, Some(tagged));
@@ -1100,7 +1206,7 @@ fn gix_keeps_the_clone_a_gather_can_be_looked_at_afterwards_by() {
     let repository = Repository::create(&borrowed(&files));
     let (_cache, into) = destination();
 
-    Gix.fetch(&repository.url(), None, &into, &Watch::new(), None)
+    Gix.fetch(&repository.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     let clone = gix::open_opts(&into, gix::open::Options::isolated()).expect("a repository");

@@ -33,14 +33,16 @@ use crate::adapter::gix::Gix;
 use crate::artifact::{Artifact, ArtifactError, ValidationIssue};
 use crate::code::codes;
 use crate::copy::{self, Change};
+use crate::hash;
 use crate::install::{self, LeftOut};
 use crate::kind::{Kind, Layout};
-use crate::ledger::{self, Action, Ledger, LedgerError, Merged, Outcome, SourceKind};
+use crate::ledger::{self, Action, Ledger, LedgerError, Merged, Outcome, SourceKind, Taken};
+use crate::licence::Licence;
 use crate::lock::LockError;
 use crate::paths;
 use crate::port::{Cloned, GitError, Remote, Token};
 use crate::url::{carries_credentials, located, over_ssh, redacted};
-use crate::value::{ArtifactName, Origin, Redacted, Revision, SourceName};
+use crate::value::{ArtifactName, Origin, Pin, Redacted, Revision, SourceName};
 use crate::workspace::WeaverWorkspace;
 
 pub use watch::{Progress, Watch};
@@ -140,6 +142,11 @@ pub struct Request {
     /// none is given ([`SourceName::derived`]), and a source gathered
     /// before called this from now on when one is.
     pub name: Option<String>,
+    /// The commit to take, as somebody typed it, in place of whatever the
+    /// branch is at (#99): held to a commit in full ([`Pin::parse`]) before
+    /// anything is fetched, and what the source is pinned to once it is
+    /// gathered, as none is when it is gathered without one.
+    pub pin: Option<String>,
     /// A token the front end was handed for this gather (D-16), which the
     /// remote offers the repository's host as the login, before git
     /// config's credential helpers; refused for a URL it would not be sent
@@ -160,6 +167,7 @@ impl Request {
             watch: Watch::new(),
             remote: Arc::new(Gix),
             name: None,
+            pin: None,
             token: None,
         }
     }
@@ -184,6 +192,13 @@ impl Request {
     /// names it.
     pub fn named(mut self, name: Option<impl Into<String>>) -> Self {
         self.name = name.map(Into::into);
+        self
+    }
+
+    /// Take the commit `pin`, when one is given, rather than whatever the
+    /// branch is at now.
+    pub fn pinned(mut self, pin: Option<impl Into<String>>) -> Self {
+        self.pin = pin.map(Into::into);
         self
     }
 
@@ -304,6 +319,9 @@ pub struct Report {
     /// says as a note: not serialized, as the warnings are not.
     #[serde(skip)]
     pub left_out: Vec<Unshelved>,
+    /// The commit it was gathered at when that was a pin, which the source
+    /// is pinned to now: added after the rest (#99).
+    pub pin: Option<Pin>,
 }
 
 impl Report {
@@ -626,6 +644,7 @@ fn foresee(
         warnings: Vec::new(),
         name,
         left_out: Vec::new(),
+        pin: typed.pin.clone(),
     };
     let mut failures = Vec::new();
     let examined = examine(&clone, typed, manifest, &request.watch, &mut failures);
@@ -689,6 +708,8 @@ struct Typed {
     reference: Option<String>,
     path: String,
     name: Option<SourceName>,
+    /// The commit to take in place of what the branch is at.
+    pin: Option<Pin>,
 }
 
 /// Read what `request` was typed with, refusing what no gather takes before
@@ -710,6 +731,7 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
         request.source.reference(),
         Some(request.subdirectory.as_str()),
         request.name.as_deref(),
+        request.pin.as_deref(),
     ];
     if let Some(carrying) = given
         .into_iter()
@@ -768,6 +790,15 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
         ),
         None => None,
     };
+    // A commit in full, or nothing is fetched: a short one, a branch or a
+    // tag would be resolved to whatever it names on the day, which a pin
+    // is there to stop.
+    let pin = match &request.pin {
+        Some(typed) => {
+            Some(Pin::parse(typed).ok_or_else(|| GatherError::PinInvalid { pin: typed.clone() })?)
+        }
+        None => None,
+    };
 
     // Only directory-shaped kinds are gatherable today. Matching on the kind
     // rather than on its layout keeps the compiler asking: a third kind has to
@@ -785,6 +816,7 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
             reference,
             path,
             name,
+            pin,
         },
         manifest,
     ))
@@ -942,6 +974,7 @@ fn fetch(request: &Request, typed: &Typed, into: &Path) -> Result<Cloned, Gather
             .fetch(
                 &typed.url,
                 typed.reference.as_deref(),
+                typed.pin.as_ref(),
                 into,
                 &request.watch,
                 request.token.as_ref(),
@@ -978,6 +1011,7 @@ fn take(
         warnings: Vec::new(),
         name: source.name.clone(),
         left_out: Vec::new(),
+        pin: typed.pin.clone(),
     };
 
     // Everything is read before anything is placed, rather than each
@@ -993,8 +1027,10 @@ fn take(
         return Err(GatherError::Cancelled);
     }
     // Noted only now, and not by a gather that fails before it gets here,
-    // since the revision a source names is the one its shelf holds.
-    ledger.saw_source(source.id, clone.revision.as_deref())?;
+    // since the revision a source names is the one its shelf holds, and so
+    // is the pin, or the lack of one: a source is pinned while its shelf
+    // holds what a pin took.
+    ledger.saw_source(source.id, clone.revision.as_deref(), typed.pin.as_ref())?;
 
     let total = found.len();
     watch.report(Progress::Placing { done: 0, total });
@@ -1018,14 +1054,32 @@ fn take(
         };
         noted(&mut report, &one, &destination, manifest);
 
-        let recorded = relative(workspace, &destination);
+        // What was placed, as an install hashes what it wrote, so the two
+        // are told by one recipe: the shelf's copy leaves out what every
+        // install's copy does. One that cannot be read back is recorded
+        // with no hash rather than not at all, and said.
+        let content_hash = match hash::tree(&destination) {
+            Ok(hash) => Some(hash),
+            Err(source) => {
+                report.failures.push(Failure::Unhashed {
+                    path: destination.clone(),
+                    source,
+                });
+                None
+            }
+        };
         ledger.record(
             source,
-            request.kind,
-            one.artifact.name(),
-            &recorded,
-            one.artifact.summary(),
-            clone.revision.as_deref(),
+            &Taken {
+                kind: request.kind,
+                name: one.artifact.name().to_owned(),
+                path: relative(workspace, &destination),
+                summary: one.artifact.summary().map(str::to_owned),
+                revision: clone.revision.clone(),
+                upstream_path: one.route.clone(),
+                content_hash,
+                licence: Licence::of(&one.artifact, &destination),
+            },
         )?;
 
         let harvested = one.harvested(destination);
@@ -1507,6 +1561,14 @@ pub enum Failure {
          `{name}` is not one folder name"
     )]
     Unfiled { path: PathBuf, name: String },
+    /// Put on the shelf, and recorded with no content hash, since its copy
+    /// there could not be read back to be hashed (#99).
+    #[error("{path}: put on the shelf, but cannot be read back to be hashed: {source}")]
+    Unhashed {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 codes!(Failure {
@@ -1515,6 +1577,7 @@ codes!(Failure {
     Self::Clash { .. } => "gathered_name_clash",
     Self::Outside { .. } => "gathered_link_outside",
     Self::Unfiled { .. } => "gathered_root_unnamed",
+    Self::Unhashed { .. } => "gathered_unhashed",
 } carried {
     Self::Artifact(error) => error,
 });
@@ -1528,7 +1591,8 @@ impl Failure {
             | Failure::Copy { path, .. }
             | Failure::Clash { path, .. }
             | Failure::Outside { path }
-            | Failure::Unfiled { path, .. } => path,
+            | Failure::Unfiled { path, .. }
+            | Failure::Unhashed { path, .. } => path,
         }
     }
 
@@ -1561,6 +1625,10 @@ impl Failure {
             Failure::Unfiled { path, name } => Failure::Unfiled {
                 path: routed(path),
                 name,
+            },
+            Failure::Unhashed { path, source } => Failure::Unhashed {
+                path: routed(path),
+                source,
             },
         }
     }
@@ -1670,6 +1738,12 @@ pub enum GatherError {
          `--name`"
     )]
     NameTaken { name: SourceName, origin: Origin },
+    /// `--pin` named what is no commit in full ([`Pin::parse`]).
+    #[error(
+        "`{pin}` cannot pin a source: it has to be a commit in full, 40 hexadecimal digits, \
+         not a commit shortened, a branch or a tag"
+    )]
+    PinInvalid { pin: String },
     #[error("{} cannot be gathered yet", .kind.plural())]
     NotGatherable { kind: Kind },
     #[error("{path}: cannot be read: {source}")]
@@ -1692,6 +1766,7 @@ codes!(GatherError {
     Self::PathTwice { .. } => "gather_path_twice",
     Self::NameInvalid { .. } => "source_name_invalid",
     Self::NameTaken { .. } => "source_name_taken",
+    Self::PinInvalid { .. } => "source_pin_invalid",
     Self::NotGatherable { .. } => "kind_not_gatherable",
     Self::Read { .. } => "gather_read_failed",
 } carried {

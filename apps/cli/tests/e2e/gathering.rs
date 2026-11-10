@@ -14,8 +14,17 @@ use crate::{skill, Scenario};
 
 const SOURCE: &str = "~/src/acme-skills";
 
+/// A skill's file declaring the licence `license`, as its author writes it.
+fn licensed(name: &str, description: &str, license: &str) -> String {
+    format!(
+        "---\nname: {name}\ndescription: {description}\nlicense: {license}\n---\n\n# {name}\n\n\
+         Steps.\n"
+    )
+}
+
 /// `~/Projects` linking `collapse`, beside `~/src/acme-skills`, a repository
-/// offering two skills.
+/// offering two skills, the first declaring its licence and the second
+/// saying nothing of one.
 fn acme() -> Scenario {
     let scenario = Scenario::projects(&["collapse"]);
     scenario.source(
@@ -23,7 +32,11 @@ fn acme() -> Scenario {
         &[
             (
                 "skills/commit-style/SKILL.md",
-                &skill("commit-style", "How this repo writes commit messages"),
+                &licensed(
+                    "commit-style",
+                    "How this repo writes commit messages",
+                    "MIT",
+                ),
             ),
             (
                 "skills/ddd-reviewer/SKILL.md",
@@ -127,10 +140,149 @@ fn gather_list_says_what_the_shelf_holds_and_from_where() {
         .run("~/Projects", "mindweaver gather list")
         .succeeds()
         .prints(concat!(
-            "commit-style  src-acme-skills  How this repo writes commit messages\n",
-            "ddd-reviewer  src-acme-skills  Review a change against the DDD layering rules\n",
+            "commit-style  src-acme-skills  MIT      How this repo writes commit messages\n",
+            "ddd-reviewer  src-acme-skills  unknown  Review a change against the DDD layering \
+             rules\n",
         ))
         .quiet();
+}
+
+#[test]
+fn gathering_at_a_pin_takes_that_commit_and_says_the_source_is_pinned() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario.change(
+        SOURCE,
+        &[(
+            "skills/ddd-reviewer/SKILL.md",
+            &skill("ddd-reviewer", "Review a change, as it is now"),
+        )],
+    );
+
+    scenario
+        .run(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills: ../src/acme-skills at {}, pinned\n\
+             \x20 added  commit-style  How this repo writes commit messages\n\
+             \x20 added  ddd-reviewer  Review a change against the DDD layering rules\n\
+             \n\
+             2 skills: 2 added, 0 updated, 0 unchanged\n",
+            &pin[..7]
+        ))
+        .quiet();
+}
+
+#[test]
+fn gather_list_shows_the_pin_of_a_pinned_source_beside_its_name() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario
+        .source(
+            "~/src/other-rules",
+            &[(
+                "skills/commit-style/SKILL.md",
+                &skill("commit-style", "Conventional commits, strictly"),
+            )],
+        )
+        .given(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+        )
+        .given("~/Projects", "mindweaver gather git ../src/other-rules");
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(&format!(
+            "commit-style  src-acme-skills  pinned {short}  MIT      How this repo writes commit \
+             messages\n\
+             commit-style  src-other-rules                  unknown  Conventional commits, strictly\n\
+             ddd-reviewer  src-acme-skills  pinned {short}  unknown  Review a change against the \
+             DDD layering rules\n",
+            short = &pin[..7]
+        ))
+        .quiet();
+}
+
+#[test]
+fn gathering_again_without_the_pin_follows_the_branch_again() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario.given(
+        "~/Projects",
+        &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+    );
+
+    scenario
+        .run("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills: ../src/acme-skills at {}\n\
+             \x20 unchanged  commit-style  How this repo writes commit messages\n\
+             \x20 unchanged  ddd-reviewer  Review a change against the DDD layering rules\n\
+             \n\
+             2 skills: 0 added, 0 updated, 2 unchanged\n",
+            scenario.head(SOURCE)
+        ))
+        .quiet();
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "commit-style  src-acme-skills  MIT      How this repo writes commit messages\n",
+            "ddd-reviewer  src-acme-skills  unknown  Review a change against the DDD layering \
+             rules\n",
+        ));
+}
+
+#[test]
+fn a_pin_that_is_no_commit_in_full_is_refused_before_anything_is_fetched() {
+    let scenario = acme();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-skills --pin a1b2c3d",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: `a1b2c3d` cannot pin a source: it has to be a commit in full, 40 hexadecimal \
+             digits, not a commit shortened, a branch or a tag\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache/..-src-acme-skills"));
+}
+
+#[test]
+fn a_pin_the_repository_does_not_have_is_refused_and_nothing_is_gathered() {
+    let scenario = acme();
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+
+    scenario
+        .run(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {missing}"),
+        )
+        .exits(1)
+        .prints("")
+        .says(&format!(
+            "error: ../src/acme-skills: has no commit {missing} that its default branch reaches, \
+             so nothing is gathered at it\n"
+        ));
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "nothing gathered yet\n",
+            "  take some with `mindweaver gather git <url>`, or offer a workspace's own with \
+             `mindweaver load <path>`\n",
+        ));
 }
 
 #[test]

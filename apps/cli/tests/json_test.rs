@@ -945,6 +945,7 @@ fn a_workspace_above_that_cannot_be_read_is_a_warning_beside_templates_as_json()
 /// workspace or the shelf, never the workspace's own, which `list` holds.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "place", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
 enum Offer {
     Loaded {
         kind: String,
@@ -963,6 +964,9 @@ enum Offer {
         revision: Option<String>,
         gathered_at: i64,
         source: Source,
+        upstream_path: Option<String>,
+        content_hash: Option<String>,
+        licence: Option<Licence>,
         origin: String,
     },
 }
@@ -977,6 +981,17 @@ struct Source {
     revision: Option<String>,
     directory: String,
     name: String,
+    pin: Option<String>,
+}
+
+/// What a shelf offer says of its licence: where it was read, beside what
+/// that place said.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "from", rename_all = "snake_case", deny_unknown_fields)]
+enum Licence {
+    Manifest { text: String },
+    File { file: String, text: Option<String> },
+    Unknown,
 }
 
 impl Offer {
@@ -1071,6 +1086,28 @@ fn gather_list_as_json_holds_the_offers_the_text_lists() {
         .collect();
     assert_eq!(places, [("loaded", "notes"), ("shelf", "deploy")]);
     assert_eq!(offers[1].origin(), source.path().to_string_lossy());
+    let Offer::Shelf {
+        source: from,
+        upstream_path,
+        content_hash,
+        licence,
+        ..
+    } = &offers[1]
+    else {
+        panic!("{:?} is no shelf offer", offers[1]);
+    };
+    assert_eq!(from.pin, None);
+    assert_eq!(upstream_path.as_deref(), Some("skills/deploy"));
+    assert_eq!(content_hash.as_ref().map(String::len), Some(64));
+    assert_eq!(licence, &Some(Licence::Unknown));
+    // The text says the licence beside where it comes from, and a loaded
+    // workspace's own nothing.
+    assert!(text.stdout.contains("deploy  tmp-"), "{}", text.stdout);
+    assert!(
+        text.stdout.contains("  unknown  Ship it\n"),
+        "{}",
+        text.stdout
+    );
     assert_eq!(offers[0].summary(), Some("Take notes"));
     assert!(offers.iter().all(|offer| offer.kind() == "skill"));
     assert!(warnings.is_empty());

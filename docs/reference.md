@@ -520,12 +520,13 @@ mindweaver load <path>...  # offer another workspace's own skills and rules,
                            # read live
 mindweaver unload <path>...  # stop offering them
 
-mindweaver gather git <URL> [--path DIR] [--ref REF] [--name NAME] [--dry-run] [--token-env VAR|--gh]
+mindweaver gather git <URL> [--path DIR] [--ref REF] [--pin COMMIT] [--name NAME] [--dry-run] [--token-env VAR|--gh]
                            # collect skills from a repository onto the shelf,
                            # wherever it keeps them, under a name --from
-                           # takes; with --dry-run, say what it would take;
-                           # with --token-env or --gh, log in over https
-                           # with a token for this run
+                           # takes; --pin takes one commit, whatever the
+                           # branch is at; with --dry-run, say what it would
+                           # take; with --token-env or --gh, log in over
+                           # https with a token for this run
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver install         # a screen for putting skills, rules and MCP
@@ -840,14 +841,16 @@ other-rules: https://github.com/other/rules at 4d5e6f7
 warning: /home/you/Projects/.mindweaver/skills/github.com-other-rules/pdf--forms/SKILL.md: `pdf--forms` is not usable as a name: it has to be lowercase letters and digits, joined by single hyphens
 
 $ mindweaver gather list
-commit-style  acme-skills  How this repo writes commit messages
-commit-style  other-rules  Conventional commits, strictly
-ddd-reviewer  acme-skills  Review a change against the DDD layering rules
-pdf--forms    other-rules  Fill in PDF forms
+commit-style  acme-skills  MIT      How this repo writes commit messages
+commit-style  other-rules  unknown  Conventional commits, strictly
+ddd-reviewer  acme-skills  unknown  Review a change against the DDD layering rules
+pdf--forms    other-rules  unknown  Fill in PDF forms
 ```
 
-Each is listed by the name of its source, which is what `--from` takes when
-two sources offer one name:
+Each is listed by the name of its source, beside the licence it says it is
+under ([what is kept of each skill
+gathered](#what-is-kept-of-each-skill-gathered)). The name is what `--from`
+takes when two sources offer one name:
 
 ```
 $ mindweaver install -p collapse commit-style --from other-rules
@@ -1164,6 +1167,76 @@ It says what the gather would warn of, and exits as the gather would, so a
 script can ask first. What it could not read it names by where it is in the
 repository, since the folder it read it from is gone. Like a gather, it makes
 the workspace in your home when that is the one it acts on and is not made yet.
+
+### Pinning a source to a commit
+
+`--pin` takes one commit, given in full, rather than whatever the branch is
+at, and says so:
+
+```
+$ mindweaver gather git https://github.com/acme/skills --pin 4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3
+acme-skills: https://github.com/acme/skills at 4f9c2a7, pinned
+  added  commit-style  How this repo writes commit messages
+  added  ddd-reviewer  Review a change against the DDD layering rules
+
+2 skills: 2 added, 0 updated, 0 unchanged
+```
+
+The pin is no part of what the source is: gathered again with another pin,
+it is the same source, moved to that commit, and gathered without `--pin`, it
+takes whatever its branch is at again and is pinned no more. While it is
+pinned, `gather list` says so beside its name, in a column that is there only
+while something listed is pinned:
+
+```
+$ mindweaver gather list
+commit-style  acme-skills  pinned 4f9c2a7  MIT      How this repo writes commit messages
+commit-style  other-rules                  unknown  Conventional commits, strictly
+ddd-reviewer  acme-skills  pinned 4f9c2a7  unknown  Review a change against the DDD layering rules
+pdf--forms    other-rules                  unknown  Fill in PDF forms
+```
+
+A pin is a commit's 40 hexadecimal digits, as git prints a commit in full. A
+commit shortened, a branch or a tag would be read as whatever it names on
+the day it is fetched, which is what a pin is there to stop, so each is
+refused before anything is fetched:
+
+```
+$ mindweaver gather git acme/skills --pin 4f9c2a7
+error: `4f9c2a7` cannot pin a source: it has to be a commit in full, 40 hexadecimal digits, not a commit shortened, a branch or a tag
+```
+
+The commit is asked for by itself, as GitHub, GitLab and git's own server
+hand one out. A server that hands out no commit by its id is cloned whole at
+the branch (`--ref`, or its default), and the pin taken from there only when
+that branch reaches it. A pin the repository has no commit of, for the branch
+to reach, is refused, and nothing is gathered:
+
+```
+$ mindweaver gather git https://github.com/acme/skills --pin 0123456789abcdef0123456789abcdef01234567
+error: https://github.com/acme/skills: has no commit 0123456789abcdef0123456789abcdef01234567 that its default branch reaches, so nothing is gathered at it
+```
+
+### What is kept of each skill gathered
+
+For each skill a gather takes, the workspace's database keeps where in the
+repository it was (the route `--dry-run` shows), the commit it was taken at,
+the pin when its source is pinned, a hash of what was put on the shelf, by
+the recipe an install keeps of each copy it writes, and the licence the skill
+says it is under, as it says it:
+
+- the `license` its `SKILL.md` declares, as written;
+- else the first line that holds anything of a licence file in its folder,
+  beside its `SKILL.md`: `LICENSE` or `LICENCE`, in any case, alone or
+  followed by an extension or a `-` and more (`LICENSE.txt`, `LICENSE-MIT`),
+  the first of them by name; when that line cannot be read, the file's name;
+- else `unknown`.
+
+`gather list` shows the licence, and `gather list --json` all of it. A
+repository's own licence, the one a forge shows beside it, is not read: a
+skill's is what it says of itself. A skill gathered by a Mindweaver from
+before these were kept has none of them, and shows no licence, until its
+source is gathered again.
 
 ### What a workspace keeps
 
@@ -1971,7 +2044,13 @@ warning: /home/you/Projects/collapse/skills/broken/SKILL.md: the file does not s
   for one built in.
 - `gather list`: what can be installed from elsewhere, each with the `place`
   it comes from (`loaded` or `shelf`) and its `origin`, as `--from` takes it,
-  and for one from the shelf its `source`, by its `name` among the rest.
+  and for one from the shelf its `source`, by its `name` and its `pin` (the
+  commit, or `null` while it follows its branch) among the rest; its
+  `upstream_path`, its folder's route in the source; its `content_hash`, of
+  what is on the shelf; and its `licence`, `{"from": "manifest", "text":
+  ...}`, `{"from": "file", "file": "LICENSE.txt", "text": ...}` or
+  `{"from": "unknown"}`. Each of those three is `null` for a skill gathered
+  before they were kept, until its source is gathered again.
 - `status`, `workspaces` and `scan`: the reports shown in [what each project
   has](#what-each-project-has), [the weavers this machine
   knows](#the-weavers-this-machine-knows) and [commands](#commands).

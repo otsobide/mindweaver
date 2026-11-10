@@ -2088,7 +2088,11 @@ fn a_candidate_from_the_shelf_serializes_without_the_credentials_its_source_carr
                 revision: Some("4f9c2a7".into()),
                 directory: String::from("github.com-acme-skills"),
                 name: mindweaver_core::value::SourceName::parse("acme-skills").unwrap(),
+                pin: None,
             },
+            upstream_path: Some(String::from("skills/review")),
+            content_hash: None,
+            licence: Some(mindweaver_core::Licence::Unknown),
         }),
         standing: Standing::Outdated,
     };
@@ -2104,7 +2108,9 @@ fn a_candidate_from_the_shelf_serializes_without_the_credentials_its_source_carr
             r#""summary":"Review a change","revision":"4f9c2a7","gathered_at":1790000000,"#,
             r#""source":{"kind":"git","url":"https://github.com/acme/skills.git","#,
             r#""reference":"main","subdirectory":"skills","revision":"4f9c2a7","#,
-            r#""directory":"github.com-acme-skills","name":"acme-skills"},"#,
+            r#""directory":"github.com-acme-skills","name":"acme-skills","pin":null},"#,
+            r#""upstream_path":"skills/review","content_hash":null,"#,
+            r#""licence":{"from":"unknown"},"#,
             r#""origin":"https://github.com/acme/skills.git#main"},"#,
             r#""standing":"outdated"}"#,
         )

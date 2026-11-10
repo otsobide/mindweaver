@@ -19,12 +19,13 @@ use crate::agent::Agent;
 use crate::kind::Kind;
 use crate::ledger::{
     Action, Carried, Entry, EntryTarget, Forgotten, Gathered, InstallRecord, LedgerError, Merged,
-    Moved, Outcome, Source, SourceKind, Target,
+    Moved, Outcome, Source, SourceKind, Taken, Target,
 };
+use crate::licence::Licence;
 use crate::port::{Clock, LedgerStore};
 use crate::settings::ProjectId;
 use crate::url::{canonical, carries_credentials, redacted};
-use crate::value::{ArtifactName, ContentHash, Origin, Redacted, Revision, SourceName};
+use crate::value::{ArtifactName, ContentHash, Origin, Pin, Redacted, Revision, SourceName};
 use crate::workspace::RESERVED_IN_CACHE;
 
 /// The schema version this build writes.
@@ -32,7 +33,7 @@ use crate::workspace::RESERVED_IN_CACHE;
 /// Refused if the file on disk is newer, for the same reason a marker file is:
 /// an old binary silently misreading a newer database is the failure that has
 /// no error message.
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// The SQLite store, over one connection to the ledger's file, or to one in
 /// memory.
@@ -321,6 +322,14 @@ impl Sqlite {
             let spelled = spelled_sources(&transaction).map_err(failed)?;
             seven(&transaction, &spelled).map_err(failed)?;
         }
+        if found < 8 {
+            transaction.execute_batch(SCHEMA_V8).map_err(|source| {
+                self.failed(
+                    "giving each gathered artifact where it came from and its licence",
+                    source,
+                )
+            })?;
+        }
 
         transaction
             .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -540,6 +549,7 @@ impl LedgerStore for Sqlite {
             revision: None,
             directory,
             name,
+            pin: None,
         })
     }
 
@@ -627,11 +637,16 @@ impl LedgerStore for Sqlite {
             .map_err(|source| self.failed("forgetting a source made one", source))
     }
 
-    fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError> {
+    fn saw_source(
+        &self,
+        id: i64,
+        revision: Option<&str>,
+        pin: Option<&Pin>,
+    ) -> Result<(), LedgerError> {
         self.connection
             .execute(
-                "UPDATE sources SET revision = ?2, last_seen = ?3 WHERE id = ?1",
-                rusqlite::params![id, revision, self.now()],
+                "UPDATE sources SET revision = ?2, last_seen = ?3, pin = ?4 WHERE id = ?1",
+                rusqlite::params![id, revision, self.now(), pin.map(Pin::as_str)],
             )
             .map(|_| ())
             .map_err(|source| self.failed("updating a source", source))
@@ -644,25 +659,42 @@ impl LedgerStore for Sqlite {
             .map_err(|source| self.failed("forgetting a source", source))
     }
 
-    fn record(
-        &self,
-        source: &Source,
-        kind: Kind,
-        name: &str,
-        path: &str,
-        summary: Option<&str>,
-        revision: Option<&str>,
-    ) -> Result<(), LedgerError> {
+    fn record(&self, source: &Source, taken: &Taken) -> Result<(), LedgerError> {
+        let (licence_text, licence_file) = match &taken.licence {
+            Licence::Manifest { text } => (Some(text.as_str()), None),
+            Licence::File { file, text } => (text.as_deref(), Some(file.as_str())),
+            Licence::Unknown => (None, None),
+        };
         self.connection
             .execute(
-                "INSERT INTO artifacts (kind, name, source_id, path, summary, revision, gathered_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "INSERT INTO artifacts (kind, name, source_id, path, summary, revision, gathered_at,
+                                        upstream_path, content_hash, licence_from, licence,
+                                        licence_file)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT (kind, name, source_id) DO UPDATE SET
                      path = excluded.path,
                      summary = excluded.summary,
                      revision = excluded.revision,
-                     gathered_at = excluded.gathered_at",
-                rusqlite::params![kind.slug(), name, source.id, path, summary, revision, self.now()],
+                     gathered_at = excluded.gathered_at,
+                     upstream_path = excluded.upstream_path,
+                     content_hash = excluded.content_hash,
+                     licence_from = excluded.licence_from,
+                     licence = excluded.licence,
+                     licence_file = excluded.licence_file",
+                rusqlite::params![
+                    taken.kind.slug(),
+                    taken.name,
+                    source.id,
+                    taken.path,
+                    taken.summary,
+                    taken.revision,
+                    self.now(),
+                    taken.upstream_path,
+                    taken.content_hash,
+                    taken.licence.slug(),
+                    licence_text,
+                    licence_file
+                ],
             )
             .map(|_| ())
             .map_err(|error| self.failed("recording an artifact", error))
@@ -686,7 +718,8 @@ impl LedgerStore for Sqlite {
             .prepare(
                 "SELECT a.kind, a.name, a.path, a.summary, a.revision, a.gathered_at,
                         s.id, s.kind, s.url, s.reference, s.subdirectory, s.revision, s.directory,
-                        s.name
+                        s.name, s.pin, a.upstream_path, a.content_hash, a.licence_from, a.licence,
+                        a.licence_file
                    FROM artifacts a
                    JOIN sources s ON s.id = a.source_id
                   ORDER BY a.kind, a.name, s.url",
@@ -714,6 +747,10 @@ impl LedgerStore for Sqlite {
                     source_revision: row.get(11)?,
                     directory: row.get(12)?,
                     source_name: row.get(13)?,
+                    pin: row.get(14)?,
+                    upstream_path: row.get(15)?,
+                    content_hash: row.get(16)?,
+                    licence: read_licence(row.get(17)?, row.get(18)?, row.get(19)?),
                 })
             })
             .map_err(|source| self.failed("listing what was gathered", source))?;
@@ -743,7 +780,11 @@ impl LedgerStore for Sqlite {
                     revision: row.source_revision,
                     directory: row.directory,
                     name: SourceName::recorded(row.source_name),
+                    pin: row.pin.map(Pin::recorded),
                 },
+                upstream_path: row.upstream_path,
+                content_hash: row.content_hash,
+                licence: row.licence,
             });
         }
         Ok(found)
@@ -770,6 +811,7 @@ impl LedgerStore for Sqlite {
                             revision: row.get(5)?,
                             directory: row.get(6)?,
                             name: SourceName::recorded(row.get(7)?),
+                            pin: row.get::<_, Option<String>>(8)?.map(Pin::recorded),
                         })
                     }),
                 )
@@ -1849,6 +1891,10 @@ struct Row {
     source_revision: Option<Revision>,
     directory: String,
     source_name: String,
+    pin: Option<String>,
+    upstream_path: Option<String>,
+    content_hash: Option<ContentHash>,
+    licence: Option<Licence>,
 }
 
 /// Where a ledger at `path` is copied before a schema step takes it on from
@@ -1978,7 +2024,8 @@ fn journal_of(path: &Path) -> PathBuf {
 }
 
 /// The columns of `sources` [`read_source`] reads, in its order.
-const SOURCE_COLUMNS: &str = "id, kind, url, reference, subdirectory, revision, directory, name";
+const SOURCE_COLUMNS: &str =
+    "id, kind, url, reference, subdirectory, revision, directory, name, pin";
 
 /// What a `SELECT` of [`SOURCE_COLUMNS`] maps to.
 fn read_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
@@ -2003,7 +2050,27 @@ fn read_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
         revision: row.get(5)?,
         directory: row.get(6)?,
         name: SourceName::recorded(row.get(7)?),
+        pin: row.get::<_, Option<String>>(8)?.map(Pin::recorded),
     })
+}
+
+/// A licence as an artifact's row holds it, in the three columns schema 8
+/// gave it: `None` for a row from before them, and for one whose `from`
+/// was edited by hand into a word this build does not know, which is no
+/// licence anybody declared.
+fn read_licence(
+    from: Option<String>,
+    text: Option<String>,
+    file: Option<String>,
+) -> Option<Licence> {
+    match (from?.as_str(), file) {
+        ("manifest", _) => Some(Licence::Manifest {
+            text: text.unwrap_or_default(),
+        }),
+        ("file", Some(file)) => Some(Licence::File { file, text }),
+        ("unknown", _) => Some(Licence::Unknown),
+        _ => None,
+    }
 }
 
 /// A URL as a readable directory name.
@@ -2309,8 +2376,8 @@ CREATE TABLE installation_entries (
 /// HEAD, so the identity behind `sources_by_identity` is never `NULL`.
 /// `name` is what a listing shows and `--from` takes ([`SourceName`]), one
 /// a source. `pin` and `parent_id` are for what a source is pinned to (#99)
-/// and the marketplace it is listed by (#103): nothing reads or writes
-/// either yet.
+/// and the marketplace it is listed by (#103): no build of this schema
+/// reads or writes either, and a gather writes `pin` from schema 8 on.
 ///
 /// The columns go on the end of the table rather than into a new one,
 /// which would have to be copied in under foreign keys that cascade a
@@ -2514,6 +2581,36 @@ fn seven(transaction: &Transaction<'_>, spelled: &[Spelled]) -> rusqlite::Result
     }
     transaction.execute_batch(SCHEMA_V7_INDEXES)
 }
+
+/// The eighth schema: where each gathered artifact came from, what it held
+/// and the licence it says it is under (#99).
+///
+/// An artifact kept the commit it was taken at (`revision`), and nothing
+/// else of where it came from: an audit asking which folder of which
+/// repository a skill on the shelf is, whether the shelf still holds what
+/// was gathered, and under what licence, had the files to read and nothing
+/// to hold them to. `upstream_path` is its folder in the source, from the
+/// repository's root, `/` separated; `content_hash` is [`crate::hash::tree`]
+/// of its copy on the shelf, the recipe an install keeps of what it wrote;
+/// and the licence is three columns, as [`Licence`] is told: `licence_from`
+/// (`manifest`, `file` or `unknown`), `licence`, what it says, and
+/// `licence_file`, the file it was read from. The source's `pin`, which the
+/// step to schema 7 added and nothing wrote, is written by every gather
+/// from this version on, so this step adds nothing for it.
+///
+/// Nothing older is filled in: each is read off what a gather fetched and
+/// placed, which a row from before this version kept none of and no SQL
+/// can read, so a row stays as it was, its new columns empty, until its
+/// source is gathered again. Its `upstream_path` alone could be spelled
+/// from its source's folder and its own, and is not, so the three are
+/// there together or not at all.
+const SCHEMA_V8: &str = "
+ALTER TABLE artifacts ADD COLUMN upstream_path TEXT;
+ALTER TABLE artifacts ADD COLUMN content_hash TEXT;
+ALTER TABLE artifacts ADD COLUMN licence_from TEXT;
+ALTER TABLE artifacts ADD COLUMN licence TEXT;
+ALTER TABLE artifacts ADD COLUMN licence_file TEXT;
+";
 
 #[cfg(test)]
 #[path = "sqlite_test.rs"]

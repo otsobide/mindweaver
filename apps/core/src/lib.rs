@@ -47,6 +47,7 @@ pub mod install;
 pub mod kind;
 pub mod known;
 pub mod ledger;
+pub mod licence;
 pub mod lifecycle;
 mod lines;
 pub mod lock;
@@ -92,6 +93,7 @@ pub use install::{install, survey, uninstall, Candidate, InstallError, Standing}
 pub use kind::{Kind, Layout, UnknownKind};
 pub use known::{Known, KnownWorkspace};
 pub use ledger::{Ledger, LedgerError, SourceKind, FLAYER_LEDGER_FILE, LEDGER_FILE};
+pub use licence::Licence;
 pub use lifecycle::{LifecycleError, Target};
 pub use lock::{LockError, WorkspaceLock};
 pub use mcp::{McpDefinition, McpError, MCP_FORMAT};

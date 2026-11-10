@@ -44,11 +44,11 @@ use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
     Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
-    Outcome, Source, SourceKind, Target,
+    Outcome, Source, SourceKind, Taken, Target,
 };
 use crate::settings::ProjectId;
 use crate::url::carries_credentials;
-use crate::value::{Redacted, Revision, SourceName};
+use crate::value::{Pin, Redacted, Revision, SourceName};
 use crate::workspace::WorkspaceError;
 
 /// Where a source's artifacts are fetched from: a repository a gather clones
@@ -63,6 +63,12 @@ pub trait Remote: Debug + Send + Sync {
     /// whatever was there, telling `watch` how it goes and stopping when it
     /// is cancelled ([`GitError::Cancelled`]).
     ///
+    /// At `pin` when one is given (#99): that commit's files, whatever
+    /// `reference` is at now, and the pin as the revision, or
+    /// [`GitError::PinUnreachable`] when the repository has no such commit
+    /// for it to reach. `reference` is still the branch the pin is looked
+    /// for on where the commit cannot be asked for by its id alone.
+    ///
     /// What is left at `into` holds no credential once this returns, whoever
     /// asked: a caller that forgot to refuse one is not trusted to.
     ///
@@ -76,6 +82,7 @@ pub trait Remote: Debug + Send + Sync {
         &self,
         url: &str,
         reference: Option<&str>,
+        pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
         token: Option<&Token>,
@@ -284,6 +291,18 @@ pub enum GitError {
     Credentials { url: String },
     #[error("{url}: cloned, but its files could not be checked out: {detail}")]
     Checkout { url: String, detail: String },
+    /// The commit a source is pinned to is not one the repository has for
+    /// `reference`, the remote's HEAD when it is `None`, to reach: mistyped,
+    /// on another branch, or gone with a history somebody rewrote.
+    #[error(
+        "{url}: has no commit {pin} {on}, so nothing is gathered at it",
+        on = on_branch(reference.as_deref())
+    )]
+    PinUnreachable {
+        url: String,
+        pin: Pin,
+        reference: Option<String>,
+    },
     /// The [`Watch`] was cancelled before the clone was finished. What there
     /// was of it is gone.
     #[error("the clone was cancelled before it was finished")]
@@ -301,6 +320,7 @@ codes!(GitError {
     Self::Fetch { .. } => "git_fetch_failed",
     Self::Credentials { .. } => "git_credentials_needed",
     Self::Checkout { .. } => "git_checkout_failed",
+    Self::PinUnreachable { .. } => "git_pin_unreachable",
     Self::Cancelled => "git_clone_cancelled",
 } carried {
     Self::Scrub(error) => error,
@@ -729,6 +749,15 @@ codes!(HttpError {
     Self::Fetch { .. } => "http_fetch_failed",
 });
 
+/// Which branch a pin was looked for on, as [`GitError::PinUnreachable`]
+/// says it.
+fn on_branch(reference: Option<&str>) -> String {
+    match reference {
+        Some(reference) => format!("that `{reference}` reaches"),
+        None => String::from("that its default branch reaches"),
+    }
+}
+
 /// Where a workspace's records are kept: the gathered sources and what each
 /// supplied, every installation and its copies, the projects it knew, and
 /// the action log.
@@ -815,8 +844,14 @@ pub trait LedgerStore: Debug + Send {
     /// given again from then on, and a merge said for the last time.
     fn cleared_merge(&self, directory: &str) -> Result<(), LedgerError>;
 
-    /// Note which revision a source was last gathered at.
-    fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError>;
+    /// Note which revision a source was last gathered at, and the pin it
+    /// was gathered at, or none, which is what it is pinned to from now on.
+    fn saw_source(
+        &self,
+        id: i64,
+        revision: Option<&str>,
+        pin: Option<&Pin>,
+    ) -> Result<(), LedgerError>;
 
     /// Forget a source, and with it what it brought; an installation from it
     /// keeps its `origin` but no longer points at it (see the schema's notes
@@ -834,15 +869,7 @@ pub trait LedgerStore: Debug + Send {
     /// The same name from a *different* source is a different row, on purpose:
     /// two repositories offering `commit-style` are two things to choose
     /// between, and this is what remembers which is which.
-    fn record(
-        &self,
-        source: &Source,
-        kind: Kind,
-        name: &str,
-        path: &str,
-        summary: Option<&str>,
-        revision: Option<&str>,
-    ) -> Result<(), LedgerError>;
+    fn record(&self, source: &Source, taken: &Taken) -> Result<(), LedgerError>;
 
     /// Everything gathered, ordered the way a listing reads it: by kind, then
     /// name, then source.

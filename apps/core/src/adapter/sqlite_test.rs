@@ -78,11 +78,7 @@ fn a_forgotten_source_frees_its_directory_and_takes_its_artifacts() {
     ledger
         .record(
             &source,
-            Kind::Skill,
-            "deploy",
-            "skills/h-a/deploy",
-            None,
-            None,
+            &crate::mother::TakenMother::create(Kind::Skill, "deploy", "skills/h-a/deploy"),
         )
         .unwrap();
 
@@ -142,10 +138,24 @@ fn one_name_from_two_sources_is_two_rows() {
         .source_for(SourceKind::Git, "https://h/b", None, "skills")
         .unwrap();
     ledger
-        .record(&a, Kind::Skill, "deploy", "p/a", Some("From a"), Some("1"))
+        .record(
+            &a,
+            &crate::ledger::Taken {
+                summary: Some(String::from("From a")),
+                revision: Some(Revision::from("1")),
+                ..crate::mother::TakenMother::create(Kind::Skill, "deploy", "p/a")
+            },
+        )
         .unwrap();
     ledger
-        .record(&b, Kind::Skill, "deploy", "p/b", Some("From b"), Some("2"))
+        .record(
+            &b,
+            &crate::ledger::Taken {
+                summary: Some(String::from("From b")),
+                revision: Some(Revision::from("2")),
+                ..crate::mother::TakenMother::create(Kind::Skill, "deploy", "p/b")
+            },
+        )
         .unwrap();
 
     let gathered = ledger.gathered().unwrap();
@@ -161,10 +171,24 @@ fn gathering_the_same_name_again_updates_rather_than_duplicates() {
         .source_for(SourceKind::Git, "https://h/a", None, "skills")
         .unwrap();
     ledger
-        .record(&source, Kind::Skill, "deploy", "p", Some("Old"), Some("1"))
+        .record(
+            &source,
+            &crate::ledger::Taken {
+                summary: Some(String::from("Old")),
+                revision: Some(Revision::from("1")),
+                ..crate::mother::TakenMother::create(Kind::Skill, "deploy", "p")
+            },
+        )
         .unwrap();
     ledger
-        .record(&source, Kind::Skill, "deploy", "p", Some("New"), Some("2"))
+        .record(
+            &source,
+            &crate::ledger::Taken {
+                summary: Some(String::from("New")),
+                revision: Some(Revision::from("2")),
+                ..crate::mother::TakenMother::create(Kind::Skill, "deploy", "p")
+            },
+        )
         .unwrap();
 
     let gathered = ledger.gathered().unwrap();
@@ -1988,7 +2012,7 @@ fn gathered_from(url: &str) -> Gathered {
         name: "deploy".into(),
         path: String::from(".mindweaver/skills/github.com-acme-skills/deploy"),
         summary: Some(String::from("Ship it")),
-        revision: Some(Revision::from("4f9c2a7")),
+        revision: Some(Revision::from(PINNED)),
         gathered_at: 1_790_000_000,
         source: Source {
             id: 3,
@@ -1996,16 +2020,29 @@ fn gathered_from(url: &str) -> Gathered {
             url: Redacted::new(url),
             reference: Some(String::from("main")),
             subdirectory: String::from("skills"),
-            revision: Some(Revision::from("4f9c2a7")),
+            revision: Some(Revision::from(PINNED)),
             directory: String::from("github.com-acme-skills"),
             name: SourceName::recorded(String::from("acme-skills")),
+            pin: Pin::parse(PINNED),
         },
+        upstream_path: Some(String::from("skills/deploy")),
+        content_hash: ContentHash::parse(HASHED),
+        licence: Some(Licence::Manifest {
+            text: String::from("MIT"),
+        }),
     }
 }
 
+/// The commit [`gathered_from`]'s source is pinned to.
+const PINNED: &str = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3";
+
+/// What [`gathered_from`]'s copy on the shelf hashes to.
+const HASHED: &str = "333a6f445f9f99532a56dc9fb631f77e1b14275a737d7011845d6cc7d814d731";
+
 /// What a gathered artifact serializes to is a contract, as a status
 /// report's is: each field by its name, its source's among them, but the
-/// row id, which is the ledger's.
+/// row id, which is the ledger's. The source's `pin` and the artifact's
+/// `upstream_path`, `content_hash` and `licence` came after the rest (#99).
 #[test]
 fn a_gathered_artifact_serializes_every_field_and_its_source() {
     let serialized =
@@ -2016,12 +2053,36 @@ fn a_gathered_artifact_serializes_every_field_and_its_source() {
         concat!(
             r#"{"kind":"skill","name":"deploy","#,
             r#""path":".mindweaver/skills/github.com-acme-skills/deploy","#,
-            r#""summary":"Ship it","revision":"4f9c2a7","gathered_at":1790000000,"#,
+            r#""summary":"Ship it","revision":"4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3","#,
+            r#""gathered_at":1790000000,"#,
             r#""source":{"kind":"git","url":"https://github.com/acme/skills.git","#,
-            r#""reference":"main","subdirectory":"skills","revision":"4f9c2a7","#,
-            r#""directory":"github.com-acme-skills","name":"acme-skills"}}"#,
+            r#""reference":"main","subdirectory":"skills","#,
+            r#""revision":"4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3","#,
+            r#""directory":"github.com-acme-skills","name":"acme-skills","#,
+            r#""pin":"4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3"},"#,
+            r#""upstream_path":"skills/deploy","#,
+            r#""content_hash":"333a6f445f9f99532a56dc9fb631f77e1b14275a737d7011845d6cc7d814d731","#,
+            r#""licence":{"from":"manifest","text":"MIT"}}"#,
         )
     );
+}
+
+/// What a source no gather pinned, and an artifact a build from before
+/// #99 gathered, serialize to: each new name there, and null.
+#[test]
+fn a_gathered_artifact_from_before_its_provenance_was_kept_serializes_it_as_null() {
+    let mut gathered = gathered_from("https://github.com/acme/skills.git");
+    gathered.source.pin = None;
+    gathered.upstream_path = None;
+    gathered.content_hash = None;
+    gathered.licence = None;
+
+    let written = serde_json::to_value(&gathered).unwrap();
+
+    for name in ["upstream_path", "content_hash", "licence"] {
+        assert_eq!(written[name], serde_json::Value::Null, "{name}");
+    }
+    assert_eq!(written["source"]["pin"], serde_json::Value::Null);
 }
 
 /// The ledger hands back no URL with a credential in it, but a source built

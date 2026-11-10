@@ -11,10 +11,10 @@
 //!
 //! They come in two sorts:
 //!
-//! - **Held to a rule**: [`ContentHash`], [`ProjectId`], [`Redacted`] and
-//!   [`SourceName`], made only through the rule (the recipe, the generator
-//!   or the parser, the redaction), never from any text at all. A function
-//!   that is handed one need not check it again.
+//! - **Held to a rule**: [`ContentHash`], [`ProjectId`], [`Redacted`],
+//!   [`SourceName`] and [`Pin`], made only through the rule (the recipe,
+//!   the generator or the parser, the redaction), never from any text at
+//!   all. A function that is handed one need not check it again.
 //! - **Named apart**: [`ArtifactName`], [`Origin`], [`Revision`],
 //!   [`InputName`] and [`VariableName`], which hold any text, since what
 //!   core reads it reads leniently (a name on the disk can break the rules a
@@ -379,6 +379,46 @@ text_value! {
 }
 from_text!(Revision);
 as_text!(Revision);
+
+text_value! {
+    /// The commit a gathered source is pinned to (#99): what `gather git
+    /// --pin` fetches in place of whatever its branch is at, as git spells
+    /// a commit in full, 40 hexadecimal digits.
+    ///
+    /// Held to that, where a [`Revision`] holds whatever the remote said:
+    /// a pin is typed by somebody, and a commit shortened, a branch or a
+    /// tag would be resolved to whatever it names on the day it is
+    /// fetched, which is what a pin is there to stop. Kept in lowercase,
+    /// the one spelling git writes, so two spellings of one commit are one
+    /// pin. Made by [`parse`](Self::parse), or as the ledger holds one,
+    /// which a gather made and is taken as written. No `From<String>`.
+    pub struct Pin;
+}
+as_text!(Pin);
+
+impl Pin {
+    /// The number of hexadecimal digits a pin is written with: a SHA-1's.
+    pub const LEN: usize = 40;
+
+    /// The commit `text` spells in full, when it spells one: 40
+    /// hexadecimal digits and nothing else, in either case.
+    pub fn parse(text: &str) -> Option<Self> {
+        let digits = text.len() == Self::LEN && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+        digits.then(|| Pin(text.to_ascii_lowercase()))
+    }
+
+    /// A pin as the ledger holds it, taken as written rather than judged
+    /// again, as a source's name is: every pin there a gather parsed, and a
+    /// row somebody edited by hand is still listed by what it says.
+    pub(crate) fn recorded(text: String) -> Self {
+        Pin(text)
+    }
+
+    /// The revision a gather at it takes: the commit itself.
+    pub fn revision(&self) -> Revision {
+        Revision::from(self.as_str())
+    }
+}
 
 text_value! {
     /// What a gathered source is called (D-13): what a listing names it by

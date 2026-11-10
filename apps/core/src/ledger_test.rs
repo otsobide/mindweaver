@@ -75,7 +75,7 @@ fn keys(text: &str) -> Vec<String> {
 /// holds, never through its own serializer.
 fn source_as_json(source: &Source) -> String {
     format!(
-        r#"{{"kind":{},"url":{},"reference":{},"subdirectory":{},"revision":{},"directory":{},"name":{}}}"#,
+        r#"{{"kind":{},"url":{},"reference":{},"subdirectory":{},"revision":{},"directory":{},"name":{},"pin":{}}}"#,
         json(source.kind.slug()),
         json(source.url.as_str()),
         json(&source.reference),
@@ -83,6 +83,7 @@ fn source_as_json(source: &Source) -> String {
         json(&source.revision.as_ref().map(|revision| revision.as_str())),
         json(&source.directory),
         json(source.name.as_str()),
+        json(&source.pin.as_ref().map(|pin| pin.as_str())),
     )
 }
 
@@ -334,7 +335,8 @@ fn a_source_serializes_exactly_these_fields() {
             "subdirectory",
             "revision",
             "directory",
-            "name"
+            "name",
+            "pin"
         ],
         "{source:?}"
     );
@@ -390,7 +392,7 @@ fn a_gathered_artifact_serializes_each_field_by_its_name_its_source_nested() {
         let gathered =
             GatheredMother::create(kind, ArtifactNameMother::random(), SourceMother::random());
         let expected = format!(
-            r#"{{"kind":{},"name":{},"path":{},"summary":{},"revision":{},"gathered_at":{},"source":{}}}"#,
+            r#"{{"kind":{},"name":{},"path":{},"summary":{},"revision":{},"gathered_at":{},"source":{},"upstream_path":{},"content_hash":{},"licence":{}}}"#,
             json(kind.slug()),
             json(gathered.name.as_str()),
             json(&gathered.path),
@@ -398,6 +400,9 @@ fn a_gathered_artifact_serializes_each_field_by_its_name_its_source_nested() {
             json(&gathered.revision.as_ref().map(|revision| revision.as_str())),
             gathered.gathered_at,
             source_as_json(&gathered.source),
+            json(&gathered.upstream_path),
+            json(&gathered.content_hash.as_ref().map(|hash| hash.as_str())),
+            json(&gathered.licence),
         );
 
         assert_eq!(json(&gathered), expected, "{gathered:?}");
@@ -417,7 +422,10 @@ fn a_gathered_artifact_serializes_exactly_these_fields() {
             "summary",
             "revision",
             "gathered_at",
-            "source"
+            "source",
+            "upstream_path",
+            "content_hash",
+            "licence"
         ],
         "{gathered:?}"
     );

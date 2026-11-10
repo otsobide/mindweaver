@@ -1584,6 +1584,12 @@ pub enum GatherCommand {
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
 
+        /// A commit to take, in full (40 hexadecimal digits), instead of
+        /// whatever the branch is at now: the source is pinned to it until
+        /// it is gathered with another pin, or with none.
+        #[arg(long, value_name = "COMMIT")]
+        pin: Option<String>,
+
         /// Say what would be taken, and what of it the shelf holds already,
         /// writing nothing: the repository is fetched into a folder of its
         /// own, removed afterwards.
