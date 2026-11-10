@@ -172,6 +172,33 @@ fn a_branch_asked_for_is_made_on_the_remote_even_when_nothing_changed() {
     assert_eq!(branch, Commit::Nothing, "the remote has it now");
 }
 
+/// Wait until `program`, a stand-in just written, can be run.
+///
+/// Another test's process forked while the script was open for writing
+/// holds it so until it runs what it was forked for, and Linux refuses to
+/// run a file somebody holds open for writing (`ETXTBSY`, "text file
+/// busy"): the adapter would then say `git` could not be run, as one run of
+/// CI saw. The script is run as a probe, which exits at once, until it is
+/// let run; after that nothing holds it so, since it was closed here before
+/// any later fork.
+#[cfg(unix)]
+fn runnable(program: &Path) {
+    const ETXTBSY: i32 = 26;
+    for _ in 0..200 {
+        match Command::new(program)
+            .env("MINDWEAVER_STAND_IN_PROBE", "1")
+            .status()
+        {
+            Ok(_) => return,
+            Err(error) if error.raw_os_error() == Some(ETXTBSY) => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(error) => panic!("{}: cannot be run: {error}", program.display()),
+        }
+    }
+    panic!("{}: still busy after two seconds", program.display());
+}
+
 /// A stand-in `git` that writes each run's arguments, and the variable the
 /// token goes through, one line each into `log`, then says `stderr` and
 /// exits with `status`.
@@ -181,6 +208,7 @@ fn stand_in(dir: &Path, log: &Path, stderr: &str, status: i32) -> SystemGit {
     let program = dir.join("git");
     let script = format!(
         "#!/bin/sh\n\
+         [ -n \"$MINDWEAVER_STAND_IN_PROBE\" ] && exit 0\n\
          printf 'args: %s\\n' \"$*\" >> '{log}'\n\
          printf 'token: %s\\n' \"${TOKEN_VARIABLE}\" >> '{log}'\n\
          printf '%s\\n' '{stderr}' >&2\n\
@@ -189,6 +217,7 @@ fn stand_in(dir: &Path, log: &Path, stderr: &str, status: i32) -> SystemGit {
     );
     fs::write(&program, script).unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    runnable(&program);
     SystemGit::at(program).in_home(dir)
 }
 
@@ -275,12 +304,14 @@ fn slow(dir: &Path, log: &Path, seconds: u32) -> SystemGit {
     let program = dir.join("git");
     let script = format!(
         "#!/bin/sh\n\
+         [ -n \"$MINDWEAVER_STAND_IN_PROBE\" ] && exit 0\n\
          echo started >> '{log}'\n\
          exec sleep {seconds}\n",
         log = log.display(),
     );
     fs::write(&program, script).unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    runnable(&program);
     SystemGit::at(program).in_home(dir)
 }
 
