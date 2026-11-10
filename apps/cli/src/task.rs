@@ -268,6 +268,18 @@ pub enum Task {
         folder: String,
         reference: Option<String>,
     },
+    /// `mindweaver gather update <name>...`: each source named gathered
+    /// again, as it was gathered, or every one, `--all`, when `names` is
+    /// empty. Followed as it goes and stopped when asked, as a gather is
+    /// ([`Followed::Gather`]), and carrying no token, as a gather's task
+    /// carries none.
+    UpdateSources { names: Vec<String> },
+    /// `mindweaver gather remove [--yes] <name>`: the source called `name`
+    /// forgotten, what it put on the shelf and its clone taken away, and
+    /// what was installed from it left orphaned, which is asked about first
+    /// ([`Caution::Forgets`]). Without `yes`, the dry run, which says what
+    /// would go and writes nothing.
+    RemoveSource { name: String, yes: bool },
     /// `mindweaver export [--kind <kind>]... [--yes] <folder>`: the
     /// workspace's own written into `folder`, laid out as a workspace of
     /// their own, `kinds` alone when it names some and every kind when it
@@ -760,6 +772,21 @@ impl Task {
                 }
                 vec![words(&head, &[url])]
             }
+            Task::UpdateSources { names } if names.is_empty() => {
+                vec![words(&["mindweaver", "gather", "update", "--all"], &[])]
+            }
+            Task::UpdateSources { names } => {
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                vec![words(&["mindweaver", "gather", "update"], &names)]
+            }
+            // `--yes` before the name, as `remove` has it.
+            Task::RemoveSource { name, yes } => {
+                let mut head = vec!["mindweaver", "gather", "remove"];
+                if *yes {
+                    head.push("--yes");
+                }
+                vec![words(&head, &[name])]
+            }
             // `--yes` before the folder, as `remove` has it before the name.
             Task::Export { folder, kinds, yes } => {
                 let mut head = owned(&["mindweaver", "export"]);
@@ -944,6 +971,8 @@ impl Task {
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
                 | Task::Gather { .. }
+                | Task::UpdateSources { .. }
+                | Task::RemoveSource { yes: true, .. }
                 | Task::Export { .. }
                 | Task::Backup { .. }
                 | Task::Minds { .. }

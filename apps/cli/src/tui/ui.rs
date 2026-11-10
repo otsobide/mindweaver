@@ -7,6 +7,7 @@
 //! open, draws itself. Nothing here decides anything; [`super::state`] does.
 
 use mindweaver_core::create;
+use mindweaver_core::view::ShelfSource;
 use mindweaver_core::{Agent, Kind, MarkerFile, Reason, Share, State};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -18,12 +19,12 @@ use super::minds::{self, Minds};
 use super::state::{
     AddField, AddForm, App, BackupForm, Confirm, ExportForm, Focus, GatherForm, Input, Item,
     LinkForm, LoadForm, Member, Mode, Reader, RenameForm, Running, Scope, SettingsForm,
-    TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS,
+    SourcesScreen, TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS,
 };
 use crate::commands::project::worth_linking;
 use crate::install::ui::{centred, pane, selected};
 use crate::progress::said;
-use crate::render::{plural, printable};
+use crate::render::{counted_kind, plural, printable};
 use crate::task::{followed, Followed, MindsChange};
 
 /// How wide a form's labels are, so the values line up.
@@ -49,6 +50,7 @@ pub fn draw(app: &App, frame: &mut Frame) {
             Mode::Backing(form) => backing(form, frame, area),
             Mode::Confirming(confirm) => confirming(confirm, frame, area),
             Mode::Reading(reader) => reading(reader, frame, area),
+            Mode::Sources(screen) => sources_screen(app, screen, frame, area),
             Mode::Minds(screen) => minds_screen(app, screen, frame, area),
             Mode::Settings(form) => setting(app, form, frame, area),
             Mode::Targets(form) => targeting(app, form, frame, area),
@@ -656,7 +658,7 @@ fn footer(app: &App, frame: &mut Frame, area: Rect) {
             "q quit  ? keys  enter show  e edit  r rename  d delete  a add  ← back  v validate"
         }
         (Focus::Projects, Scope::Workspace) => {
-            "q quit  ? keys  → open  a add  u update  m minds  l link  U unlink  v validate  g gather  L load  s shelf  i install  t agents  T targets  w workspaces  x export  b backup"
+            "q quit  ? keys  → open  a add  u update  m minds  l link  U unlink  v validate  g gather  L load  s shelf  i install  t agents  T targets  w workspaces  x export  b backup  S sources"
         }
         (Focus::Projects, Scope::Project) => {
             "q quit  ? keys  → open  a add  v validate  l link it to the workspace above  L load  t agents  T targets  w workspaces"
@@ -1049,6 +1051,74 @@ fn loading(app: &App, form: &LoadForm, frame: &mut Frame, area: Rect) {
         frame,
         rows[6],
         "enter load, or unload the one picked   ↑↓ pick   esc cancel",
+    );
+}
+
+/// The sources screen: every source the shelf is filled from, by its name,
+/// with where it is gathered from, its pin, and what the shelf holds of it,
+/// as `mindweaver gather sources` lists them, one picked.
+fn sources_screen(app: &App, screen: &SourcesScreen, frame: &mut Frame, area: Rect) {
+    let Some(workspace) = app.workspace() else {
+        return;
+    };
+    let shown = workspace.sources.len().clamp(1, 12);
+    let height = u16::try_from(shown).unwrap_or(12) + 4;
+    let inner = popup(frame, area, "Sources the shelf is filled from", 96, height);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(u16::try_from(shown).unwrap_or(12)),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let width = |of: &dyn Fn(&ShelfSource) -> String| {
+        workspace
+            .sources
+            .iter()
+            .map(|one| of(one).chars().count())
+            .max()
+            .unwrap_or(0)
+    };
+    let name = |one: &ShelfSource| printable(&one.source.name);
+    let origin = |one: &ShelfSource| printable(&one.origin);
+    let (names, origins) = (width(&name), width(&origin));
+    let items: Vec<ListItem> = workspace
+        .sources
+        .iter()
+        .map(|one| {
+            let held: Vec<String> = one
+                .shelved
+                .iter()
+                .map(|counted| counted_kind(counted.count, counted.kind))
+                .collect();
+            let held = if held.is_empty() {
+                String::from("nothing on the shelf")
+            } else {
+                held.join(", ")
+            };
+            let pinned = one.source.pin.as_ref().map_or_else(String::new, |pin| {
+                format!("pinned {}  ", pin.get(..7).unwrap_or(pin))
+            });
+            ListItem::new(Line::from(vec![
+                Span::raw(format!("{:<names$}  ", name(one))),
+                Span::styled(format!("{:<origins$}  ", origin(one)), dim()),
+                Span::styled(format!("{pinned}{held}"), dim()),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(screen.pick));
+    let list = List::new(items)
+        .highlight_style(selected(true))
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, rows[0], &mut state);
+
+    keys(
+        frame,
+        rows[2],
+        "u gather it again   U gather every one again   d forget it   ↑↓ pick   esc back",
     );
 }
 

@@ -79,6 +79,11 @@ impl Admission<'_> {
             Task::Gather { url, .. } => {
                 policy::source(url)?;
             }
+            // A source by its name, which names nothing on the disk: a value
+            // core holds to its own rules, refusing one no source has, or
+            // one that carries a credential, before anything is fetched or
+            // removed.
+            Task::UpdateSources { .. } | Task::RemoveSource { .. } => {}
             // The branch and the message are values, which the backup
             // holds to its own rules, a branch git would refuse among them.
             Task::Backup { url, token_env, .. } => {
