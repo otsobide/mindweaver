@@ -52,6 +52,11 @@
           "description": "`--force`: on `install` and `uninstall`, and on `update` that is\ntold `--yes`.",
           "type": "string",
           "const": "forces"
+        },
+        {
+          "description": "`mindweaver gather remove --yes`: a gathered source forgotten, what\nit put on the shelf and its clone deleted, and what was installed\nfrom it left in the projects, orphaned, as `unload` leaves a loaded\nworkspace's.",
+          "type": "string",
+          "const": "forgets"
         }
       ]
     }

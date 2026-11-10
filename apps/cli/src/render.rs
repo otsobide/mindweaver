@@ -415,6 +415,35 @@ pub(crate) fn counted_kind(count: usize, kind: Kind) -> String {
     format!("{count} {noun}")
 }
 
+/// `seconds` since the Unix epoch, as the ledger stamps what it records, as
+/// a day and a minute in UTC: `2026-11-10 14:03 UTC`.
+///
+/// UTC rather than the machine's own zone, which the CLI would have to read
+/// the system's database for, and which would make one listing read
+/// differently on two machines; worked out here, from the days since the
+/// epoch on the proleptic Gregorian calendar (Howard Hinnant's
+/// `civil_from_days`), rather than with a crate of dates for one line.
+pub(crate) fn utc(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let into = seconds.rem_euclid(86_400);
+    let (hour, minute) = (into / 3_600, into % 3_600 / 60);
+    // Days from 0000-03-01, so a leap day falls at the end of a year.
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let of_era = shifted.rem_euclid(146_097);
+    let year_of_era = (of_era - of_era / 1_460 + of_era / 36_524 - of_era / 146_096) / 365;
+    let of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let from_march = (5 * of_year + 2) / 153;
+    let day = of_year - (153 * from_march + 2) / 5 + 1;
+    let month = if from_march < 10 {
+        from_march + 3
+    } else {
+        from_march - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} UTC")
+}
+
 /// "1 skill", "2 skills".
 pub(crate) fn plural(count: usize, noun: &str) -> String {
     if count == 1 {
@@ -434,3 +463,7 @@ pub(crate) fn plural(count: usize, noun: &str) -> String {
 pub(crate) fn as_stored(entry: &Path) -> String {
     paths::to_config_string(entry).unwrap_or_else(|| entry.display().to_string())
 }
+
+#[cfg(test)]
+#[path = "render_test.rs"]
+mod tests;

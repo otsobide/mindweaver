@@ -17,7 +17,7 @@
 
 mod watch;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -254,6 +254,28 @@ impl Request {
         self.token = token;
         self
     }
+
+    /// Gather the artifacts of `kind` of `source` again, as the ledger
+    /// records it (#100): its URL as it was stored, at its branch, from its
+    /// folder, and at its pin while it has one, so a pinned source takes its
+    /// commit again rather than whatever its branch is at, which only
+    /// `gather git` without `--pin` asks for. Its name is the one it has, so
+    /// none is given.
+    ///
+    /// Found again by the same coordinate ([`known`]), so it gathers into
+    /// the source it is, its folder on the shelf and its name kept. Its
+    /// folder is always named, the one it was registered from, so a source
+    /// of rules from the root is gathered from there again rather than
+    /// refused for naming none.
+    pub fn again(source: &ledger::Source, kind: Kind) -> Self {
+        match source.kind {
+            SourceKind::Git => Request::git(source.url.as_str())
+                .taking(kind)
+                .at(source.reference.clone())
+                .from_subdirectory(source.subdirectory.clone())
+                .pinned(source.pin.as_ref().map(|pin| pin.as_str().to_owned())),
+        }
+    }
 }
 
 /// The host a token for a gather of `typed` goes to, as a front end asks
@@ -361,6 +383,11 @@ pub struct Report {
     /// What was gathered, skills or rules, which a front end counts them
     /// as: added after the rest (#111).
     pub kind: Kind,
+    /// What the shelf held of the source that it offers no more, taken off
+    /// the shelf (#100): each by the name it was gathered under, at the
+    /// path it had there, and where in the source it was, empty for one a
+    /// build from before #99 gathered. Added after the rest.
+    pub removed: Vec<Harvested>,
 }
 
 impl Report {
@@ -401,8 +428,14 @@ pub fn gather(
     // is the more useful of the two.
     match &outcome {
         Ok(report) => {
+            // What was removed only when something was, so the line a gather
+            // that removed nothing logs reads as it did before one could.
+            let removed = match report.removed.len() {
+                0 => String::new(),
+                removed => format!(", {removed} removed"),
+            };
             let detail = format!(
-                "{} added, {} updated, {} unchanged, {} failed",
+                "{} added, {} updated, {} unchanged{removed}, {} failed",
                 report.added.len(),
                 report.updated.len(),
                 report.unchanged.len(),
@@ -642,17 +675,22 @@ pub fn dry_run(
     if let Some(name) = &typed.name {
         taken(ledger, name, known.as_ref().map(|(source, _)| source))?;
     }
-    let (name, directory) = match known {
-        Some((source, _)) => (source.name, source.directory),
+    let known = known.map(|(source, _)| source);
+    let (name, directory) = match &known {
+        Some(source) => (source.name.clone(), source.directory.clone()),
         None => ledger.would_register(&typed.url)?,
     };
     let name = typed.name.clone().unwrap_or(name);
     let scratch = workspace
         .scratch_dir()
         .join(format!("gather-{}", copy::unique_name()));
-    let outcome = foresee(
-        workspace, request, &typed, finding, &scratch, name, directory,
-    );
+    let foreseen = Foreseen {
+        typed: &typed,
+        finding,
+        scratch: &scratch,
+        known: known.as_ref(),
+    };
+    let outcome = foresee(workspace, ledger, request, &foreseen, name, directory);
     // Whatever came of it: nothing of a dry run is kept. One that will not
     // go is left in a folder no agent reads, under a name no other run is
     // given.
@@ -660,18 +698,35 @@ pub fn dry_run(
     outcome
 }
 
-/// A dry run once its source is known: fetched into `scratch`, read, and
-/// each skill copied there and compared with the shelf's copy of it, each
-/// rule's file compared with the shelf's as it reads.
+/// What a dry run is of, beside the request: what was typed for it, how a
+/// gather finds its kind, the folder of its run's own it fetches into, and
+/// the source it is of, when one was registered.
+struct Foreseen<'a> {
+    typed: &'a Typed,
+    finding: Finding,
+    scratch: &'a Path,
+    known: Option<&'a ledger::Source>,
+}
+
+/// A dry run once its source is known: fetched into its scratch folder,
+/// read, and each skill copied there and compared with the shelf's copy of
+/// it, each rule's file compared with the shelf's as it reads, and what
+/// the shelf holds of it that it offers no more found as a gather would
+/// take it off ([`gone`]).
 fn foresee(
     workspace: &WeaverWorkspace,
+    ledger: &Ledger,
     request: &Request,
-    typed: &Typed,
-    finding: Finding,
-    scratch: &Path,
+    foreseen: &Foreseen,
     name: SourceName,
     directory: String,
 ) -> Result<Report, GatherError> {
+    let Foreseen {
+        typed,
+        finding,
+        scratch,
+        known,
+    } = *foreseen;
     let clone = fetch(request, typed, &scratch.join("clone"))?;
     let shelf = workspace.gathered_dir(request.kind).join(&directory);
     let mut report = Report {
@@ -686,6 +741,7 @@ fn foresee(
         left_out: Vec::new(),
         pin: typed.pin.clone(),
         kind: request.kind,
+        removed: Vec::new(),
     };
     let mut failures = Vec::new();
     let examined = examine(&clone, typed, finding, &request.watch, &mut failures);
@@ -693,7 +749,8 @@ fn foresee(
         .into_iter()
         .map(|failure| failure.routed(&clone.root))
         .collect();
-    for found in examined? {
+    let Examined { found, filed } = examined?;
+    for found in found {
         let destination = shelf.join(&found.filed);
         let change = match found.layout() {
             // Copied as a gather would put it on the shelf, so a copy a
@@ -726,6 +783,13 @@ fn foresee(
             Change::Unchanged => report.unchanged.push(harvested),
         }
     }
+    if let Some(source) = known {
+        let before = shelved_of(ledger, source, request.kind)?;
+        report.removed = gone(workspace, source, request.kind, &report, &filed, before)
+            .into_iter()
+            .filter_map(|gone| gone.harvested)
+            .collect();
+    }
     Ok(ordered(report))
 }
 
@@ -738,6 +802,7 @@ fn ordered(mut report: Report) -> Report {
         &mut report.added,
         &mut report.updated,
         &mut report.unchanged,
+        &mut report.removed,
     ] {
         harvested.sort_by(|a, b| (&a.name, &a.route).cmp(&(&b.name, &b.route)));
     }
@@ -1098,12 +1163,16 @@ fn take(
         left_out: Vec::new(),
         pin: typed.pin.clone(),
         kind: request.kind,
+        removed: Vec::new(),
     };
 
     // Everything is read before anything is placed, rather than each
     // artifact read and placed in turn, so that the shelf only starts to
     // change once all of it is known.
-    let found = examine(&clone, typed, finding, watch, &mut report.failures)?;
+    let Examined { found, filed } = examine(&clone, typed, finding, watch, &mut report.failures)?;
+    // What the shelf held of it before this gather records anything, which
+    // is what it may take off the shelf once it has ([`gone`]).
+    let before = shelved_of(ledger, source, request.kind)?;
 
     // The last moment a cancel is honoured, and the reason everything is read
     // first: past here the shelf and the ledger change, and a gather stopped
@@ -1175,7 +1244,160 @@ fn take(
         }
     }
 
+    // Once what it offers is placed, what it offers no more goes: a skill
+    // whose folder upstream is gone would otherwise be offered from the
+    // shelf for good, and what was installed from it never found orphaned.
+    for gone in gone(workspace, source, request.kind, &report, &filed, before) {
+        if let Some(at) = &gone.at {
+            match unshelve(request.kind, at, &shelf) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                // Kept, row and all, so the shelf and the ledger still say
+                // one thing of it, and the next gather tries again.
+                Err(error) => {
+                    report.failures.push(Failure::Unremoved {
+                        path: at.clone(),
+                        source: error,
+                    });
+                    continue;
+                }
+            }
+        }
+        if let Some(harvested) = gone.harvested {
+            ledger.forget_gathered(source, request.kind, &harvested.name)?;
+            report.removed.push(harvested);
+        }
+    }
+
     Ok(ordered(report))
+}
+
+/// Take what `kind` keeps at `at` off the shelf of a source, `shelf`: a
+/// skill's folder whole, or a rule's file, and then each folder it was in
+/// that it leaves empty, up to the source's own and not that, so a rule
+/// gone leaves no folder of nothing behind.
+fn unshelve(kind: Kind, at: &Path, shelf: &Path) -> io::Result<()> {
+    match kind.layout() {
+        Layout::Directory { .. } => fs::remove_dir_all(at),
+        Layout::Files { .. } | Layout::Flat { .. } => {
+            fs::remove_file(at)?;
+            let mut folder = at.parent();
+            while let Some(here) = folder.filter(|here| *here != shelf && here.starts_with(shelf)) {
+                // One that still holds something stops the climb: what is
+                // in it is another rule's.
+                if fs::remove_dir(here).is_err() {
+                    break;
+                }
+                folder = here.parent();
+            }
+            Ok(())
+        }
+    }
+}
+
+/// What the ledger records of `source`'s `kind` on the shelf.
+fn shelved_of(
+    ledger: &Ledger,
+    source: &ledger::Source,
+    kind: Kind,
+) -> Result<Vec<ledger::Gathered>, LedgerError> {
+    Ok(ledger
+        .gathered()?
+        .into_iter()
+        .filter(|gathered| gathered.source.id == source.id && gathered.kind == kind)
+        .collect())
+}
+
+/// What a gather of a source takes off the shelf of it ([`gone`]): an
+/// artifact it offers no more, and what of it goes with it, or what is
+/// filed alone, left behind by an artifact it still offers from elsewhere.
+struct Gone {
+    /// What the report says of it, which is forgotten: `None` for what is
+    /// filed alone, whose artifact is offered still.
+    harvested: Option<Harvested>,
+    /// Where it is on the shelf, a skill's folder or a rule's file, taken
+    /// away; `None` when it is to be forgotten and that kept: a place the
+    /// gather put another in now, or one the ledger names somewhere other
+    /// than below the source's own folder on the shelf, which is nothing a
+    /// gather of it put there.
+    at: Option<PathBuf>,
+}
+
+/// What the shelf held of `source`'s `kind` before `report`, a gather of
+/// it, that the gather did not take and it offers no more, from `before`,
+/// what the ledger recorded of it then.
+///
+/// Each is told by where the shelf files it below the source's folder, a
+/// skill's folder name or a rule's route (`Found::filed`), read off the
+/// path recorded. Gone is one the source no longer has there: none of
+/// `filed`, where every one the gather found is filed, taken or not. One
+/// the gather found and could not take, a read that failed or a name two
+/// share, is left as it was, as its warning says, rather than taken for
+/// gone. `filed` is `None` when one of them could not be told, a skill at
+/// the root that would not read, and then nothing is gone but what the
+/// next paragraph says.
+///
+/// Gone too, its place kept, is a name the gather took nothing of whose
+/// place it put another in: a skill renamed where it is, whose old row
+/// would otherwise name the new one's folder. And a skill the gather took
+/// from another folder than the one it was in, moved upstream, leaves its
+/// old folder behind, which goes alone, its row the new folder's now.
+fn gone(
+    workspace: &WeaverWorkspace,
+    source: &ledger::Source,
+    kind: Kind,
+    report: &Report,
+    filed: &Option<HashSet<String>>,
+    before: Vec<ledger::Gathered>,
+) -> Vec<Gone> {
+    let taken: Vec<&Harvested> = report
+        .added
+        .iter()
+        .chain(&report.updated)
+        .chain(&report.unchanged)
+        .collect();
+    let shelf = workspace.gathered_dir(kind).join(&source.directory);
+    let below = format!("{}/", relative(workspace, &shelf));
+    let mut gone = Vec::new();
+    for gathered in before {
+        // A row naming somewhere else than below the source's folder is
+        // nothing a gather of it filed, and is left as it is.
+        let Some(place) = gathered.path.strip_prefix(&below).map(str::to_owned) else {
+            continue;
+        };
+        let offered = taken.iter().any(|one| one.name == gathered.name);
+        let placed = taken.iter().any(|one| one.directory == place);
+        let still = filed.as_ref().is_none_or(|filed| filed.contains(&place));
+        // Only below the source's own folder, by names that climb nowhere,
+        // and for a skill one folder down, which is all a gather files.
+        let plain = place
+            .split('/')
+            .all(|part| !matches!(part, "" | "." | ".."));
+        let shaped = match kind.layout() {
+            Layout::Directory { .. } => install::is_folder_name(&place),
+            Layout::Files { .. } | Layout::Flat { .. } => true,
+        };
+        let own = (plain && shaped).then(|| shelf.join(&place));
+        match (offered, placed || still) {
+            (true, true) => {}
+            (true, false) => gone.push(Gone {
+                harvested: None,
+                at: own,
+            }),
+            (false, true) if !placed => {}
+            (false, _) => gone.push(Gone {
+                at: own.filter(|_| !placed),
+                harvested: Some(Harvested {
+                    path: workspace.root().join(&gathered.path),
+                    name: gathered.name,
+                    directory: place,
+                    summary: gathered.summary,
+                    route: gathered.upstream_path.unwrap_or_default(),
+                }),
+            }),
+        }
+    }
+    gone
 }
 
 /// Say in `report` what is wrong with `found`, put at `destination`, and
@@ -1310,6 +1532,18 @@ impl Found {
     }
 }
 
+/// What a source offers in the folder a gather looks in ([`examine`]).
+struct Examined {
+    /// Each skill or rule read, and not called as another is.
+    found: Vec<Found>,
+    /// Where the shelf files every one found below the source's folder,
+    /// taken or not (`Found::filed`): what a gather takes for what the
+    /// source still has ([`gone`]). `None` when one of them could not be
+    /// told, a skill at the root that would not read, which is filed under
+    /// the name it would declare.
+    filed: Option<HashSet<String>>,
+}
+
 /// What `clone` offers in the folder `typed` names, each skill or rule
 /// read, with what could not be among `failures`: everything a gather knows
 /// before the shelf changes.
@@ -1326,7 +1560,7 @@ fn examine(
     finding: Finding,
     watch: &Watch,
     failures: &mut Vec<Failure>,
-) -> Result<Vec<Found>, GatherError> {
+) -> Result<Examined, GatherError> {
     let root = match typed.path.as_str() {
         DEFAULT_SUBDIRECTORY => clone.root.clone(),
         path => clone.root.join(path),
@@ -1364,31 +1598,64 @@ fn examine(
     let total = candidates.len();
     watch.report(Progress::Harvesting { done: 0, total });
     let mut found = Vec::with_capacity(total);
+    let mut filed = Some(HashSet::new());
     for (done, candidate) in candidates.iter().enumerate() {
         let read = match finding {
             Finding::Folders { .. } => read(candidate, &clone.root, failures),
             Finding::Files { .. } => read_rule(candidate, &root, &clone.root, failures),
         };
-        if let Some((from, filed, artifact)) = read {
-            let route = paths::relative_to(&from, &clone.root)
-                .as_deref()
-                .and_then(paths::to_config_string)
-                .filter(|route| !route.is_empty())
-                .unwrap_or_else(|| DEFAULT_SUBDIRECTORY.to_owned());
-            found.push(Found {
-                from,
-                filed,
-                route,
-                artifact,
-                looked_in: root.clone(),
-            });
+        match read {
+            Some((from, place, artifact)) => {
+                if let Some(filed) = &mut filed {
+                    filed.insert(place.clone());
+                }
+                let route = paths::relative_to(&from, &clone.root)
+                    .as_deref()
+                    .and_then(paths::to_config_string)
+                    .filter(|route| !route.is_empty())
+                    .unwrap_or_else(|| DEFAULT_SUBDIRECTORY.to_owned());
+                found.push(Found {
+                    from,
+                    filed: place,
+                    route,
+                    artifact,
+                    looked_in: root.clone(),
+                });
+            }
+            // Still the source's, though it could not be taken: a skill's
+            // folder is the one it is in, but at the root, where it would be
+            // the name it declares, which is what could not be read; a
+            // rule's file is its route from the folder looked in.
+            None => {
+                let place = match finding {
+                    Finding::Folders { .. } if *candidate == clone.root => None,
+                    Finding::Folders { .. } => candidate
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(str::to_owned),
+                    Finding::Files { .. } => candidate
+                        .strip_prefix(&root)
+                        .ok()
+                        .and_then(paths::to_config_string),
+                };
+                match (place, &mut filed) {
+                    (Some(place), Some(filed)) => {
+                        filed.insert(place);
+                    }
+                    (None, _) => filed = None,
+                    (Some(_), None) => {}
+                }
+            }
         }
         watch.report(Progress::Harvesting {
             done: done + 1,
             total,
         });
     }
-    Ok(unclashed(found, failures))
+    Ok(Examined {
+        found: unclashed(found, failures),
+        filed,
+    })
 }
 
 /// `found` without every skill another in the same source is called as
@@ -1878,6 +2145,15 @@ pub enum Failure {
         route: String,
         problem: String,
     },
+    /// No more in its source, and its folder or file on the shelf could
+    /// not be taken away (#100): kept, and still recorded, until a gather
+    /// can.
+    #[error("{path}: no longer in its source, and cannot be taken off the shelf: {source}")]
+    Unremoved {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 codes!(Failure {
@@ -1888,6 +2164,7 @@ codes!(Failure {
     Self::Unfiled { .. } => "gathered_root_unnamed",
     Self::Unhashed { .. } => "gathered_unhashed",
     Self::Unnamed { .. } => "gathered_route_unusable",
+    Self::Unremoved { .. } => "gathered_unremoved",
 } carried {
     Self::Artifact(error) => error,
 });
@@ -1903,7 +2180,8 @@ impl Failure {
             | Failure::Outside { path }
             | Failure::Unfiled { path, .. }
             | Failure::Unhashed { path, .. }
-            | Failure::Unnamed { path, .. } => path,
+            | Failure::Unnamed { path, .. }
+            | Failure::Unremoved { path, .. } => path,
         }
     }
 
@@ -1949,6 +2227,10 @@ impl Failure {
                 path: routed(path),
                 route,
                 problem,
+            },
+            Failure::Unremoved { path, source } => Failure::Unremoved {
+                path: routed(path),
+                source,
             },
         }
     }

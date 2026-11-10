@@ -84,6 +84,7 @@ use crate::reapply::{ReapplyError, ReapplyFailure};
 use crate::relink::{Duplicate, RelinkError};
 use crate::resolve::ResolveError;
 use crate::scan::ScanFailure;
+use crate::sources::SourceError;
 use crate::status::StatusFailure;
 use crate::template::TemplateError;
 use crate::update::{Left, UpdateError};
@@ -275,6 +276,7 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("relink::RelinkError", RelinkError::CODES),
     ("resolve::ResolveError", ResolveError::CODES),
     ("scan::ScanFailure", ScanFailure::CODES),
+    ("sources::SourceError", SourceError::CODES),
     ("status::StatusFailure", StatusFailure::CODES),
     ("template::TemplateError", TemplateError::CODES),
     ("update::Left", Left::CODES),

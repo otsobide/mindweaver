@@ -233,6 +233,43 @@ fn scan_json_says_what_it_found_under_the_workspace_and_what_is_linked() {
 }
 
 #[test]
+fn gather_sources_json_says_each_source_with_what_the_shelf_holds_and_when() {
+    let scenario = Scenario::projects(&["collapse"]);
+    scenario
+        .source(
+            "~/src/acme-skills",
+            &[("skills/review/SKILL.md", &skill("review", "Read a change"))],
+        )
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills");
+    let revision = scenario.commit("~/src/acme-skills");
+
+    let mut data = clean(&scenario.run("~/Projects", "mindweaver gather sources --json"));
+
+    // When it was gathered, which no run makes the same.
+    let gathered = data[0]
+        .as_object_mut()
+        .unwrap()
+        .remove("gathered_at")
+        .expect("when it was gathered");
+    assert!(gathered.is_u64(), "{gathered}");
+    assert_eq!(
+        data,
+        json!([{
+            "kind": "git",
+            "url": "../src/acme-skills",
+            "reference": null,
+            "subdirectory": ".",
+            "revision": revision,
+            "directory": "..-src-acme-skills",
+            "name": "src-acme-skills",
+            "pin": null,
+            "origin": "../src/acme-skills",
+            "shelved": [{"kind": "skill", "count": 1}],
+        }])
+    );
+}
+
+#[test]
 fn gather_list_json_says_where_each_offer_comes_from_as_from_takes_it() {
     let scenario = Scenario::projects(&["collapse"]);
     scenario

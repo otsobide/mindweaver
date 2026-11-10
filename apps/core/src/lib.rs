@@ -72,6 +72,7 @@ pub mod scan;
 pub mod schema;
 pub mod settings;
 pub mod skill;
+pub mod sources;
 pub mod status;
 pub mod template;
 #[cfg(feature = "ts")]
