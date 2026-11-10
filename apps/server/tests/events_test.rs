@@ -146,11 +146,11 @@ async fn a_run_is_told_as_it_starts_and_once_it_is_in_the_transcript() {
     let lines = json!(["fake run link beta"]);
     assert_eq!(
         stream.next().await,
-        json!({"type": "command_started", "lines": lines})
+        json!({"type": "command_started", "run": 1, "lines": lines, "cancellable": false})
     );
     assert_eq!(
         stream.next().await,
-        json!({"type": "command_finished", "lines": lines})
+        json!({"type": "command_finished", "run": 1, "lines": lines})
     );
     let transcript = get(&server, "/api/v1/transcript", token).await.json();
     assert_eq!(transcript[0]["lines"], lines);
@@ -189,21 +189,25 @@ async fn a_run_refused_or_panicking_is_still_told_finished() {
     let token = Auth::Bearer(server.token());
     let mut stream = opened(&server, token).await;
 
-    for task in [
+    for (run, task) in [
         json!({ "name": "refused", "refuse_run": true }),
         json!({ "name": "broken", "panic": true }),
         json!({ "name": "after" }),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let name = task["name"].as_str().unwrap().to_owned();
         post(&server, "/api/v1/tasks", token, task).await;
         let lines = json!([format!("fake run {name}")]);
         assert_eq!(
             stream.next().await,
-            json!({"type": "command_started", "lines": lines})
+            json!({"type": "command_started", "run": run + 1, "lines": lines,
+                   "cancellable": false})
         );
         assert_eq!(
             stream.next().await,
-            json!({"type": "command_finished", "lines": lines})
+            json!({"type": "command_finished", "run": run + 1, "lines": lines})
         );
     }
     assert_eq!(runs.lock().unwrap().last().unwrap(), "end after");

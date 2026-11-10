@@ -7,7 +7,9 @@
 pub(crate) mod activate;
 pub(crate) mod adopt;
 pub(crate) mod artifact;
+pub(crate) mod backup;
 pub(crate) mod doctor;
+pub(crate) mod export;
 pub(crate) mod gather;
 pub(crate) mod install;
 pub(crate) mod known;
@@ -25,6 +27,7 @@ use std::path::{Path, PathBuf};
 
 use mindweaver_core::gather::Watch;
 use mindweaver_core::resolve::{self, resolve, Intent};
+use mindweaver_core::url;
 use mindweaver_core::view::Listing;
 use mindweaver_core::{
     paths, scan, Catalog, Change, MindProject, Names, Reference, Share, WeaverWorkspace,
@@ -45,7 +48,9 @@ use artifact::{
     add_to, edit_in, remove_everywhere, remove_from, remove_own, rename_in, templates_of,
     would_remove_everywhere,
 };
+use backup::{backup_to, Backing};
 use doctor::{doctor_here, doctor_of_project, doctor_of_workspace};
+use export::export_into;
 use gather::run_gather;
 use install::{install_named, uninstall_named, uninstall_orphans};
 use known::{forget_command, workspaces_command};
@@ -758,6 +763,46 @@ fn run_weaver(
                 &lookup.agents,
             )
         }),
+
+        // Resolved as a read, as an export is: it writes only a check-out
+        // in the scratch folder, which it takes away, and a workspace
+        // nothing has made has no library to send.
+        WeaverCommand::Backup {
+            url,
+            branch,
+            kinds,
+            message,
+            token_env,
+        } => reading_workspace(directory, lookup, |workspace| {
+            // A path typed is the folder's it was typed in, where `git`
+            // would read it from wherever it runs.
+            let url = if url::is_path(url) {
+                typed(directory, Path::new(url))?
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                url.clone()
+            };
+            backup_to(
+                workspace,
+                &Backing {
+                    url: &url,
+                    branch: branch.as_deref(),
+                    kinds,
+                    message: message.as_deref(),
+                    token_env: token_env.as_deref(),
+                },
+            )
+        }),
+
+        // Resolved as a read: an export reads the workspace and writes only
+        // the folder it is given, so a default workspace nothing has made
+        // exports the empty library it would have, and is not made for it.
+        WeaverCommand::Export { into, kinds, yes } => {
+            reading_workspace(directory, lookup, |workspace| {
+                export_into(workspace, &typed(directory, into)?, kinds, *yes)
+            })
+        }
 
         // Resolved as a read, on the default workspace before it is made
         // too: a workspace made for the occasion keeps its own in its

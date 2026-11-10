@@ -159,7 +159,21 @@ fn what_the_server_carries_is_the_cli_s_type_on_each_route_that_answers_it() {
             &document,
             "/paths/~1events/get/responses/200/content/text~1event-stream/x-itemSchema/allOf/1"
         ),
-        &json!({"properties": {"scopes": {"items": {"$ref": "#/components/schemas/Holder"}}}})
+        &json!({"properties": {
+            "scopes": {"items": {"$ref": "#/components/schemas/Holder"}},
+            "progress": {"$ref": "#/components/schemas/Step"},
+        }})
+    );
+    assert_eq!(
+        at(
+            &document,
+            "/paths/~1tasks~1cancel/post/requestBody/content/application~1json/schema"
+        ),
+        &json!({"$ref": "#/components/schemas/Cancel"})
+    );
+    assert_eq!(
+        answer("/tasks/cancel", "post"),
+        json!({"$ref": "#/components/schemas/Cancelling"})
     );
 }
 

@@ -30,8 +30,15 @@
 //!   and a folder not linked yet by an absolute, normalized path outside
 //!   every `.mindweaver`, shown verbatim.
 //! - **A task no front end without a terminal runs is refused**
-//!   ([`Task::refusal`]): a screen, an editor, a shell's code, a gather, and
-//!   `show`, which prints an artifact whole through any link.
+//!   ([`Task::refusal`]): a screen, an editor, a shell's code, and `show`,
+//!   which prints an artifact whole through any link.
+//! - **A gather is followed and can be stopped** ([`task::Followed`]): its
+//!   preview says it takes a cancel, each step it takes is reported to the
+//!   server as a [`progress::Step`], and the server's cancel is handed to its watch,
+//!   which stops it before it places anything. Its source is held to the
+//!   path policy as a folder to link is when it names a folder on this
+//!   machine ([`policy::source`]); core's gather holds an address to its
+//!   own rules, refusing one that carries a credential, and never prompts.
 //! - **A scan walks only the folders the browser names**, each held to the
 //!   path policy as a folder to link is, and is only read: it is asked for
 //!   by hand ([`Query::Scan`]), never with the snapshot, which a live update
@@ -74,7 +81,6 @@ use mindweaver_core::browse::{BrowseError, Folders};
 use mindweaver_core::code::Said;
 use mindweaver_core::contents::{Contents, ContentsError, Files};
 use mindweaver_core::draft;
-use mindweaver_core::gather::Watch;
 use mindweaver_core::install::{self, Cell, Change, Conflict, Locked};
 use mindweaver_core::known::{self, Launch};
 use mindweaver_core::lock::{self, Waited};
@@ -91,14 +97,15 @@ use mindweaver_core::{
     AgentHomes, Found, Kind, LifecycleError, MindProject, Reference, Scan, WeaverWorkspace,
     WorkspaceError,
 };
-use mindweaver_server::{Backend, Grounds, Preview, Refusal, Route, Watched};
+use mindweaver_server::{Backend, Grounds, Preview, Refusal, Route, Underway, Watched};
 use serde::{Deserialize, Serialize};
 
 use crate::admit::Admission;
 use crate::commands::project::{scan_warned, worth_linking};
 use crate::commands::{run_line, Ran};
+use crate::progress;
 use crate::routes;
-use crate::task::{self, cautioned, shell, Caution, Holder, MindsChange, Task};
+use crate::task::{self, cautioned, followed, shell, Caution, Holder, MindsChange, Task};
 use crate::tui::state::{transcript, Done};
 use crate::{CliError, Lookup, Warning};
 
@@ -992,6 +999,10 @@ impl Backend for PanelBackend {
         Ok(Preview {
             lines: plan.lines.iter().map(|line| shell(line)).collect(),
             confirm,
+            // A run takes a cancel when one of its lines stops when asked:
+            // the list every front end follows by, read off the lines
+            // planned, a `mindweaver init` in front of them counted.
+            cancellable: plan.lines.iter().any(|line| followed(line).is_some()),
         })
     }
 
@@ -1002,7 +1013,14 @@ impl Backend for PanelBackend {
     /// A save's text is put where its line reads it before the line runs,
     /// and taken away once the lines have run, whatever came of them
     /// ([`Scratch`]): the browser sends the text, never a path.
-    fn run(&self, task: Task) -> Result<Outcome, Refusal> {
+    ///
+    /// Every line runs with one watch, as the TUI's lines do: a gather among
+    /// them reports each step to `underway` as a [`progress::Step`], paced
+    /// ([`progress::reported`]), and stops when the server's cancel reaches
+    /// it, which is said before any line runs, so a cancel sent as soon as
+    /// the run is told started is not lost. A line that is no gather reads
+    /// neither.
+    fn run(&self, task: Task, underway: &Underway) -> Result<Outcome, Refusal> {
         let pin = self.pin();
         let plan = self.plan(&task, &pin)?;
         let _scratch = match &task {
@@ -1012,7 +1030,15 @@ impl Backend for PanelBackend {
             ),
             _ => None,
         };
-        let watch = Watch::new();
+        let following = underway.clone();
+        let watch = progress::reported(move |step| {
+            // Words, numbers and a flag: nothing to fail on.
+            following.report(serde_json::to_value(step).expect("a step serializes"));
+        });
+        underway.on_cancel({
+            let watch = watch.clone();
+            move || watch.cancel()
+        });
         let mut runs: Vec<Run> = Vec::new();
         for (index, words) in plan.lines.iter().enumerate() {
             let started = Instant::now();

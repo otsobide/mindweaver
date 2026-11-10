@@ -16,7 +16,7 @@ use common::*;
 use mindweaver_cli::backend::{Outcome, PanelBackend, Query, Switch};
 use mindweaver_cli::task::{naming, shell, Caution};
 use mindweaver_core::watch;
-use mindweaver_server::{Backend, Grounds, Own, Preview, Ran, Refusal, API};
+use mindweaver_server::{Backend, Grounds, Own, Preview, Ran, Refusal, Underway, API};
 use serde_json::{json, Value};
 
 /// The backend over the workspace at `root`, launched there with nothing
@@ -85,9 +85,15 @@ impl Checked {
     }
 
     /// Answered, as the server answers a run, with the lines that ran
-    /// beside what they produced.
+    /// beside what they produced: run as one nobody follows.
     fn run(&self, task: Task) -> Result<Outcome, Refusal> {
-        let answer = Backend::run(&self.0, task);
+        self.followed(task, &Underway::unfollowed())
+    }
+
+    /// [`run`](Self::run), followed as the server follows it: each step it
+    /// reports handed to `underway`, which a cancel reaches.
+    fn followed(&self, task: Task, underway: &Underway) -> Result<Outcome, Refusal> {
+        let answer = Backend::run(&self.0, task, underway);
         let ran = answer.as_ref().map(|outcome| Ran {
             lines: outcome.runs.iter().map(|run| run.command.clone()).collect(),
             outcome: serde_json::to_value(outcome).unwrap(),
@@ -303,10 +309,28 @@ fn a_task_shaped_to_escape_is_refused_with_a_code_and_nothing_runs() {
             json!({"type": "load", "path": "file:///etc/"}),
             "path_url",
         ),
+        // A gather's source, where it names a folder on this machine.
         (
-            "a gather",
-            json!({"type": "gather", "url": "file:///etc", "folder": "skills", "reference": null}),
-            "gather_unwatched",
+            "a gather from here",
+            json!({"type": "gather", "url": "../etc", "folder": "skills", "reference": null}),
+            "path_relative",
+        ),
+        (
+            "a gather by a file URL with no root",
+            json!({"type": "gather", "url": "file://etc", "folder": "skills", "reference": null}),
+            "path_relative",
+        ),
+        (
+            "a gather from the workspace's own clones",
+            json!({"type": "gather", "url": under(root, &[WEAVER_DIR, "cache", "x"]),
+                   "folder": "skills", "reference": null}),
+            "path_in_mindflayer",
+        ),
+        (
+            "a gather climbing out",
+            json!({"type": "gather", "url": under(root, &["alpha", "..", "..", "etc"]),
+                   "folder": "skills", "reference": null}),
+            "path_unnormalized",
         ),
         // What no front end without a terminal runs.
         (
@@ -3413,4 +3437,186 @@ fn a_line_kept_waiting_for_the_workspace_s_lock_says_how_long_and_by_whom() {
     );
     assert!(times[1] > std::time::Duration::ZERO, "{lines:?}");
     assert!(times[1] <= times[0], "{lines:?}");
+}
+
+// ---------------------------------------------------------------------------
+// A gather, followed and stopped (#112)
+// ---------------------------------------------------------------------------
+
+/// A repository on this disk offering two skills, and its `file://` URL.
+fn source() -> (TempDir, String) {
+    let source = repository(&[
+        ("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it")),
+        ("skills/review/SKILL.md", &skill_file("review", "Read it")),
+    ]);
+    let url = format!("file://{}", source.path().display());
+    (source, url)
+}
+
+fn gather(url: &str) -> Task {
+    task(json!({"type": "gather", "url": url, "folder": "skills", "reference": null}))
+}
+
+/// A run numbered 1, whose every step is kept, and asked to stop on the
+/// step `stop_at` says, as a cancel the server reaches it with would.
+fn followed(stop_at: fn(&Value) -> bool) -> (Underway, Arc<Mutex<Vec<Value>>>) {
+    let steps = Arc::new(Mutex::new(Vec::new()));
+    let kept = Arc::clone(&steps);
+    let itself: Arc<std::sync::OnceLock<Underway>> = Arc::default();
+    let stopping = Arc::clone(&itself);
+    let underway = Underway::new(1, move |step| {
+        let stop = stop_at(&step);
+        kept.lock().unwrap().push(step);
+        if let Some(underway) = stop.then(|| stopping.get()).flatten() {
+            underway.cancel();
+        }
+    });
+    itself.set(underway.clone()).unwrap();
+    (underway, steps)
+}
+
+/// The stage of each step, each once, in the order they came.
+fn stages(steps: &[Value]) -> Vec<String> {
+    let mut stages: Vec<String> = steps
+        .iter()
+        .map(|step| step["stage"].as_str().unwrap().to_owned())
+        .collect();
+    stages.dedup();
+    stages
+}
+
+/// What `mindweaver gather list` says of the workspace at `root`.
+fn shelf(root: &Path) -> String {
+    weaver(root, &["gather", "list", "--json"]).unwrap().stdout
+}
+
+#[cfg(unix)]
+#[test]
+fn a_gather_takes_a_cancel_and_reports_each_step_it_takes_as_it_takes_it() {
+    let (_source, url) = source();
+    let dir = workspace_with_two();
+    let root = dir.path();
+    let backend = backend(root);
+    let (underway, steps) = followed(|_| false);
+
+    let preview = backend.preview(&gather(&url)).unwrap();
+    let outcome = backend.followed(gather(&url), &underway).unwrap();
+
+    assert_eq!(
+        preview.lines,
+        [format!("mindweaver -W {} gather git {url}", root.display())]
+    );
+    assert!(preview.cancellable);
+    assert!(outcome.ok, "{outcome:?}");
+    let steps = steps.lock().unwrap();
+    let stages = stages(&steps);
+    // What gix counts of a clone from this disk is its own: whichever of
+    // its steps it says, they come between connecting and the harvest.
+    assert_eq!(stages.first().map(String::as_str), Some("connecting"));
+    assert_eq!(
+        stages[stages.len() - 2..],
+        [String::from("harvesting"), String::from("placing")],
+        "{steps:?}"
+    );
+    assert!(
+        stages[1..stages.len() - 2]
+            .iter()
+            .all(|stage| ["receiving", "resolving", "checking_out"].contains(&stage.as_str())),
+        "{steps:?}"
+    );
+    assert_eq!(
+        steps.last(),
+        Some(&json!({"stage": "placing", "done": 2, "total": 2,
+                     "said": "placing on the shelf 2/2", "cancellable": false}))
+    );
+    assert!(steps
+        .iter()
+        .all(|step| step["cancellable"] == (step["stage"] != "placing")));
+    for step in steps.iter() {
+        contract::contract(|contract| contract.holds("/components/schemas/Step", step))
+            .unwrap_or_else(|error| panic!("{step}: {error}"));
+    }
+    let listed = shelf(root);
+    assert!(
+        listed.contains("\"deploy\"") && listed.contains("\"review\""),
+        "{listed}"
+    );
+}
+
+/// The acceptance of #112: a cancel the server hands the run, as soon as
+/// the gather says it is connecting, stops it before it places anything,
+/// and the shelf and the sources are as they were.
+#[cfg(unix)]
+#[test]
+fn a_cancel_stops_a_gather_and_leaves_the_shelf_as_it_was() {
+    let (_source, url) = source();
+    let dir = workspace_with_two();
+    let root = dir.path();
+    let backend = backend(root);
+    let shelved = WeaverWorkspace::open(root)
+        .unwrap()
+        .gathered_dir(Kind::Skill);
+    let before = shelf(root);
+    let (underway, steps) = followed(|step| step["stage"] == "connecting");
+
+    let outcome = backend.followed(gather(&url), &underway).unwrap();
+
+    assert!(!outcome.ok, "{outcome:?}");
+    assert_eq!(
+        outcome.runs[0].error.as_ref().map(|error| error.code),
+        Some("gather_cancelled"),
+        "{outcome:?}"
+    );
+    assert!(underway.is_cancelled());
+    let steps = steps.lock().unwrap();
+    assert!(
+        steps.iter().all(|step| step["stage"] != "placing"),
+        "{steps:?}"
+    );
+    assert_eq!(shelf(root), before);
+    assert!(!shelved.exists() || fs::read_dir(&shelved).unwrap().next().is_none());
+}
+
+/// A cancel that comes before the run says what one does, sent as soon as
+/// the server told the run started, is not lost: the gather stops at its
+/// first look, before it registers its source.
+#[cfg(unix)]
+#[test]
+fn a_cancel_before_the_gather_starts_stops_it_before_anything() {
+    let (_source, url) = source();
+    let dir = workspace_with_two();
+    let root = dir.path();
+    let backend = backend(root);
+    let before = shelf(root);
+    let (underway, steps) = followed(|_| false);
+    underway.cancel();
+
+    let outcome = backend.followed(gather(&url), &underway).unwrap();
+
+    assert_eq!(
+        outcome.runs[0].error.as_ref().map(|error| error.code),
+        Some("gather_cancelled"),
+        "{outcome:?}"
+    );
+    assert!(steps.lock().unwrap().is_empty());
+    assert_eq!(shelf(root), before);
+}
+
+/// Every task but a gather runs with nothing to report and nothing a
+/// cancel stops, and its preview says it takes none.
+#[test]
+fn a_task_that_is_no_gather_takes_no_cancel_and_reports_nothing() {
+    let dir = workspace_with_two();
+    let root = dir.path();
+    let backend = backend(root);
+    let gamma = root.join("gamma");
+    fs::create_dir(&gamma).unwrap();
+    new_project(&gamma);
+    let link = task(json!({"type": "link", "path": gamma.to_str().unwrap()}));
+    let (underway, steps) = followed(|_| true);
+
+    assert!(!backend.preview(&link).unwrap().cancellable);
+    assert!(backend.followed(link, &underway).unwrap().ok);
+    assert!(steps.lock().unwrap().is_empty());
+    assert!(!underway.is_cancelled());
 }

@@ -147,6 +147,55 @@ impl Scenario {
         self
     }
 
+    /// A bare repository at `at` with nothing committed, its HEAD naming
+    /// `main`, as a new repository on a forge is: where a backup is sent.
+    /// Made with gix, as every repository here is.
+    pub fn remote(&self, at: &str) -> &Self {
+        let path = self.at(at);
+        fs::create_dir_all(&path).expect("make the remote's folder");
+        gix::init_bare(&path).expect("initialize a bare repository");
+        fs::write(path.join("HEAD"), "ref: refs/heads/main\n").expect("name main");
+        self
+    }
+
+    /// The files the branch `branch` of the repository at `at` holds, by
+    /// route, sorted: what a clone of it would check out.
+    pub fn files_on(&self, at: &str, branch: &str) -> Vec<String> {
+        let repository = gix::open(self.at(at)).expect("open the repository");
+        let mut reference = repository
+            .find_reference(&format!("refs/heads/{branch}"))
+            .unwrap_or_else(|error| panic!("{at} has no branch {branch}: {error}"));
+        let tree = reference
+            .peel_to_commit()
+            .expect("the branch is on a commit")
+            .tree()
+            .expect("the commit has a tree");
+        let mut files: Vec<String> = tree
+            .traverse()
+            .breadthfirst
+            .files()
+            .expect("walk the tree")
+            .into_iter()
+            .filter(|entry| !entry.mode.is_tree())
+            .map(|entry| entry.filepath.to_string())
+            .collect();
+        files.sort();
+        files
+    }
+
+    /// The commit the branch `branch` of the repository at `at` is on,
+    /// abbreviated as a backup says it.
+    pub fn branch_head(&self, at: &str, branch: &str) -> String {
+        let repository = gix::open(self.at(at)).expect("open the repository");
+        let mut reference = repository
+            .find_reference(&format!("refs/heads/{branch}"))
+            .unwrap_or_else(|error| panic!("{at} has no branch {branch}: {error}"));
+        let commit = reference
+            .peel_to_commit()
+            .expect("the branch is on a commit");
+        commit.id.to_hex_with_len(7).to_string()
+    }
+
     /// The commit the source at `at` is on, abbreviated as a gather says it.
     pub fn head(&self, at: &str) -> String {
         let repository = gix::open(self.at(at)).expect("open the source");

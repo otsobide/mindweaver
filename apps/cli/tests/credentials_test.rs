@@ -332,7 +332,7 @@ mod panel {
 
     use super::*;
     use mindweaver_cli::backend::{PanelBackend, Query};
-    use mindweaver_server::Backend;
+    use mindweaver_server::{Backend, Underway};
     use serde_json::{json, Value};
 
     fn backend(root: &Path) -> PanelBackend {
@@ -347,13 +347,20 @@ mod panel {
         serde_json::from_value(sent.clone()).unwrap_or_else(|error| panic!("{sent}: {error}"))
     }
 
-    /// A gather is refused by a front end with no terminal, and the line its
-    /// refusal names is the one a shell would be shown; an install from a
-    /// source named with a credential is previewed and run without it.
+    /// A gather from a source named with a credential is previewed without
+    /// it, and refused by the gather as one typed at a terminal is, its run
+    /// saying nothing of the credential either; so is an install from such
+    /// a source.
     #[test]
     fn the_panel_says_no_credential_a_task_carries() {
         let (dir, _workspace, _ledger) = shelved(&["alpha"], &["deploy"]);
         let backend = backend(dir.path());
+        let shelf = || {
+            weaver(dir.path(), &["gather", "list", "--json"])
+                .unwrap()
+                .stdout
+        };
+        let before = shelf();
 
         for url in UrlMother::every_credentialed() {
             let gather = task(json!({
@@ -362,17 +369,24 @@ mod panel {
                 "folder": "skills",
                 "reference": random::chance().then(random::word),
             }));
-            let refused = Backend::preview(&backend, &gather).unwrap_err();
-            assert_eq!(refused.code, "gather_unwatched", "{:?}", url.typed);
-            holds_no_secret(&refused.message, &url, "the refusal of a gather");
-            assert!(
-                refused.message.contains(&url.clean),
-                "{:?}: {}",
-                url.typed,
-                refused.message
+            let preview = Backend::preview(&backend, &gather).unwrap();
+            let shown = serde_json::to_string(&preview).unwrap();
+            holds_no_secret(&shown, &url, "the preview of a gather");
+            assert!(shown.contains(&url.clean), "{:?}: {shown}", url.typed);
+            assert!(preview.cancellable, "{:?}", url.typed);
+            let ran = Backend::run(&backend, gather, &Underway::unfollowed()).unwrap();
+            assert!(!ran.ok, "{:?}", url.typed);
+            assert_eq!(
+                ran.runs[0].error.as_ref().map(|error| error.code),
+                Some("credentials_in_url"),
+                "{:?}",
+                url.typed
             );
-            let refused = Backend::run(&backend, gather).unwrap_err();
-            holds_no_secret(&refused.message, &url, "the refusal of a gather's run");
+            holds_no_secret(
+                &serde_json::to_string(&ran).unwrap(),
+                &url,
+                "the run of a gather",
+            );
 
             let install = task(json!({
                 "type": "install",
@@ -385,7 +399,7 @@ mod panel {
             let shown = serde_json::to_string(&preview).unwrap();
             holds_no_secret(&shown, &url, "the preview of an install");
             assert!(shown.contains(&url.clean), "{shown}");
-            let ran = Backend::run(&backend, install).unwrap();
+            let ran = Backend::run(&backend, install, &Underway::unfollowed()).unwrap();
             assert!(!ran.ok, "{:?}", url.typed);
             holds_no_secret(
                 &serde_json::to_string(&ran).unwrap(),
@@ -393,6 +407,8 @@ mod panel {
                 "the run of an install",
             );
         }
+        // Nothing was gathered, nor any source registered.
+        assert_eq!(shelf(), before);
     }
 
     #[test]

@@ -49,6 +49,7 @@ use crate::adopt::AdoptError;
 use crate::agent::UnknownAgent;
 use crate::agents_md::{self, AgentsMdError};
 use crate::artifact::{ArtifactError, ValidationIssue};
+use crate::backup::BackupError;
 use crate::browse::{BrowseError, BrowseFailure};
 use crate::catalog::DiscoveryFailure;
 use crate::claude_mcp::{self, ClaudeMcpError};
@@ -61,8 +62,10 @@ use crate::create::CreateError;
 use crate::doctor::{DoctorFailure, Symptom};
 use crate::everywhere::EverywhereError;
 use crate::exclude::{self, ExcludeError};
+use crate::export::ExportError;
 use crate::frontmatter::FrontMatterError;
 use crate::gather::{self, GatherError, Leftover, ScrubFailure};
+use crate::http::{CacheError, FetchError};
 use crate::install::{
     rules, Clash, ConfigUnread, InstallError, LoadFailure, PlanError, Refused, Respelled,
 };
@@ -74,7 +77,7 @@ use crate::mcp::{Inexpressible, McpError};
 use crate::migrate::{MigrateError, NamesFailure, ProjectFailure, Refusal};
 use crate::opencode_mcp::{self, OpenCodeMcpError};
 use crate::policy::PolicyError;
-use crate::port::GitError;
+use crate::port::{GitError, HttpError, UpstreamError};
 use crate::reapply::{ReapplyError, ReapplyFailure};
 use crate::relink::{Duplicate, RelinkError};
 use crate::resolve::ResolveError;
@@ -200,6 +203,7 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("agents_md::AgentsMdError", AgentsMdError::CODES),
     ("agents_md::Malformed", agents_md::Malformed::CODES),
     ("agents_md::Warning", agents_md::Warning::CODES),
+    ("backup::BackupError", BackupError::CODES),
     ("artifact::ArtifactError", ArtifactError::CODES),
     ("artifact::ValidationIssue", ValidationIssue::CODES),
     ("browse::BrowseError", BrowseError::CODES),
@@ -223,12 +227,17 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("everywhere::EverywhereError", EverywhereError::CODES),
     ("exclude::ExcludeError", ExcludeError::CODES),
     ("exclude::Malformed", exclude::Malformed::CODES),
+    ("export::ExportError", ExportError::CODES),
     ("frontmatter::FrontMatterError", FrontMatterError::CODES),
     ("gather::Failure", gather::Failure::CODES),
     ("gather::GatherError", GatherError::CODES),
     ("gather::Leftover", Leftover::CODES),
     ("gather::ScrubFailure", ScrubFailure::CODES),
     ("port::GitError", GitError::CODES),
+    ("port::UpstreamError", UpstreamError::CODES),
+    ("port::HttpError", HttpError::CODES),
+    ("http::FetchError", FetchError::CODES),
+    ("http::cache::CacheError", CacheError::CODES),
     ("install::InstallError", InstallError::CODES),
     ("install::entries::ConfigUnread", ConfigUnread::CODES),
     ("install::LoadFailure", LoadFailure::CODES),

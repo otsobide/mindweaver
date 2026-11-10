@@ -2,7 +2,7 @@
 
 use std::io;
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Instant;
 
@@ -13,6 +13,7 @@ use crate::code::Condition;
 use crate::events::{Event, Events};
 use crate::log::{Log, Planned};
 use crate::transcript::{Ran, Transcript};
+use crate::underway::{Cancelling, Underway};
 use crate::watcher::Watcher;
 use crate::{Backend, Refusal};
 
@@ -62,11 +63,17 @@ enum Job<B: Backend> {
 /// on being answered while it runs.
 pub(crate) struct Writer<B: Backend> {
     queue: mpsc::Sender<Job<B>>,
+    /// The run on the thread now, which a cancel reaches.
+    current: Current,
+    /// Told that the thread is busy whenever a job is queued while a run
+    /// is under way.
+    events: Events,
 }
 
 impl<B: Backend> Writer<B> {
     /// Start the thread, recording every run in `transcript`, telling
-    /// `events` as each starts and finishes and as a switch is taken,
+    /// `events` as each starts, goes and finishes and as a switch is taken,
+    /// keeping the run under way in `current` for a cancel to reach,
     /// having `watcher` watch what the backend names after a switch, and
     /// saying in `log`, when there is one, how long each job waited its
     /// turn and took. It lives as long as somebody can still queue a task,
@@ -75,22 +82,36 @@ impl<B: Backend> Writer<B> {
         backend: Arc<B>,
         transcript: Transcript,
         events: Events,
+        current: Current,
         watcher: Arc<Watcher>,
         log: Option<Arc<Log>>,
     ) -> io::Result<Self> {
         let (queue, jobs) = mpsc::channel::<Job<B>>();
+        let writer = Self {
+            queue,
+            current: current.clone(),
+            events: events.clone(),
+        };
         thread::Builder::new()
             .name(String::from("mindweaver-writes"))
             .spawn(move || {
                 // Nobody may be waiting any more: a client that gives up
                 // does not take its task back, which has already run.
                 let log = log.as_deref();
+                // How many runs started, the one starting now counted: its
+                // number, from 1.
+                let mut started = 0;
                 for job in jobs {
                     match job {
                         Job::Run { task, sent, reply } => {
                             let took = Took { sent, log };
-                            let _ =
-                                reply.send(perform(&*backend, task, &transcript, &events, took));
+                            let on = On {
+                                transcript: &transcript,
+                                events: &events,
+                                current: &current,
+                                started: &mut started,
+                            };
+                            let _ = reply.send(perform(&*backend, task, on, took));
                         }
                         Job::Switch { to, sent, reply } => {
                             let took = Took { sent, log };
@@ -99,7 +120,7 @@ impl<B: Backend> Writer<B> {
                     }
                 }
             })?;
-        Ok(Self { queue })
+        Ok(writer)
     }
 
     /// Queue a task behind every one that arrived before it, and wait for it
@@ -107,6 +128,7 @@ impl<B: Backend> Writer<B> {
     pub(crate) async fn run(&self, task: B::Task) -> Done {
         let (reply, done) = oneshot::channel();
         let sent = Instant::now();
+        self.events.busy();
         self.queue
             .send(Job::Run { task, sent, reply })
             .map_err(|_| stopped())?;
@@ -118,10 +140,114 @@ impl<B: Backend> Writer<B> {
     pub(crate) async fn switch(&self, to: B::Switch) -> Switched {
         let (reply, done) = oneshot::channel();
         let sent = Instant::now();
+        self.events.busy();
         self.queue
             .send(Job::Switch { to, sent, reply })
             .map_err(|_| stopped())?;
         done.await.map_err(|_| stopped())?
+    }
+
+    /// Ask run `run` to stop, if it is the one under way and takes a
+    /// cancel, and say which run that was; or why not. Off the thread,
+    /// which the run holds: the backend's hook is called where it is
+    /// asked, on tokio's blocking pool, as every call of the backend's
+    /// is off the runtime.
+    pub(crate) async fn cancel(&self, run: u64) -> Result<Cancelling, Uncancelled> {
+        let current = self.current.clone();
+        let events = self.events.clone();
+        tokio::task::spawn_blocking(move || current.cancel(run, &events))
+            .await
+            .unwrap_or(Err(Uncancelled::Failed))
+    }
+}
+
+/// What the thread works with as a run goes: where it is recorded, told
+/// and kept for a cancel, and how many started before it.
+struct On<'a> {
+    transcript: &'a Transcript,
+    events: &'a Events,
+    current: &'a Current,
+    started: &'a mut u64,
+}
+
+/// The run under way on the writer thread, if one is: shared with every
+/// request that asks to cancel it, and with a server stopping, which asks
+/// it to stop too. Cloned, it is the same.
+#[derive(Clone, Default)]
+pub(crate) struct Current(Arc<Mutex<Option<Running>>>);
+
+/// One run under way: its number, its lines, whether its preview said it
+/// takes a cancel, whether one was asked, and the run as the backend holds
+/// it, which the cancel reaches.
+struct Running {
+    run: u64,
+    lines: Vec<String>,
+    cancellable: bool,
+    cancelling: bool,
+    underway: Underway,
+}
+
+/// Why a cancel was not passed on to a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Uncancelled {
+    /// The run it names is not under way: over, not started, or none, and
+    /// the run that is under way if one is, which the words say.
+    NotRunning { under_way: Option<u64> },
+    /// It is under way, and takes no cancel.
+    Uncancellable,
+    /// What the backend said a cancel does panicked.
+    Failed,
+}
+
+impl Current {
+    /// Ask run `run` to stop, as [`Writer::cancel`] says.
+    ///
+    /// Checked, and told to every subscriber as `cancelling` the first time
+    /// it is asked, under the lock the run is taken off under once it is
+    /// over, so a cancel is never told of a run already told finished; the
+    /// backend's hook is called once the lock is let go, so a hook that
+    /// takes its time holds up nothing but the request that asked.
+    fn cancel(&self, run: u64, events: &Events) -> Result<Cancelling, Uncancelled> {
+        let (underway, cancelling) = {
+            let mut current = self.lock();
+            let under_way = current.as_ref().map(|running| running.run);
+            let running = match current.as_mut() {
+                Some(running) if running.run == run => running,
+                _ => return Err(Uncancelled::NotRunning { under_way }),
+            };
+            if !running.cancellable {
+                return Err(Uncancelled::Uncancellable);
+            }
+            if !running.cancelling {
+                running.cancelling = true;
+                events.publish(Event::Cancelling { run });
+            }
+            let cancelling = Cancelling {
+                run,
+                lines: running.lines.clone(),
+            };
+            (running.underway.clone(), cancelling)
+        };
+        if underway.cancel_caught() {
+            Ok(cancelling)
+        } else {
+            Err(Uncancelled::Failed)
+        }
+    }
+
+    /// Ask the run under way to stop, if one is and it takes a cancel: what
+    /// a server stopping does, as leaving the TUI stops its gather, so a
+    /// stop does not wait as long as the network does. Told as any cancel
+    /// is.
+    pub(crate) fn cancel_any(&self, events: &Events) {
+        let run = self.lock().as_ref().map(|running| running.run);
+        if let Some(run) = run {
+            let _ = self.cancel(run, events);
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Running>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -166,6 +292,14 @@ fn panicked(message: &'static str) -> Failed {
 /// is told once the run is in the transcript, as the reply is sent, so
 /// whoever asks for the transcript on hearing it finds the run there.
 ///
+/// Between the two it is the run under way: numbered, one more than the
+/// run before it, kept where a cancel reaches it, and handed to the backend
+/// as an [`Underway`] whose every report is told as `progress`, until the
+/// backend's call returns, after which nothing it reports is told. It stops
+/// being the run under way before its finish is told, so a cancel that
+/// crosses the finish is refused as of a run over, never told as
+/// `cancelling` after it.
+///
 /// Said in the log, when there is one, once its lines are worked out, with
 /// how long it waited its turn and how long they took to work out, and
 /// again once they have run, however that went, with how long they took
@@ -178,13 +312,13 @@ fn panicked(message: &'static str) -> Failed {
 /// lines that ran rather than raised: raised, it would leave the transcript
 /// a run short, and the client a bare 500 for lines that may well have
 /// changed the disk.
-fn perform<B: Backend>(
-    backend: &B,
-    task: B::Task,
-    transcript: &Transcript,
-    events: &Events,
-    took: Took<'_>,
-) -> Done {
+fn perform<B: Backend>(backend: &B, task: B::Task, on: On<'_>, took: Took<'_>) -> Done {
+    let On {
+        transcript,
+        events,
+        current,
+        started,
+    } = on;
     let failed = || panicked("the backend panicked while running the task");
     let queued = took.sent.elapsed();
     let working = Instant::now();
@@ -197,17 +331,35 @@ fn perform<B: Backend>(
         };
         log.planned(queued, working.elapsed(), planned);
     }
-    let lines = match planned {
-        Ok(Ok(preview)) => preview.lines,
+    let (lines, cancellable) = match planned {
+        Ok(Ok(preview)) => (preview.lines, preview.cancellable),
         // A refused task ran nothing, so it is no run to replay.
         Ok(Err(refusal)) => return Ok(Err(refusal)),
         Err(_) => return Err(failed()),
     };
-    events.publish(Event::CommandStarted {
+    *started += 1;
+    let run = *started;
+    let underway = Underway::new(run, {
+        let events = events.clone();
+        move |progress| events.publish(Event::Progress { run, progress })
+    });
+    // Kept before it is told, so a cancel sent on hearing it started
+    // finds it.
+    *current.lock() = Some(Running {
+        run,
         lines: lines.clone(),
+        cancellable,
+        cancelling: false,
+        underway: underway.clone(),
+    });
+    events.publish(Event::CommandStarted {
+        run,
+        lines: lines.clone(),
+        cancellable,
     });
     let running = Instant::now();
-    let ran = panic::catch_unwind(AssertUnwindSafe(move || backend.run(task)));
+    let ran = panic::catch_unwind(AssertUnwindSafe(|| backend.run(task, &underway)));
+    underway.end();
     if let Some(log) = took.log {
         log.ran(running.elapsed(), lines.len());
     }
@@ -226,7 +378,8 @@ fn perform<B: Backend>(
         Ok(Err(refusal)) => Ok(Err(refusal)),
         Err(_) => Err(failed()),
     };
-    events.publish(Event::CommandFinished { lines });
+    *current.lock() = None;
+    events.publish(Event::CommandFinished { run, lines });
     done
 }
 

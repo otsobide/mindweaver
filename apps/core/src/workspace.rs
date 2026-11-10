@@ -138,6 +138,17 @@ pub const FLAYER_CONFIG: &str = "flayer.toml";
 /// Kept rather than discarded so a gather can be inspected after the fact, and
 /// so what a source actually contained is still there when its report is not.
 pub const CACHE_DIR: &str = "cache";
+/// Where a workspace keeps what catalogs answered over HTTP, inside
+/// [`CACHE_DIR`] ([`crate::http::Cache`]).
+///
+/// Beside the clones, each of which is in a folder of its source's, so the
+/// ledger gives no source this name ([`RESERVED_IN_CACHE`]): a source given
+/// it would have its clone made over the answers kept there, and a
+/// repository's files read as answers.
+pub const HTTP_CACHE_DIR: &str = "http";
+/// The names in [`CACHE_DIR`] that are core's own rather than a source's,
+/// which the ledger never gives a source's clone.
+pub const RESERVED_IN_CACHE: &[&str] = &[HTTP_CACHE_DIR];
 /// Where a workspace keeps its own artifacts when its marker does not say,
 /// inside [`WEAVER_DIR`]: a folder per kind, named after it.
 ///
@@ -1312,6 +1323,27 @@ impl WeaverWorkspace {
         directories: &Directories,
         names: Names,
     ) -> Result<(Self, Initialization), WorkspaceError> {
+        Self::init_as(root, directories, names, None)
+    }
+
+    /// [`init`](Self::init), the workspace named `name` rather than after
+    /// its folder: what an export makes ([`crate::export`]), which is named
+    /// after the workspace it holds the library of, so a `mindweaver load`
+    /// of a clone of it says that name wherever the clone was made.
+    pub(crate) fn init_named(
+        root: &Path,
+        name: &str,
+    ) -> Result<(Self, Initialization), WorkspaceError> {
+        Self::init_as(root, &Directories::default(), Names::Mindweaver, Some(name))
+    }
+
+    /// The body of both: named after its folder unless `name` says.
+    fn init_as(
+        root: &Path,
+        directories: &Directories,
+        names: Names,
+        name: Option<&str>,
+    ) -> Result<(Self, Initialization), WorkspaceError> {
         let root = absolute(root)?;
         let dir = root.join(names.workspace_dir());
         let config_path = dir.join(names.workspace_config());
@@ -1328,7 +1360,7 @@ impl WeaverWorkspace {
         }
         create_dir(&dir)?;
 
-        let name = directory_name(&root);
+        let name = name.map_or_else(|| directory_name(&root), str::to_owned);
         write_new(&config_path, &weaver_template(&name, directories, names))?;
         Ok((Self::open(&root)?, Initialization::Created))
     }
@@ -1474,6 +1506,13 @@ impl WeaverWorkspace {
     /// Where clones are kept, whether or not it exists yet.
     pub fn cache_dir(&self) -> PathBuf {
         self.weaver_dir().join(CACHE_DIR)
+    }
+
+    /// Where answers read over HTTP are kept ([`HTTP_CACHE_DIR`] in the
+    /// cache), whether or not it exists yet: what
+    /// [`crate::http::Cache::of`] keeps them in.
+    pub fn http_cache_dir(&self) -> PathBuf {
+        self.cache_dir().join(HTTP_CACHE_DIR)
     }
 
     /// The workspace's scratch folder ([`SCRATCH_DIR`] in `.mindweaver`),

@@ -251,6 +251,12 @@ fn the_servers_own_routes_are_pinned_by_what_a_description_says() {
             (Method::Post, "/tasks", Some(Sent::Task), Answer::Ran),
             (
                 Method::Post,
+                "/tasks/cancel",
+                Some(Sent::Cancel),
+                Answer::Cancelling
+            ),
+            (
+                Method::Post,
                 "/switch",
                 Some(Sent::Switch),
                 Answer::Switched
@@ -353,10 +359,16 @@ fn each_of_the_servers_own_routes_may_be_refused_for_what_it_reaches() {
     let task = [&EVERY[..], &POSTED].concat();
     let preview = [&task[..], &["backend_failed"]].concat();
     let run = [&task[..], &["backend_failed", "writer_stopped"]].concat();
+    let cancel = [
+        &task[..],
+        &["not_running", "uncancellable", "backend_failed"],
+    ]
+    .concat();
 
     for (own, listed) in [
         (Own::Preview, ordered(&preview)),
         (Own::Run, ordered(&run)),
+        (Own::Cancel, ordered(&cancel)),
         (Own::Switch, ordered(&run)),
         (Own::Transcript, ordered(&EVERY)),
         (Own::Events, ordered(&EVERY)),

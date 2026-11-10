@@ -12,7 +12,7 @@ pub use axum::body::{Body, Bytes};
 pub use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 pub use mindweaver_server::{
     Arguments, Backend, Condition, Grounds, Listening, Own, Parameter, Preview, Refusal, Route,
-    Server, Shape, Watched, API,
+    Server, Shape, Underway, Watched, API,
 };
 pub use serde_json::{json, Value};
 pub use std::sync::{Arc, Condvar, Mutex};
@@ -128,11 +128,18 @@ fn echoed(sent: Arguments) -> Result<FakeQuery, String> {
 /// before finishing, whether to finish with an outcome JSON cannot carry,
 /// whether to refuse it, when its lines are asked for (`refuse`) or only
 /// once it is handed over to run (`refuse_run`), whether its run panics, as
-/// a backend with a bug would, and what its preview says to confirm first,
-/// in words of the fake's own (`confirm`).
+/// a backend with a bug would, what its preview says to confirm first, in
+/// words of the fake's own (`confirm`), whether its preview says it takes
+/// a cancel (`cancellable`), what it reports as it runs, before it reaches
+/// the hold (`report`), whether what it says a cancel does panics
+/// (`cancel_panics`), and whether a cancel leaves it waiting at the hold
+/// all the same (`late`), as a gather past the point where it can stop
+/// goes on.
 ///
 /// A run takes no notice of `refuse`: one whose lines were refused and is
-/// handed over all the same runs, and the runs it leaves say so.
+/// handed over all the same runs, and the runs it leaves say so. Nor of
+/// `cancellable`: what its preview says is the server's to hold a cancel
+/// to, and a run says what a cancel does whatever its preview said.
 #[derive(Deserialize)]
 pub struct FakeTask {
     pub name: String,
@@ -148,6 +155,14 @@ pub struct FakeTask {
     pub panic: bool,
     #[serde(default)]
     pub confirm: Vec<String>,
+    #[serde(default)]
+    pub cancellable: bool,
+    #[serde(default)]
+    pub report: Vec<Value>,
+    #[serde(default)]
+    pub cancel_panics: bool,
+    #[serde(default)]
+    pub late: bool,
 }
 
 /// The fake's switch: what to act on from now on, by a name of the fake's
@@ -194,6 +209,10 @@ pub struct FakeOutcome {
     pub thread: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unwritable: Option<Unwritable>,
+    /// Whether it was asked to stop before it finished, which a run that
+    /// takes a cancel says as how it finished.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cancelled: bool,
 }
 
 /// A part of an outcome that refuses to serialize, as a path that is not
@@ -220,6 +239,9 @@ pub struct Fake {
     /// What it acts on, by the name the last switch it took gave it: none
     /// before any.
     pub on: Arc<Mutex<Option<String>>>,
+    /// The last run it was handed, as it was handed it, kept past its end
+    /// for a test to report through once it is over.
+    pub underway: Arc<Mutex<Option<Underway>>>,
 }
 
 impl Backend for Fake {
@@ -260,10 +282,14 @@ impl Backend for Fake {
                 .iter()
                 .map(|what| json!({ "fake_takes": what }))
                 .collect(),
+            cancellable: task.cancellable,
         })
     }
 
-    fn run(&self, task: FakeTask) -> Result<FakeOutcome, Refusal> {
+    /// A cancel is recorded among the runs, `cancel <name>`, and lets a
+    /// held run go on, as a gather stops waiting on the network.
+    fn run(&self, task: FakeTask, underway: &Underway) -> Result<FakeOutcome, Refusal> {
+        *self.underway.lock().unwrap() = Some(underway.clone());
         if task.refuse_run {
             return Err(refusal(&task.name));
         }
@@ -274,6 +300,23 @@ impl Backend for Fake {
             .lock()
             .unwrap()
             .push(format!("start {}", task.name));
+        underway.on_cancel({
+            let runs = Arc::clone(&self.runs);
+            let hold = Arc::clone(&self.hold);
+            let name = task.name.clone();
+            let panics = task.cancel_panics;
+            let late = task.late;
+            move || {
+                assert!(!panics, "the cancel of {name} panics, as asked");
+                runs.lock().unwrap().push(format!("cancel {name}"));
+                if !late {
+                    hold.release();
+                }
+            }
+        });
+        for progress in &task.report {
+            underway.report(progress.clone());
+        }
         if task.hold {
             self.hold.wait();
         }
@@ -282,6 +325,7 @@ impl Backend for Fake {
             ran: task.name,
             thread: std::thread::current().name().map(str::to_owned),
             unwritable: task.unwritable.then_some(Unwritable),
+            cancelled: underway.is_cancelled(),
         })
     }
 
