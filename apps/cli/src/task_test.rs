@@ -1953,7 +1953,12 @@ fn drawn(count: usize) -> Vec<String> {
             random::text(random::between(1, 20))
         );
         let special = value.is_empty() || value == "." || value == DEFAULT_SUBDIRECTORY;
-        if !special && !value.contains("://") {
+        // A URL's credentials are left out of the line shown, so a value
+        // reading as one is no value this test can hold to its words: one
+        // holding `://`, and one starting `//`, which a name's `skill:`
+        // makes `skill://`, a URL whose user is whatever comes before an
+        // `@` (it was drawn once, as `//XЖ@0@...`).
+        if !special && !value.contains("://") && !value.starts_with("//") {
             values.push(value);
         }
     }
