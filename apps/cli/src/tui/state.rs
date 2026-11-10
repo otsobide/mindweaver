@@ -2541,6 +2541,9 @@ impl GatherForm {
             folder: folder.to_owned(),
             reference,
             kind: mindweaver_core::gather::DEFAULT_KIND,
+            name: None,
+            pin: None,
+            dry_run: false,
         })
     }
 }
@@ -2642,6 +2645,9 @@ impl Results {
             folder: hit.folder().to_owned(),
             reference: hit.reference.clone(),
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         })
     }
 }

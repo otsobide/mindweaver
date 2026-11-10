@@ -91,7 +91,7 @@ impl Admission<'_> {
             // core holds to its own rules, refusing one no source has, or
             // one that carries a credential, before anything is fetched or
             // removed.
-            Task::UpdateSources { .. } | Task::RemoveSource { .. } => {}
+            Task::UpdateSources { .. } | Task::RenameSource { .. } | Task::RemoveSource { .. } => {}
             // The branch and the message are values, which the backup
             // holds to its own rules, a branch git would refuse among them.
             Task::Backup { url, token_env, .. } => {

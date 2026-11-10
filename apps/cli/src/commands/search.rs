@@ -99,6 +99,9 @@ pub(crate) fn run_take(
         folder: hit.folder().to_owned(),
         reference: hit.reference.clone(),
         kind: Kind::Skill,
+        name: None,
+        pin: None,
+        dry_run: false,
     }
     .commands()
     .remove(0);
