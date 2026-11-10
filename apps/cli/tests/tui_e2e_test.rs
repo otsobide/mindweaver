@@ -37,6 +37,9 @@ mod browsing;
 #[path = "tui_e2e/changing.rs"]
 mod changing;
 
+#[path = "tui_e2e/exporting.rs"]
+mod exporting;
+
 #[path = "tui_e2e/screens.rs"]
 mod screens;
 

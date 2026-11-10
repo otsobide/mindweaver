@@ -6,7 +6,7 @@ import { useRunner, type Runner } from '@/api/commands'
 import type { LiveEvent, Transport } from '@/api/transport'
 import Projects from '@/pages/projects.vue'
 import { useShell } from '@/stores/shell'
-import { answering, answers, commanded, commanding, drafts, fixture, plans, render, servers, switching, unmount, updates, validated, walks, type Fixture } from './panel'
+import { answering, answers, commanded, commanding, drafts, fixture, kept, plans, render, servers, steps, switching, unmount, updates, validated, walks, type Fixture } from './panel'
 
 afterEach(unmount)
 
@@ -304,6 +304,24 @@ describe('what the runner draws over a page', () => {
     await flushPromises()
 
     expect(document.querySelector('[data-testid="caution"]')).not.toBeNull()
+    expect(await violations(OVER)).toEqual([])
+  })
+
+  it('passes axe with a backup under way, its step and its stop drawn', async () => {
+    const [, , , stopped] = kept()
+    const { control, tell, transport } = commanding(fixture('workspace'), kept())
+    control.finishing = new Promise<void>(() => {})
+    const { page } = await render('/library', transport)
+    await page.get('input[data-testid="backup-url"]').setValue(stopped!.task.type === 'backup' ? stopped!.task.url : '')
+    await page.get('[data-testid="backup-form"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await flushPromises()
+
+    tell({ type: 'progress', run: 1, progress: steps()[1]! })
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="stop"]')).not.toBeNull()
     expect(await violations(OVER)).toEqual([])
   })
 

@@ -5,7 +5,8 @@
 //! repository, one that changes nothing, and a branch the remote does not
 //! have yet, each read back by checking it out again. And a stand-in `git`
 //! that writes down what it was run with, to hold the token to the one
-//! place it may be, and to say what a refused login looks like.
+//! place it may be, to say what a refused login looks like, and to be
+//! stopped by a cancel while it runs rather than waited for.
 //!
 //! No `git` on the PATH skips the first three, said on stderr, except under
 //! `$CI`, where it fails them: CI runs every check.
@@ -13,6 +14,7 @@
 use super::*;
 
 use std::fs;
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
@@ -40,6 +42,18 @@ fn empty_remote() -> TempDir {
     gix::init_bare(dir.path()).expect("make a bare repository");
     fs::write(dir.path().join("HEAD"), "ref: refs/heads/main\n").unwrap();
     dir
+}
+
+/// What a backup does once its export is written: commit what
+/// `.mindweaver` holds, and push what that left ready.
+fn publish(git: &SystemGit, work: &Path, message: &str) -> Commit {
+    let commit = git
+        .commit(work, &[".mindweaver"], message, &Watch::new())
+        .unwrap();
+    if let Commit::Ready { .. } = commit {
+        git.push(work, None).unwrap();
+    }
+    commit
 }
 
 fn files(root: &Path) -> Vec<String> {
@@ -73,17 +87,18 @@ fn a_first_backup_into_an_empty_repository_is_its_first_commit_on_the_branch_it_
     let into = work.path().join("backup");
     let text = random::word();
 
-    let checked = git.check_out(&url, None, &into, None).unwrap();
+    let checked = git
+        .check_out(&url, None, &into, None, &Watch::new())
+        .unwrap();
     fs::create_dir_all(into.join(".mindweaver")).unwrap();
     fs::write(into.join(".mindweaver/weaver.toml"), &text).unwrap();
-    let published = git
-        .publish(&into, &[".mindweaver"], "back up the library", None)
-        .unwrap();
+    let published = publish(&git, &into, "back up the library");
 
     assert_eq!(checked.branch, "main");
-    assert!(matches!(published, Published::Pushed { .. }));
+    assert!(matches!(published, Commit::Ready { .. }));
     let again = work.path().join("again");
-    git.check_out(&url, None, &again, None).unwrap();
+    git.check_out(&url, None, &again, None, &Watch::new())
+        .unwrap();
     assert_eq!(files(&again), [".mindweaver/weaver.toml"]);
     assert_eq!(
         fs::read_to_string(again.join(".mindweaver/weaver.toml")).unwrap(),
@@ -99,19 +114,18 @@ fn a_backup_holding_what_the_branch_holds_sends_nothing() {
     let url = remote.path().to_string_lossy().into_owned();
     let work = TempDir::new().unwrap();
     let first = work.path().join("first");
-    git.check_out(&url, None, &first, None).unwrap();
+    git.check_out(&url, None, &first, None, &Watch::new())
+        .unwrap();
     fs::create_dir_all(first.join(".mindweaver")).unwrap();
     fs::write(first.join(".mindweaver/weaver.toml"), "kept\n").unwrap();
-    git.publish(&first, &[".mindweaver"], "first", None)
-        .unwrap();
+    publish(&git, &first, "first");
     let second = work.path().join("second");
-    git.check_out(&url, None, &second, None).unwrap();
-
-    let published = git
-        .publish(&second, &[".mindweaver"], "second", None)
+    git.check_out(&url, None, &second, None, &Watch::new())
         .unwrap();
 
-    assert_eq!(published, Published::Unchanged);
+    let published = publish(&git, &second, "second");
+
+    assert_eq!(published, Commit::Nothing);
 }
 
 #[test]
@@ -123,15 +137,17 @@ fn a_branch_the_remote_has_not_got_is_started_from_the_one_it_names() {
     let work = TempDir::new().unwrap();
     let into = work.path().join("backup");
 
-    let checked = git.check_out(&url, Some("library"), &into, None).unwrap();
+    let checked = git
+        .check_out(&url, Some("library"), &into, None, &Watch::new())
+        .unwrap();
     fs::create_dir_all(into.join(".mindweaver")).unwrap();
     fs::write(into.join(".mindweaver/weaver.toml"), "kept\n").unwrap();
-    git.publish(&into, &[".mindweaver"], "back up", None)
-        .unwrap();
+    publish(&git, &into, "back up");
 
     assert_eq!(checked.branch, "library");
     let again = work.path().join("again");
-    git.check_out(&url, Some("library"), &again, None).unwrap();
+    git.check_out(&url, Some("library"), &again, None, &Watch::new())
+        .unwrap();
     assert_eq!(files(&again), [".mindweaver/weaver.toml", "README.md"]);
 }
 
@@ -143,19 +159,17 @@ fn a_branch_asked_for_is_made_on_the_remote_even_when_nothing_changed() {
     let url = GitRepositoryMother::url(&remote);
     let work = TempDir::new().unwrap();
     let into = work.path().join("backup");
-    git.check_out(&url, Some("library"), &into, None).unwrap();
-
-    let published = git
-        .publish(&into, &[".mindweaver"], "back up", None)
+    git.check_out(&url, Some("library"), &into, None, &Watch::new())
         .unwrap();
 
-    assert!(matches!(published, Published::Pushed { .. }));
+    let published = publish(&git, &into, "back up");
+
+    assert!(matches!(published, Commit::Ready { .. }));
     let again = work.path().join("again");
-    git.check_out(&url, Some("library"), &again, None).unwrap();
-    let branch = git
-        .publish(&again, &[".mindweaver"], "back up", None)
+    git.check_out(&url, Some("library"), &again, None, &Watch::new())
         .unwrap();
-    assert_eq!(branch, Published::Unchanged, "the remote has it now");
+    let branch = publish(&git, &again, "back up");
+    assert_eq!(branch, Commit::Nothing, "the remote has it now");
 }
 
 /// A stand-in `git` that writes each run's arguments, and the variable the
@@ -192,6 +206,7 @@ fn a_token_reaches_git_through_its_environment_and_never_its_arguments() {
             None,
             &dir.path().join("backup"),
             Some(&token),
+            &Watch::new(),
         )
         .unwrap_err();
 
@@ -225,6 +240,7 @@ fn a_login_nobody_could_answer_is_said_as_credentials_needed_without_the_url_s_c
             None,
             &dir.path().join("backup"),
             None,
+            &Watch::new(),
         )
         .unwrap_err();
 
@@ -239,8 +255,99 @@ fn no_git_to_run_is_said_as_that() {
     let git = SystemGit::at(dir.path().join("no-such-git")).in_home(dir.path());
 
     let refused = git
-        .check_out("/srv/backup.git", None, &dir.path().join("backup"), None)
+        .check_out(
+            "/srv/backup.git",
+            None,
+            &dir.path().join("backup"),
+            None,
+            &Watch::new(),
+        )
         .unwrap_err();
 
     assert_eq!(refused.code(), "backup_git_unavailable");
+}
+
+/// A stand-in `git` that writes `started` into `log` and then takes
+/// `seconds`, as a clone from a server that is slow to answer does.
+#[cfg(unix)]
+fn slow(dir: &Path, log: &Path, seconds: u32) -> SystemGit {
+    use std::os::unix::fs::PermissionsExt as _;
+    let program = dir.join("git");
+    let script = format!(
+        "#!/bin/sh\n\
+         echo started >> '{log}'\n\
+         exec sleep {seconds}\n",
+        log = log.display(),
+    );
+    fs::write(&program, script).unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    SystemGit::at(program).in_home(dir)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_cancel_stops_the_git_under_way_rather_than_waiting_for_it() {
+    let dir = TempDir::new().unwrap();
+    let log = dir.path().join("log");
+    let git = slow(dir.path(), &log, 60);
+    let watch = Watch::new();
+    let cancel = watch.clone();
+    let started = log.clone();
+    let canceller = std::thread::spawn(move || {
+        let until = Instant::now() + Duration::from_secs(30);
+        while !started.exists() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        cancel.cancel();
+    });
+    let began = Instant::now();
+
+    let refused = git
+        .check_out(
+            "/srv/backup.git",
+            None,
+            &dir.path().join("backup"),
+            None,
+            &watch,
+        )
+        .unwrap_err();
+
+    canceller.join().unwrap();
+    assert!(matches!(refused, UpstreamError::Cancelled), "{refused}");
+    assert_eq!(refused.code(), "backup_git_cancelled");
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "waited {:?} for a git a cancel should have stopped",
+        began.elapsed()
+    );
+    assert_eq!(fs::read_to_string(&log).unwrap(), "started\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_cancelled_watch_starts_no_git_at_all() {
+    let dir = TempDir::new().unwrap();
+    let log = dir.path().join("log");
+    let git = slow(dir.path(), &log, 60);
+    let watch = Watch::new();
+    watch.cancel();
+    let work = dir.path().join("work");
+    fs::create_dir_all(&work).unwrap();
+
+    let checked = git
+        .check_out(
+            "/srv/backup.git",
+            Some("library"),
+            &dir.path().join("backup"),
+            None,
+            &watch,
+        )
+        .unwrap_err();
+    let committed = git
+        .commit(&work, &[".mindweaver"], "back up", &watch)
+        .unwrap_err();
+
+    assert_eq!(checked.code(), "backup_git_cancelled");
+    assert_eq!(committed.code(), "backup_git_cancelled");
+    assert!(!log.exists(), "no git was run");
 }

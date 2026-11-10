@@ -38,6 +38,7 @@ use std::time::Duration;
 
 use thiserror::Error;
 
+use crate::backup;
 use crate::code::codes;
 use crate::gather::Watch;
 use crate::kind::Kind;
@@ -93,7 +94,14 @@ pub trait Remote: Debug + Send + Sync {
 /// `git`, behind words of core's. What a backup writes is core's
 /// ([`crate::export`]); this only checks out, commits and pushes.
 ///
-/// Neither method ever asks a person for anything: a credential nobody
+/// One method a step, so that which step a backup is at, and until which
+/// one a cancel is honoured, is core's to say ([`backup::Progress`]): the
+/// steps before the push are handed the backup's [`backup::Watch`], and
+/// stop when it is cancelled ([`UpstreamError::Cancelled`]), what they
+/// were running stopped rather than waited for; the push is handed none,
+/// since a push stopped halfway leaves the remote as nobody can say.
+///
+/// No method ever asks a person for anything: a credential nobody
 /// supplied is an error ([`UpstreamError::Credentials`]), as a gather's is.
 pub trait Upstream: Debug + Send + Sync {
     /// Check `url` out into `into`, a folder not there yet, on `branch`, or
@@ -107,20 +115,27 @@ pub trait Upstream: Debug + Send + Sync {
         branch: Option<&str>,
         into: &Path,
         token: Option<&Token>,
+        watch: &backup::Watch,
     ) -> Result<CheckedOut, UpstreamError>;
 
     /// Commit what `paths` (routes from the work tree's root) hold now in
-    /// the work tree at `work`, as `message`, and push it to where it was
-    /// checked out from, on its branch: nothing at all when they hold what
-    /// the branch held and the remote has the branch, and the commit it was
-    /// started from, uncommitted to, when the remote has not got it yet.
-    fn publish(
+    /// the work tree at `work`, as `message`, and say what is then to be
+    /// sent to where it was checked out from: nothing at all when they hold
+    /// what the branch held and the remote has the branch, and the commit
+    /// it was started from, uncommitted to, when the remote has not got
+    /// the branch yet.
+    fn commit(
         &self,
         work: &Path,
         paths: &[&str],
         message: &str,
-        token: Option<&Token>,
-    ) -> Result<Published, UpstreamError>;
+        watch: &backup::Watch,
+    ) -> Result<Commit, UpstreamError>;
+
+    /// Push what [`commit`](Self::commit) left at the head of the work tree
+    /// at `work` to where it was checked out from, on its branch. Never
+    /// stopped once started: what is sent by then is the remote's.
+    fn push(&self, work: &Path, token: Option<&Token>) -> Result<(), UpstreamError>;
 }
 
 /// A token a front end was handed for one run (D-16): sent where the run
@@ -156,7 +171,20 @@ pub struct CheckedOut {
     pub branch: String,
 }
 
-/// What [`Upstream::publish`] sent.
+/// What [`Upstream::commit`] left to send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Commit {
+    /// The paths held what the branch held, and the remote has the branch,
+    /// or holds no commit at all: nothing to send.
+    Nothing,
+    /// The head of the work tree, to push to its branch: the commit made of
+    /// what the paths hold, or the one a branch the remote has not got was
+    /// started from.
+    Ready { revision: Revision },
+}
+
+/// What a backup sent: what [`Upstream::commit`] left, once
+/// [`Upstream::push`] sent it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Published {
     /// The paths held what the branch held: nothing was committed or sent.
@@ -188,6 +216,11 @@ pub enum UpstreamError {
     Commit { detail: String },
     #[error("{url}: the backup could not be pushed: {detail}")]
     Push { url: String, detail: String },
+    /// The backup's watch was cancelled while a step before the push ran,
+    /// or before it started: what `git` was running was stopped, and
+    /// nothing was sent.
+    #[error("the backup was cancelled before anything was pushed")]
+    Cancelled,
 }
 
 codes!(UpstreamError {
@@ -196,6 +229,7 @@ codes!(UpstreamError {
     Self::Credentials { .. } => "backup_credentials_needed",
     Self::Commit { .. } => "backup_commit_failed",
     Self::Push { .. } => "backup_push_failed",
+    Self::Cancelled => "backup_git_cancelled",
 });
 
 /// The time, for what the ledger stamps an action or a gather with.

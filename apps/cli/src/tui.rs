@@ -21,9 +21,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use crate::progress::Watch;
 use mindweaver_core::code::Said;
 use mindweaver_core::doctor::Examined;
-use mindweaver_core::gather::Watch;
 use mindweaver_core::resolve::{self, resolve, Intent, Resolved};
 use mindweaver_core::status::{EntryStatus, State};
 use mindweaver_core::view::{self, Directory, Held, LoadedWorkspace, Snapshot};

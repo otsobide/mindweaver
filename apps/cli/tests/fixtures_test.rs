@@ -21,6 +21,8 @@
 
 mod common;
 
+use std::sync::Arc;
+
 use common::*;
 use mindweaver_cli::backend::{PanelBackend, Query};
 use mindweaver_core::hash;
@@ -1800,4 +1802,110 @@ fn write_what_each_change_the_page_of_mcp_servers_sends_is_answered_with() {
     }
     let json = serde_json::to_string_pretty(&written).unwrap() + "\n";
     write("served", &json);
+}
+
+/// What the panel's forms for a copy of the library send, previewed and
+/// run, each on the workspace [`workspace`] builds, `you/Projects`:
+///
+/// - an export of every kind into `you/backup`, which adds;
+/// - an export of skills alone told yes, previewed with what it takes away;
+/// - a backup to a repository on GitHub, naming the variable a token is read
+///   from, previewed as a run that takes a cancel;
+/// - a backup naming none, run and cancelled at its first step, as the
+///   server's cancel reaches it when the panel's stop is pressed as soon as
+///   it starts: before `git` runs at all, so no repository is reached, and
+///   none read the configuration of whoever writes the fixtures.
+#[test]
+fn write_what_each_change_the_library_s_copies_send_is_answered_with() {
+    let backup = |token_env: Option<&str>| {
+        json!({
+            "type": "backup", "url": "https://github.com/you/library-backup.git",
+            "branch": null, "kinds": [], "message": null, "token_env": token_env,
+        })
+    };
+    // The folder an export writes into, beside the workspace, by its path.
+    let export = |dir: &Path, kinds: Value, yes: bool| {
+        let folder = dir.join("you").join("backup");
+        json!({"type": "export", "folder": folder.to_str().unwrap(), "kinds": kinds, "yes": yes})
+    };
+    let sent: [(&dyn Fn(&Path) -> Value, bool); 4] = [
+        (&|dir| export(dir, json!([]), false), true),
+        (&|dir| export(dir, json!(["skill"]), true), true),
+        (&|_| backup(Some("GITHUB_TOKEN")), false),
+        (&|_| backup(None), true),
+    ];
+
+    let mut answers = Vec::new();
+    let mut written = Vec::new();
+    for (sent, runs) in sent {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("you");
+        let root = workspace(&home);
+        let sent = sent(dir.path());
+        let backend = PanelBackend::launch(&root, &Lookup::default()).unwrap();
+        let task: Task = serde_json::from_value(sent.clone()).unwrap();
+        let preview = backend
+            .preview(&task)
+            .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
+        // A run of the backup that names a variable would read it from
+        // the environment of whoever writes the fixtures: previewed alone.
+        let ran = runs.then(|| {
+            let underway = cancelled_at_first_step();
+            let outcome = backend.run(task, &underway).unwrap();
+            json!({"lines": preview.lines, "outcome": outcome})
+        });
+        let answer = json!({"task": sent, "preview": preview, "ran": ran});
+        let json = serde_json::to_string(&answer).unwrap();
+        let json = pinned(&json, dir.path(), Some(&root));
+        assert!(!json.contains(&*dir.path().to_string_lossy()), "{json}");
+        written.push(serde_json::from_str::<Value>(&json).unwrap());
+        answers.push(answer);
+    }
+
+    let runs = |index: usize| &answers[index]["ran"]["outcome"]["runs"][0];
+    assert!(runs(0)["error"].is_null(), "{}", answers[0]);
+    assert!(runs(1)["error"].is_null(), "{}", answers[1]);
+    assert_eq!(answers[1]["preview"]["confirm"][0]["caution"], "removes");
+    assert_eq!(answers[2]["preview"]["cancellable"], true);
+    assert!(answers[2]["ran"].is_null());
+    assert_eq!(runs(3)["error"]["code"], "backup_cancelled");
+    let json = serde_json::to_string_pretty(&written).unwrap() + "\n";
+    write("kept", &json);
+}
+
+/// A run numbered 1 that asks itself to stop on the first step it reports,
+/// as the server's cancel would: what an export, which reports none, never
+/// meets.
+fn cancelled_at_first_step() -> Underway {
+    let itself: Arc<std::sync::OnceLock<Underway>> = Arc::default();
+    let stopping = Arc::clone(&itself);
+    let underway = Underway::new(1, move |_| {
+        if let Some(underway) = stopping.get() {
+            underway.cancel();
+        }
+    });
+    itself.set(underway.clone()).unwrap();
+    underway
+}
+
+/// Each step a backup reports, as the backend tells the panel it
+/// (`progress`'s `Step`): what the panel draws while one runs, and stops
+/// offering a stop at once it pushes.
+#[test]
+fn write_the_steps_a_backup_reports() {
+    use mindweaver_cli::progress::{Progress, Step};
+    use mindweaver_core::backup::Progress as Backup;
+
+    let steps: Vec<Step> = [
+        Backup::CheckingOut,
+        Backup::Exporting,
+        Backup::Committing,
+        Backup::Pushing,
+    ]
+    .into_iter()
+    .map(|step| Step::of(Progress::Backup(step)))
+    .collect();
+
+    let json = serde_json::to_string_pretty(&steps).unwrap() + "\n";
+    write("steps", &json);
 }

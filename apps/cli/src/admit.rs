@@ -26,7 +26,11 @@
 //!   the panel's marks among them, is absolute, spelled normalized and
 //!   outside every `.mindweaver`, and goes to the command verbatim, so the
 //!   preview shows the folder it acts on; one marked to unlink is one an
-//!   entry points at.
+//!   entry points at. So is the folder an export writes into.
+//! - **A gather's source and a backup's repository** are an address, which
+//!   the command judges as one typed at a terminal, or such a folder.
+//! - **A backup's token** is named by the variable holding it, one named
+//!   for a token (`policy::token_variable`), and never sent.
 //!
 //! The walk over the variants is here, beside `Task`; what each value may be
 //! is core's, so a second front end taking tasks from outside asks the same
@@ -74,6 +78,17 @@ impl Admission<'_> {
             // gather holds to its own rules.
             Task::Gather { url, .. } => {
                 policy::source(url)?;
+            }
+            // The branch and the message are values, which the backup
+            // holds to its own rules, a branch git would refuse among them.
+            Task::Backup { url, token_env, .. } => {
+                policy::source(url)?;
+                if let Some(variable) = token_env {
+                    policy::token_variable(variable)?;
+                }
+            }
+            Task::Export { folder, .. } => {
+                policy::path(folder)?;
             }
             Task::Link { path }
             | Task::InitAndLink { path }
