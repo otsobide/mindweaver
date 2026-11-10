@@ -5,7 +5,7 @@ import type { Confirm } from '@/api/generated/Confirm'
 import { useRunner, type Asking } from '@/api/commands'
 
 const runner = useRunner()
-const { asking, running } = runner
+const { asking, running, underway } = runner
 
 // What is drawn: the task asked about, kept as it was while the dialog
 // closes, so its lines do not empty out as it fades.
@@ -70,6 +70,30 @@ const ICONS: Partial<Record<Caution, string>> = {
 
 const PLAIN = 'i-lucide-triangle-alert'
 
+// While a run that takes a cancel is under way, a gather or a backup: what
+// it is doing, in the backend's words, and whether a stop still stops it,
+// as the backend says of each step. Drawn from what the stream told, so a
+// step comes in as the run reports it.
+const following = computed(() => running.value && (shown.value?.preview.cancellable ?? false))
+
+/** Whether a stop now still stops it: asked for once, and never past its last check. */
+const stoppable = computed(() => {
+  const now = underway.value
+  return now !== undefined && now.cancellable && !now.cancelling && now.step?.cancellable !== false
+})
+
+/** What a stop can do now, in words, so the state is never said by the button alone. */
+const stopping = computed(() => {
+  const now = underway.value
+  if (now?.cancelling) {
+    return 'Asked to stop: it stops before it changes anything, and says so when it is over.'
+  }
+  if (now?.step?.cancellable === false) {
+    return 'Too late to stop: it finishes what it started.'
+  }
+  return 'It can be stopped until it starts to change anything.'
+})
+
 const cancelButton = useTemplateRef<ComponentPublicInstance>('cancel')
 const runButton = useTemplateRef<ComponentPublicInstance>('run')
 
@@ -133,10 +157,46 @@ function focus(event: Event) {
           </ul>
         </li>
       </ol>
+
+      <div
+        v-if="following"
+        class="mt-4 space-y-1 rounded-md border border-default px-3 py-2"
+        role="status"
+        aria-live="polite"
+        data-testid="underway"
+      >
+        <p
+          class="flex items-center gap-2 font-mono text-sm text-highlighted"
+          data-testid="step"
+        >
+          <UIcon
+            name="i-lucide-loader-circle"
+            class="size-4 shrink-0 text-muted motion-safe:animate-spin"
+            aria-hidden="true"
+          />
+          {{ underway?.step?.said ?? 'starting' }}
+        </p>
+        <p
+          class="text-xs text-muted"
+          data-testid="stop-state"
+        >
+          {{ stopping }}
+        </p>
+      </div>
     </template>
 
     <template #footer>
       <div class="flex w-full justify-end gap-2">
+        <UButton
+          v-if="following"
+          label="Stop"
+          icon="i-lucide-circle-stop"
+          color="error"
+          variant="outline"
+          :disabled="!stoppable"
+          data-testid="stop"
+          @click="runner.stop()"
+        />
         <UButton
           ref="cancel"
           label="Cancel"

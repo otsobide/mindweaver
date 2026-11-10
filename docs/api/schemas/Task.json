@@ -544,6 +544,78 @@
       ]
     },
     {
+      "description": "`mindweaver export [--kind <kind>]... [--yes] <folder>`: the\nworkspace's own written into `folder`, laid out as a workspace of\ntheir own, `kinds` alone when it names some and every kind when it\nnames none. Without `yes`, what adds is written and what would\nchange or remove what an earlier export wrote there is only said;\nwith it, `--yes`, which takes that away, and is asked about first\n([`Caution::Removes`]).",
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Kind"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "export"
+        },
+        "yes": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "folder",
+        "kinds",
+        "yes"
+      ]
+    },
+    {
+      "description": "`mindweaver backup [--branch <branch>] [--kind <kind>]... [--message\n<message>] [--token-env <variable>] <url>`: that export made into a\ncheck-out of the repository at `url`, committed and pushed, on\n`branch` or the repository's own, with `message` or the command's.\n\n`token_env` is the name of an environment variable of whatever runs\nthe line, the panel's server or the TUI, holding a token, never a\ntoken: a front end enters no credential, nor sends one (D-16), and\nthe command reads the variable for the one run. Without it, `git`\nlogs in as it is configured to. Followed as it goes and stopped\nwhen asked until it pushes ([`Followed::Backup`]).",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Kind"
+          }
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "const": "backup"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "url",
+        "kinds"
+      ]
+    },
+    {
       "description": "`… targets set --yes <kind> <dir>...`, or `… targets reset --yes\n<kind>` when no folder is named: what the targets form amounts to.",
       "type": "object",
       "properties": {

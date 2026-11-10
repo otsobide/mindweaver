@@ -268,6 +268,36 @@ pub enum Task {
         folder: String,
         reference: Option<String>,
     },
+    /// `mindweaver export [--kind <kind>]... [--yes] <folder>`: the
+    /// workspace's own written into `folder`, laid out as a workspace of
+    /// their own, `kinds` alone when it names some and every kind when it
+    /// names none. Without `yes`, what adds is written and what would
+    /// change or remove what an earlier export wrote there is only said;
+    /// with it, `--yes`, which takes that away, and is asked about first
+    /// ([`Caution::Removes`]).
+    Export {
+        folder: String,
+        kinds: Vec<Kind>,
+        yes: bool,
+    },
+    /// `mindweaver backup [--branch <branch>] [--kind <kind>]... [--message
+    /// <message>] [--token-env <variable>] <url>`: that export made into a
+    /// check-out of the repository at `url`, committed and pushed, on
+    /// `branch` or the repository's own, with `message` or the command's.
+    ///
+    /// `token_env` is the name of an environment variable of whatever runs
+    /// the line, the panel's server or the TUI, holding a token, never a
+    /// token: a front end enters no credential, nor sends one (D-16), and
+    /// the command reads the variable for the one run. Without it, `git`
+    /// logs in as it is configured to. Followed as it goes and stopped
+    /// when asked until it pushes ([`Followed::Backup`]).
+    Backup {
+        url: String,
+        branch: Option<String>,
+        kinds: Vec<Kind>,
+        message: Option<String>,
+        token_env: Option<String>,
+    },
     /// `… targets set --yes <kind> <dir>...`, or `… targets reset --yes
     /// <kind>` when no folder is named: what the targets form amounts to.
     Targets {
@@ -730,6 +760,39 @@ impl Task {
                 }
                 vec![words(&head, &[url])]
             }
+            // `--yes` before the folder, as `remove` has it before the name.
+            Task::Export { folder, kinds, yes } => {
+                let mut head = owned(&["mindweaver", "export"]);
+                head.extend(kinded(kinds));
+                if *yes {
+                    head.push(String::from("--yes"));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[folder])]
+            }
+            // Each option only when it says something, so the line reads
+            // the way somebody would type it.
+            Task::Backup {
+                url,
+                branch,
+                kinds,
+                message,
+                token_env,
+            } => {
+                let mut head = owned(&["mindweaver", "backup"]);
+                if let Some(branch) = branch {
+                    head.extend(option("--branch", branch));
+                }
+                head.extend(kinded(kinds));
+                if let Some(message) = message {
+                    head.extend(option("--message", message));
+                }
+                if let Some(variable) = token_env {
+                    head.extend(option("--token-env", variable));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[url])]
+            }
             // The agents first, so a project turning local finds the copies
             // they bring already kept out of git, and one turning shared
             // finds them in the group it lets go of; either order ends the
@@ -881,6 +944,8 @@ impl Task {
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
                 | Task::Gather { .. }
+                | Task::Export { .. }
+                | Task::Backup { .. }
                 | Task::Minds { .. }
                 | Task::Marks { .. }
                 | Task::Settings { .. }
@@ -919,9 +984,10 @@ impl Task {
 
     /// Whether it runs on a thread of its own while the screen goes on
     /// drawing what it reports: a task one of whose lines a front end
-    /// follows as it runs and can stop ([`followed`]), a gather, which is
-    /// the network, and can take long enough to want watching. Everything
-    /// else is the local disk, over before anybody could read a count.
+    /// follows as it runs and can stop ([`followed`]), a gather or a
+    /// backup, each the network, and able to take long enough to want
+    /// watching. Everything else is the local disk, over before anybody
+    /// could read a count.
     ///
     /// Asked of the lines, as [`refusal`](Self::refusal) is, so the TUI
     /// runs apart what the panel's backend says takes a cancel, by one list.
@@ -993,6 +1059,11 @@ pub enum Followed {
     /// reported step by step through core's `gather::Watch`, and stopped
     /// by its cancel until it starts placing what it read on the shelf.
     Gather,
+    /// `mindweaver backup`: the network too, through the system's `git`,
+    /// reported step by step through core's `backup::Watch`, checking out,
+    /// exporting, committing and pushing, and stopped by its cancel, what
+    /// `git` was running killed, until it starts pushing.
+    Backup,
 }
 
 impl Followed {
@@ -1038,6 +1109,7 @@ impl Followed {
     pub fn of_weaver(command: Option<&WeaverCommand>) -> Option<Followed> {
         match command {
             Some(WeaverCommand::Gather(GatherCommand::Git { .. })) => Some(Followed::Gather),
+            Some(WeaverCommand::Backup { .. }) => Some(Followed::Backup),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => None,
             None
@@ -1070,7 +1142,6 @@ impl Followed {
                 | WeaverCommand::Update { .. }
                 | WeaverCommand::Adopt { .. }
                 | WeaverCommand::Export { .. }
-                | WeaverCommand::Backup { .. }
                 | WeaverCommand::Agents { .. }
                 | WeaverCommand::Share { .. }
                 | WeaverCommand::Targets { .. }
@@ -1142,25 +1213,6 @@ pub enum Refusal {
     /// itself.
     #[error("serves the panel until Ctrl-C stops it, from the terminal it was started in")]
     Panel,
-    /// `mindweaver backup`: the network, through the system's `git`, for as
-    /// long as that takes, with no progress to show nor a way to stop it,
-    /// and an ssh that may ask on the terminal it was started from, which
-    /// only a shell has.
-    #[error(
-        "sends over the network with git for as long as that takes, which only a shell shows, and whose ssh may ask on its terminal"
-    )]
-    Sends,
-    /// `mindweaver gather git` with `--token-env` or `--gh`: a token read
-    /// where the line runs, from its environment or from its account's
-    /// `gh`, and sent to the host the line names. On the panel's server
-    /// that is the server's own, which a browser has no business naming
-    /// a host to hand over, and a front end without a terminal enters no
-    /// credential (D-16): no task carries either option, and this keeps
-    /// one built some other way from running.
-    #[error(
-        "logs in with a token read from the environment or from gh where it runs, which only a shell hands it"
-    )]
-    Credential,
 }
 
 codes!(Refusal {
@@ -1170,8 +1222,6 @@ codes!(Refusal {
     Self::Shell => "prints_shell_code",
     Self::Unheld => "show_unheld",
     Self::Panel => "serves_panel",
-    Self::Sends => "backup_unwatched",
-    Self::Credential => "reads_credential",
 });
 
 impl Refusal {
@@ -1233,14 +1283,6 @@ impl Refusal {
             Some(WeaverCommand::Edit { editing, .. }) => Refusal::of_edit(editing),
             Some(WeaverCommand::Activate { .. }) => Some(Refusal::Shell),
             Some(WeaverCommand::Show { .. }) => Some(Refusal::Unheld),
-            Some(WeaverCommand::Backup { .. }) => Some(Refusal::Sends),
-            // Before the gather the arm below runs: the token, not the
-            // network, is what a front end without a terminal never runs.
-            Some(WeaverCommand::Gather(GatherCommand::Git { credential, .. }))
-                if credential.is_given() =>
-            {
-                Some(Refusal::Credential)
-            }
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Some(Refusal::Panel),
             Some(
@@ -1271,6 +1313,11 @@ impl Refusal {
                 | WeaverCommand::Update { .. }
                 | WeaverCommand::Adopt { .. }
                 | WeaverCommand::Export { .. }
+                // The network, followed as it goes and stopped when asked
+                // ([`Followed::Backup`]) until it pushes, and never a
+                // prompt from `git` itself: what kept it from a front end
+                // with no terminal until it reported its steps.
+                | WeaverCommand::Backup { .. }
                 | WeaverCommand::Agents { .. }
                 | WeaverCommand::Share { .. }
                 | WeaverCommand::Targets { .. }
@@ -1582,6 +1629,15 @@ pub fn scratch_route(text: &str) -> String {
 pub fn scratch_name(text: &str) -> String {
     let named = &hash::bytes(text.as_bytes())[..16];
     format!("edit-{named}.md")
+}
+
+/// A `--kind` for each of `kinds`, by its folder's word, as `--kind skills`
+/// is typed: none for every kind, which is what naming none asks.
+fn kinded(kinds: &[Kind]) -> Vec<String> {
+    kinds
+        .iter()
+        .flat_map(|kind| [String::from("--kind"), kind.folder().to_owned()])
+        .collect()
 }
 
 /// `words` as owned words.

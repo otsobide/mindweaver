@@ -48,8 +48,6 @@ export type Code =
   | "prints_shell_code"
   | "show_unheld"
   | "serves_panel"
-  | "backup_unwatched"
-  | "reads_credential"
   | "token_required"
   | "unknown_host"
   | "foreign_origin"

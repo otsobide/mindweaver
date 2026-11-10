@@ -538,7 +538,7 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
 takes in the command's own words: the panel asks before it runs those, and
 the server runs a task whatever a preview said, as a shell runs a line
 typed into it. `cancellable` says whether a run of it can be asked to stop
-while it runs, which only a gather can ([stopping a
+while it runs, which only a gather and a backup can ([stopping a
 run](#stopping-a-run)). A run answers what each line said, its stdout,
 each line of its stderr with its code, and whether it went well: a run is
 a 200 when it ran, however the command went, and `outcome.ok` says that.
@@ -647,10 +647,37 @@ server's machine, since a token is handed over from a shell alone
 (`--token-env`, `--gh`), and a line that hands one over is refused
 (`reads_credential`).
 
+A backup is the network too. A `backup` task, `{"type": "backup", "url":
+..., "branch": null, "kinds": [], "message": null, "token_env": null}`, is
+`mindweaver backup`: its repository is named as a gather's source is, and
+a token only by the variable holding it, in the environment the server was
+started with, never the token itself. The server reads such a variable
+only when it is named for a token, ending in `TOKEN`, since what it holds
+is sent to the repository named; any other is refused
+(`token_variable_refused`). An `export` task, `{"type": "export",
+"folder": ..., "kinds": [], "yes": false}`, writes into a folder named by
+its absolute path, and with `"yes": true` is previewed with what it takes
+away to confirm:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "backup", "url": "https://github.com/you/library-backup.git", "branch": null, "kinds": ["skill"], "message": null, "token_env": "GITHUB_TOKEN"}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects backup --kind skills --token-env GITHUB_TOKEN https://github.com/you/library-backup.git"
+  ],
+  "confirm": [],
+  "cancellable": true
+}
+```
+
 `POST /tasks/cancel` asks the run under way to stop, by the number
 `command_started` gave it. A gather stops before it puts anything on the
 shelf, and its outcome says it was cancelled (`gather_cancelled`); one
-already placing what it read finishes, as its outcome says too. A run that
+already placing what it read finishes, as its outcome says too. A backup
+stops before it pushes, the `git` it was running stopped and the
+repository as it was (`backup_cancelled`); one already pushing finishes. A run that
 is not the one under way, over already or not started yet, is refused with
 a 409 and nothing is asked of any run, so a cancel that crosses the end of
 its run never stops the one behind it; so is the run under way when its
@@ -781,7 +808,9 @@ Each is tagged by its `type`:
   too whether it is `cancellable`.
 - `progress`, with a run's `run` and a step it took, `progress`: its
   `stage` as one word, `connecting`, `receiving`, `resolving`,
-  `checking_out`, `harvesting` or `placing` for a gather, how far it got,
+  `checking_out`, `harvesting` or `placing` for a gather, and
+  `checking_out`, `exporting`, `committing` or `pushing` for a backup,
+  which counts nothing, how far it got,
   `done` of `total`, either `null` where it counts nothing or does not
   know yet, the same in the words a terminal draws it in, `said`, and
   whether a cancel still stops it, `cancellable`. Each stage's first step

@@ -1,0 +1,129 @@
+[
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects export /home/you/backup"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects export /home/you/backup"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects export /home/you/backup",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "/home/you/backup, a workspace named Projects made there\n  added  skill  lint\n  added  skill  review\n  added  rule   git/commits\n  added  rule   style/comments\n  added  mcp    github\n\n5 artifacts: 5 added, 0 updated, 0 removed, 0 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "folder": "/home/you/backup",
+      "kinds": [],
+      "type": "export",
+      "yes": false
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [
+        {
+          "caution": "removes",
+          "line": 0,
+          "message": "deletes an artifact: its folder and everything in it, or its file"
+        }
+      ],
+      "lines": [
+        "mindweaver -W /home/you/Projects export --kind skills --yes /home/you/backup"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects export --kind skills --yes /home/you/backup"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects export --kind skills --yes /home/you/backup",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "/home/you/backup, a workspace named Projects made there\n  added  skill  lint\n  added  skill  review\n\n2 artifacts: 2 added, 0 updated, 0 removed, 0 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "folder": "/home/you/backup",
+      "kinds": [
+        "skill"
+      ],
+      "type": "export",
+      "yes": true
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects backup --token-env GITHUB_TOKEN https://github.com/you/library-backup.git"
+      ]
+    },
+    "ran": null,
+    "task": {
+      "branch": null,
+      "kinds": [],
+      "message": null,
+      "token_env": "GITHUB_TOKEN",
+      "type": "backup",
+      "url": "https://github.com/you/library-backup.git"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects backup https://github.com/you/library-backup.git"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects backup https://github.com/you/library-backup.git"
+      ],
+      "outcome": {
+        "ok": false,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects backup https://github.com/you/library-backup.git",
+            "error": {
+              "code": "backup_cancelled",
+              "message": "the backup was cancelled before anything was pushed: the repository is as it was"
+            },
+            "ok": false,
+            "stderr": [],
+            "stdout": ""
+          }
+        ]
+      }
+    },
+    "task": {
+      "branch": null,
+      "kinds": [],
+      "message": null,
+      "token_env": null,
+      "type": "backup",
+      "url": "https://github.com/you/library-backup.git"
+    }
+  }
+]

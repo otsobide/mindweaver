@@ -3294,7 +3294,13 @@ reading](#strict-when-writing-lenient-when-reading)).
 A gather is the network, so it can take long enough that somebody wants to
 know how it is going, and to change their mind. A `gather::Request` carries a
 `Watch`: a callback the gather tells each `Progress` to, and a flag that
-cancels it. Both are core's own types. `gix` has a progress tree and an
+cancels it. Both are core's own types. The watch is one for every run a
+front end follows, `follow::Watch`, generic over the step it is told
+(`gather::Watch` the one told a gather's `Progress`, `backup::Watch` the
+one told a backup's), so a front end that follows more than one kind of run holds one
+flag and one sink, and hands each run the watch that relays to it
+(`Watch::relaying`): the CLI's is told either step (`progress::Progress`),
+whichever line runs. `gix` has a progress tree and an
 interrupt flag of its own, and handing those to the front ends would tie each
 of them, the server that streams progress ([a run under
 way](#a-run-under-way-followed-and-stopped)) included, to gix's version and
@@ -3349,7 +3355,9 @@ apart](#a-gather-runs-apart)). The panel's backend reports each step to the
 server, which streams it, and hands the server's cancel to the watch ([a run
 under way](#a-run-under-way-followed-and-stopped)). Which lines a front end
 follows so is one list, `task::Followed`, read off the parsed command as a
-refusal is, `gather git` its one entry so far.
+refusal is: `gather git`, and `backup`
+([exporting and backing up the
+library](#exporting-and-backing-up-the-library)).
 
 ### Why `gix` rather than running `git`
 
@@ -5904,15 +5912,14 @@ questions still, worded for its rows ([open questions](#open-questions)).
 
 And beside both, read the same way again, is what a line does that a front
 end follows while it runs and can stop (`task::Followed`, `task::followed`):
-`gather git`, which reports each step through core's watch and stops on its
-cancel. The TUI runs a task with such a line apart, drawing its steps with
-a key that cancels it (`Task::runs_apart`), and the panel's backend says
-with each preview that a run of it takes a cancel, and hands it the
-server's ([a run under way](#a-run-under-way-followed-and-stopped)). A match
-over every command with no wildcard (`Followed::of_mind`, `of_weaver`), so
-a new command says whether it is followed before it compiles; a backup, the
-next that takes long enough to want watching, joins it once it reports its
-phases and stops on a cancel.
+`gather git` and `backup`, each of which reports each step through core's
+watch and stops on its cancel. The TUI runs a task with such a line apart,
+drawing its steps with a key that cancels it (`Task::runs_apart`), and the
+panel's backend says with each preview that a run of it takes a cancel, and
+hands it the server's ([a run under
+way](#a-run-under-way-followed-and-stopped)). A match over every command
+with no wildcard (`Followed::of_mind`, `of_weaver`), so a new command says
+whether it is followed before it compiles.
 
 The exceptions are named, not hidden: opening the install screen builds the
 screen `mindweaver install` opens, as a read, rather than running a line, and
@@ -5951,8 +5958,8 @@ editors.
 
 ### A gather runs apart
 
-A gather is the network, and the one task that runs apart
-(`Task::runs_apart`): asked of its lines, any of which `task::followed`
+A gather is the network, and so is a backup: the two tasks that run apart
+(`Task::runs_apart`), asked of their lines, any of which `task::followed`
 says a front end follows, so the TUI runs apart what the panel's backend
 says takes a cancel, by one list. `step` starts its lines on a thread of their own and
 returns at once, with a [watch](#following-a-gather-and-stopping-it) whose
@@ -5968,7 +5975,10 @@ while a task ran in place is dropped. `esc` cancels the watch: the gather stops
 before it places anything, and the form it came from says so, as for any gather
 that did not get as far as a report. Once the step is placing, which is no
 longer `cancellable`, the box says a cancel is too late instead, and the gather
-finishes with its report. Leaving cancels it too, and `wait` holds the screen
+finishes with its report. A backup is drawn the same way, its steps checking
+out, exporting, committing and pushing, and stops short of pushing: once it
+pushes, the box says a cancel is too late (`stops_short_of` reads which run
+it is off the task's lines, by the same list). Leaving cancels it too, and `wait` holds the screen
 until it has stopped, so what it did reaches the transcript and nothing is half
 done when the process ends. A gather still connecting takes a cancel only once
 it is connected, so `esc` there, or leaving, waits as long as the network does;
@@ -7020,10 +7030,14 @@ a folder on this machine ([what a browser may
 name](#what-a-browser-may-name)), and an address to the gather's own rules,
 which refuse a credential in it and never prompt for one.
 
-A backup (#265) plugs in the same way, with nothing of the server changed:
-its line joins `Followed`, its phases (checking out, exporting, committing,
-pushing) become stages of a `Step` it reports as it goes, and what a cancel
-does, which `on_cancel` says, is kill the `git` child under way.
+A backup plugs in the same way, with nothing of the server changed: its
+line is `Followed::Backup`, its steps (checking out, exporting, committing,
+pushing) are stages of the same `Step`, counting nothing, and the cancel
+`on_cancel` hands it cancels the same watch, which kills the `git` under
+way ([exporting and backing up the
+library](#exporting-and-backing-up-the-library)). Its repository is held
+to the policy as a gather's source is, and its token named only by the
+variable holding it, one named for a token (`policy::token_variable`).
 
 ### Live updates
 
@@ -8142,6 +8156,22 @@ was let go.
   lost, it marks the same stale itself and waits for that. Nothing the run
   answered is written into a view: an update made beforehand would be a
   second guess at what core says, and could disagree with it.
+- **A run that takes a cancel is followed, and stopped when asked.** A
+  gather's or a backup's preview says `cancellable`, and while it runs the
+  dialog draws the latest step the stream told of it, in the backend's
+  words (`Step::said`), and **Stop**. The live updates keep the run under
+  way as the stream tells it, whoever sent it (`Live::underway`: its
+  number, its lines, whether it takes a cancel and was asked to, and its
+  latest step), and the runner takes the one whose lines are the ones it
+  showed (`Runner::underway`), its number being the stream's to tell, since
+  the run's answer comes only once it is over. Stop is `POST
+  /api/v1/tasks/cancel` with that number (`Transport::cancel`), asked once,
+  and offered only while the step says a cancel still stops it
+  (`Step::cancellable`, core's): past it, the dialog says in words that it
+  is too late, as it says that a stop was asked for, so neither is told by
+  the button's colour alone. What the stop did is the run's outcome to
+  say. A cancel the server refuses, the run over already, changes nothing,
+  and is said nowhere beside it.
 - **How it went is a toast, and what it said a drawer.** A toast says what
   ran, or which line failed, and what the lines printed. When a run failed,
   or said a line with a code, the warnings drawer (`WarningsDrawer.vue`)
@@ -11653,8 +11683,9 @@ install copies it.
 
 **A backup is a fresh check-out each time.** `backup::backup` checks the
 repository out into the workspace's scratch folder through the `Upstream`
-port, exports into it, commits the workspace's folder there and pushes, and
-takes the check-out away whatever came of it (`backup::CheckOut`'s `Drop`):
+port, exports into it, commits the workspace's folder there and pushes, a
+method of the port each, and takes the check-out away whatever came of it
+(`backup::CheckOut`'s `Drop`):
 nothing of the repository is kept between runs, so two machines backing up
 to one branch each start from what the other pushed, and a cache that could
 drift from the remote is never read. A branch the remote has not got is
@@ -11681,12 +11712,49 @@ configured identity's, or `Mindweaver <mindweaver@localhost>` when none is
 configured, and runs no hook. What `git` says on failure is its last line
 that is not a hint, every URL in it redacted.
 
-**Shell only, for now.** `backup` is on the list of what a front end with no
-terminal does not run (`task::Refusal::Sends`, `backup_unwatched`), as a
-gather was before progress reached the server: it sends for as long as that
-takes, with nothing to show of it nor a way to stop it, and ssh may ask on
-the terminal. `export` is run anywhere, though nothing but the command line
-builds its line yet.
+**Followed, and stopped until it pushes.** A backup is the network, as a
+gather is, and is followed the same way ([following a gather, and stopping
+it](#following-a-gather-and-stopping-it)): its `Request` carries a
+`backup::Watch`, told each `backup::Progress`, checking out, exporting,
+committing and pushing, in that order, the last never said when the commit
+leaves nothing to send. Which step it is at, and until which a cancel is
+honoured, is core's: the port has a method a step (`check_out`, `commit`,
+`push`) rather than one that publishes, so the backup looks at the watch
+before each and a last time before the push, the last moment a cancel
+stops it, as a gather's last look is before it places
+(`Progress::cancellable`). A cancel by then leaves the remote as it was and
+the check-out taken away (`backup_cancelled`, which an upstream that
+honoured one, `backup_git_cancelled`, is said as). Every step before the
+push is handed the watch, and `SystemGit` runs each `git` it makes then
+watched (`SystemGit::watched`): its output read on threads of its own, so
+a full pipe never stops it, and looked at every 20 ms, killed as soon as
+the watch is cancelled and never started once it is, rather than waited
+for as long as a server takes to answer. What it started, a remote helper
+or an `index-pack`, is given up to two seconds to notice it has gone, as
+its output closing tells, so the check-out it wrote into is taken away
+after it rather than under it. Killing a process group instead was turned
+down: `git` in a group of its own would no longer be stopped by a Ctrl-C at
+the shell that ran the backup, and an ssh it starts could no longer ask on
+that terminal. The push is handed no watch: stopped halfway, it would leave
+the remote as nobody could say.
+
+The steps are the front end's to show: a terminal draws each over the last
+on one line of stderr, the TUI in the box it draws over a gather
+(`Task::runs_apart`), and the panel's backend reports each as a `Step` the
+server streams. So `backup` left the list of what a front end with no
+terminal does not run (`Refusal::Sends`, and with it the code
+`backup_unwatched`, which nothing gives any more and no other condition is
+given), and joined `task::Followed`. The panel offers both below its
+library (`ExportForm.vue`, `BackupForm.vue`), each sending its task
+through the runner, which follows a backup and stops it as it does a
+gather ([its changes](#its-changes)). The TUI opens a form for each command,
+`x` and `b`, on any row, the library being the workspace's whatever row is
+lit; the export form's `replace` is `--yes`, asked about before it runs, as
+a deletion is. A task names a token only by the variable holding it, read
+in the environment of whatever runs the line (D-16), and one from outside
+names only a variable named for a token (`policy::token_variable`, ending
+in `TOKEN`), since what it holds is sent to whatever repository the request
+names.
 
 ## Decisions
 
@@ -12705,10 +12773,26 @@ repository, stays on `gix`.
 - **What ssh asks during a backup.** `git` is told never to prompt, but the
   ssh it runs for an ssh URL asks for a key's passphrase or a host key on
   the terminal itself, as it does for a gather
-  ([why `gix`](#why-gix-rather-than-running-git)). A backup runs from a shell
-  alone, where somebody can answer, until progress and a cancel reach the
-  server (#112) and `BatchMode` can be set without overriding a
-  `core.sshCommand` somebody chose.
+  ([why `gix`](#why-gix-rather-than-running-git)). Now that a backup runs
+  from the TUI and the panel too, followed and stopped, that question is
+  raced for its answer with the TUI's keys, or asked on the terminal
+  `mindweaver ui` was started from, as a gather's is; a cancel stops it,
+  killing the `git` that started the ssh. Setting `BatchMode` waits for a
+  way that does not override a `core.sshCommand` somebody chose.
+- **A backup stopped by a signal.** A cancel takes the check-out away, but
+  a backup killed outright, by a Ctrl-C at the shell that ran it, leaves
+  its check-out in `.mindweaver/tmp`, since nothing runs its `Drop`: the
+  next backup makes another beside it, and nothing sweeps them. Sweeping
+  what an interrupted backup left, as an install sweeps its stage, waits
+  for a way to tell one still running in another process from one that
+  was killed.
+- **Which variable a request may name for a token.** A backup from the API
+  reads the variable a request names, and sends what it holds to the
+  repository the request names: the policy takes only a name ending in
+  `TOKEN`, which keeps `HOME` or another service's key from being sent,
+  but not another token named so (`NPM_TOKEN`). Naming the variables a
+  panel may read when `mindweaver ui` is started waits for somebody to need
+  a token the suffix refuses.
 - **Two backups racing to one branch.** Each starts from what the branch
   holds, and the second push is refused as `git` refuses one that is not a
   fast-forward (`backup_push_failed`), to be run again. Retrying on its own

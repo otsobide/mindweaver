@@ -81,9 +81,7 @@
         "reads_stdin",
         "prints_shell_code",
         "show_unheld",
-        "serves_panel",
-        "backup_unwatched",
-        "reads_credential"
+        "serves_panel"
       ]
     },
     "CoreCode": {
@@ -134,6 +132,7 @@
         "backup_branch_invalid",
         "backup_workspace_unmade",
         "backup_scratch_failed",
+        "backup_cancelled",
         "artifact_read_failed",
         "front_matter_invalid",
         "name_empty",
@@ -317,6 +316,7 @@
         "backup_credentials_needed",
         "backup_commit_failed",
         "backup_push_failed",
+        "backup_git_cancelled",
         "http_url_invalid",
         "http_url_credentialed",
         "http_header_invalid",
@@ -458,6 +458,7 @@
         "path_in_mindflayer",
         "switch_unlisted",
         "install_yes_unasked",
+        "token_variable_refused",
         "reapply_no_agent",
         "reapply_no_folder",
         "reapply_copy_failed",

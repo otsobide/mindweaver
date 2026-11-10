@@ -21,6 +21,12 @@
 //! refuses one: a token comes from the front end for one run
 //! ([`Request::token`]), and is refused for an ssh URL, which logs in with
 //! keys of its own.
+//!
+//! A backup is the network, as a gather is, so it is followed the same way:
+//! a [`Watch`] told each [`Progress`], checking out, exporting, committing
+//! and pushing, and cancelled until the push starts. A cancel by then
+//! leaves the remote as it was, and the check-out is taken away as it is
+//! whatever comes of a backup.
 
 use std::fs;
 use std::io;
@@ -30,11 +36,47 @@ use thiserror::Error;
 
 use crate::code::codes;
 use crate::export::{self, ExportError, Place, Plan};
+use crate::follow;
 use crate::kind::Kind;
-use crate::port::{Published, Token, Upstream, UpstreamError};
+use crate::port::{Commit, Published, Token, Upstream, UpstreamError};
 use crate::url::{carries_credentials, over_ssh};
 use crate::value::Redacted;
 use crate::workspace::WeaverWorkspace;
+
+/// What a backup is doing, said while it does it: one variant per step, in
+/// the order a backup takes them.
+///
+/// No counts: `git` says how far a clone or a push has got only in words
+/// meant for a terminal, which a backup does not read, and an export is
+/// the local disk, over before a count would be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    /// Checking the repository out into the scratch folder.
+    CheckingOut,
+    /// Exporting the library into the check-out.
+    Exporting,
+    /// Committing what the export wrote.
+    Committing,
+    /// Pushing the commit to the repository.
+    Pushing,
+}
+
+impl Progress {
+    /// Whether a cancel at this step still stops the backup: at every step
+    /// until it starts pushing, and at none after.
+    ///
+    /// Core's to say, as [`crate::gather::Progress::cancellable`] is, so a
+    /// front end that stops offering a cancel and the backup that stops
+    /// honouring one cannot disagree: a push stopped halfway would leave the
+    /// remote as nobody could say, where one let finish leaves it as asked.
+    pub fn cancellable(self) -> bool {
+        !matches!(self, Self::Pushing)
+    }
+}
+
+/// How a front end follows a backup and stops it: a [`follow::Watch`] of
+/// its [`Progress`], cancelled until the backup starts pushing.
+pub type Watch = follow::Watch<Progress>;
 
 /// What a backup is asked for.
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +94,8 @@ pub struct Request<'a> {
     /// A token to log in with over https, which the front end read for this
     /// run (D-16). Without one, whatever `git` logs in with is used.
     pub token: Option<&'a Token>,
+    /// Told how the backup is going, and able to stop it until it pushes.
+    pub watch: &'a Watch,
 }
 
 /// What a backup did.
@@ -97,10 +141,25 @@ pub enum BackupError {
         #[source]
         source: io::Error,
     },
+    /// Its [`Watch`] was cancelled before the push started: nothing was
+    /// sent, and the check-out is gone.
+    #[error("the backup was cancelled before anything was pushed: the repository is as it was")]
+    Cancelled,
     #[error(transparent)]
     Export(#[from] ExportError),
     #[error(transparent)]
-    Upstream(#[from] UpstreamError),
+    Upstream(UpstreamError),
+}
+
+impl From<UpstreamError> for BackupError {
+    /// What the upstream says, but a cancel it honoured, which is the
+    /// backup's own: one condition, said once, whichever step it reached.
+    fn from(error: UpstreamError) -> Self {
+        match error {
+            UpstreamError::Cancelled => Self::Cancelled,
+            error => Self::Upstream(error),
+        }
+    }
 }
 
 codes!(BackupError {
@@ -109,6 +168,7 @@ codes!(BackupError {
     Self::Branch { .. } => "backup_branch_invalid",
     Self::Unmade { .. } => "backup_workspace_unmade",
     Self::Scratch { .. } => "backup_scratch_failed",
+    Self::Cancelled => "backup_cancelled",
 } carried {
     Self::Export(error) => error,
     Self::Upstream(error) => error,
@@ -120,7 +180,14 @@ pub fn message(workspace: &WeaverWorkspace) -> String {
 }
 
 /// Back `workspace`'s library up to the repository `request` names, through
-/// `upstream`.
+/// `upstream`, telling `request.watch` each step and stopping when it is
+/// cancelled, until the push starts.
+///
+/// The watch is looked at before each step and handed to each one before
+/// the push, which stops what it runs when it is cancelled; it is looked
+/// at a last time just before the push, the last moment a cancel is
+/// honoured, as a gather's is just before it places. Anything nobody
+/// follows is given a watch nobody cancels.
 pub fn backup(
     workspace: &WeaverWorkspace,
     request: &Request,
@@ -144,8 +211,19 @@ pub fn backup(
         });
     }
 
+    let watch = request.watch;
+    let step = |progress: Progress| {
+        if watch.is_cancelled() {
+            return Err(BackupError::Cancelled);
+        }
+        watch.report(progress);
+        Ok(())
+    };
+
+    step(Progress::CheckingOut)?;
     let work = CheckOut::new(&workspace.scratch_dir())?;
-    let checked = upstream.check_out(request.url, request.branch, &work.0, request.token)?;
+    let checked = upstream.check_out(request.url, request.branch, &work.0, request.token, watch)?;
+    step(Progress::Exporting)?;
     let exported = export::export_at(workspace, &work.0, request.kinds, true, Place::Scratch)?;
     let held = WeaverWorkspace::open(&work.0)
         .map_err(ExportError::from)?
@@ -154,7 +232,17 @@ pub fn backup(
     let message = request
         .message
         .map_or_else(|| message(workspace), str::to_owned);
-    let published = upstream.publish(&work.0, &[held], &message, request.token)?;
+    step(Progress::Committing)?;
+    let published = match upstream.commit(&work.0, &[held], &message, watch)? {
+        Commit::Nothing => Published::Unchanged,
+        Commit::Ready { revision } => {
+            // The last look: past it the remote changes, and a push
+            // stopped halfway would leave it as nobody could say.
+            step(Progress::Pushing)?;
+            upstream.push(&work.0, request.token)?;
+            Published::Pushed { revision }
+        }
+    };
 
     Ok(BackedUp {
         url,

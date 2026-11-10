@@ -1367,6 +1367,7 @@ impl Absence for PolicyError {
             | PolicyError::InWeaverDir { .. }
             | PolicyError::Unlisted { .. }
             | PolicyError::YesUnasked { .. }
+            | PolicyError::TokenVariable { .. }
             | PolicyError::Server(_) => false,
         }
     }

@@ -4,13 +4,14 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use mindweaver_core::gather::{self, Report, Request, Scrub, Watch};
+use mindweaver_core::gather::{self, Report, Request, Scrub};
 use mindweaver_core::install::{offered_by_loads, Offer};
 use mindweaver_core::port::Token;
 use mindweaver_core::url::redacted;
 use mindweaver_core::{Kind, WeaverWorkspace};
 
 use super::{reading_workspace, workspace_here};
+use crate::progress::{Progress, Watch};
 use crate::render::{indent, json_or_text, plural, printable, table};
 use crate::{token, CliError, Credential, Failure, GatherCommand, Lookup, Outcome, Warning};
 
@@ -41,7 +42,7 @@ pub(crate) fn run_gather(
                 .from_subdirectory(path.clone())
                 .at(reference.clone())
                 .named(name.clone())
-                .watched_by(watch.clone())
+                .watched_by(watch.relaying(Progress::Gather))
                 .with_token(handed(url, credential)?);
             if *dry_run {
                 // A read of the ledger, which a workspace that never
