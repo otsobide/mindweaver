@@ -22,14 +22,22 @@
       ]
     },
     {
-      "description": "A task's lines started to run on the writer thread.",
+      "description": "A task's lines started to run on the writer thread, as run `run`:\ncounted from 1 in the order runs start, the number a cancel names\nit by. With whether it takes a cancel, as the backend's preview\nsaid ([`Preview::cancellable`]), so a panel offers one for a run\nanother tab or a script sent too.\n\n[`Preview::cancellable`]: crate::Preview::cancellable",
       "type": "object",
       "properties": {
+        "cancellable": {
+          "type": "boolean"
+        },
         "lines": {
           "type": "array",
           "items": {
             "type": "string"
           }
+        },
+        "run": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
         },
         "type": {
           "type": "string",
@@ -38,11 +46,87 @@
       },
       "required": [
         "type",
-        "lines"
+        "run",
+        "lines",
+        "cancellable"
       ]
     },
     {
-      "description": "They stopped, however that went: the reply to the run says how.",
+      "description": "How run `run` is going, as the backend reported it\n([`Underway::report`]): its own JSON, carried unread, as a changed\npath's scope is.\n\n[`Underway::report`]: crate::Underway::report",
+      "type": "object",
+      "properties": {
+        "progress": true,
+        "run": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "progress"
+        }
+      },
+      "required": [
+        "type",
+        "run",
+        "progress"
+      ]
+    },
+    {
+      "description": "Run `run` was asked to stop (`POST /api/v1/tasks/cancel`), from\nthis tab, another or a script: whether it stopped, and where, its\nfinish and its outcome say. Told once, however often it is asked.",
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "cancelling"
+        }
+      },
+      "required": [
+        "type",
+        "run"
+      ]
+    },
+    {
+      "description": "The writer thread is busy with run `run`, so whatever is sent now\nwaits its turn behind it: told when a run or a switch is queued\nwhile a run is under way, and to a subscriber as it subscribes\nwhile one is, with the run's latest [`Progress`](Event::Progress)\nafter it. With its lines, whether it takes a cancel and whether it\nwas asked to stop, as its start and any cancel said.",
+      "type": "object",
+      "properties": {
+        "cancellable": {
+          "type": "boolean"
+        },
+        "cancelling": {
+          "type": "boolean"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "run": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "busy"
+        }
+      },
+      "required": [
+        "type",
+        "run",
+        "lines",
+        "cancellable",
+        "cancelling"
+      ]
+    },
+    {
+      "description": "Run `run` stopped, however that went: the reply to the run says how.",
       "type": "object",
       "properties": {
         "lines": {
@@ -51,6 +135,11 @@
             "type": "string"
           }
         },
+        "run": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
         "type": {
           "type": "string",
           "const": "command_finished"
@@ -58,6 +147,7 @@
       },
       "required": [
         "type",
+        "run",
         "lines"
       ]
     },

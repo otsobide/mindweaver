@@ -394,7 +394,7 @@ impl Backend for Crooked {
         unreachable!("never served")
     }
 
-    fn run(&self, _: FakeTask) -> Result<FakeOutcome, Refusal> {
+    fn run(&self, _: FakeTask, _: &Underway) -> Result<FakeOutcome, Refusal> {
         unreachable!("never served")
     }
 

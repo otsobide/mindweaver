@@ -5,7 +5,8 @@ import type { SourceKind } from "./SourceKind";
  * A place artifacts have been gathered from.
  *
  * What it serializes to is a contract, as a status report's is: each field
- * by its name, but the row id, and the URL only through [`redacted`].
+ * by its name, but the row id, and the URL only through [`redacted`]. Its
+ * `name` was added after the rest (#98), which moved no version.
  */
 export type Source = { kind: SourceKind, 
 /**
@@ -19,7 +20,9 @@ url: string,
  */
 reference: string | null, 
 /**
- * The folder inside the source that was harvested, `skills` by default.
+ * The folder inside the source that was harvested: `.`, the whole
+ * repository, by default, and `skills` for a source an older build
+ * registered with what was its default then.
  */
 subdirectory: string, 
 /**
@@ -33,4 +36,10 @@ revision: string | null,
  * name, and where a source's files went is a fact about the past that
  * must not move when the naming rule changes.
  */
-directory: string, };
+directory: string, 
+/**
+ * What it is called (D-13), one name a source: `owner-repo` unless
+ * somebody named it ([`SourceName::derived`]), what a listing shows
+ * and `--from` takes.
+ */
+name: string, };

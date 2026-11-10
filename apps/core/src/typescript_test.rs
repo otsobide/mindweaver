@@ -464,6 +464,9 @@ fn every_value_object_is_said_as_the_string_serde_writes() {
         says_it_is_a_string(&OriginMother::random());
         says_it_is_a_string(&ArtifactNameMother::random());
         says_it_is_a_string(&RevisionMother::random());
+        says_it_is_a_string(&crate::value::SourceName::derived(
+            &crate::mother::UrlMother::https(),
+        ));
     }
 }
 

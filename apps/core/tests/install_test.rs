@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use common::{repository, skill, url};
+use common::{repository, skill, url, write_files};
 use mindweaver_core::copy;
 use mindweaver_core::gather::{self, Request};
 use mindweaver_core::install::{self, Installed, Removed, Standing};
@@ -1543,6 +1543,54 @@ fn an_origin_as_printed_names_its_one_offer_though_another_branch_has_its_addres
 }
 
 #[test]
+fn from_takes_a_sources_name_and_another_spelling_of_its_url_which_is_said() {
+    let (_dir, workspace, project, ledger) = ready(&["review"]);
+    let one = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let other = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it too"))]);
+    gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&one)).named(Some("one")),
+    )
+    .unwrap();
+    gather::gather(&workspace, &ledger, &Request::git(url(&other))).unwrap();
+    let from = |typed: &str| {
+        install::offered(
+            &workspace,
+            &ledger,
+            &project,
+            Kind::Skill,
+            "deploy",
+            Some(typed),
+        )
+        .unwrap()
+    };
+
+    // Each by its name, the one a listing shows, though both offer it.
+    let named = from("one");
+    let respelled = from(&format!("{}/", url(&one)));
+    let printed = from(&url(&one));
+
+    for candidate in [&named, &respelled, &printed] {
+        assert_eq!(candidate.origin(), url(&one));
+        // Listed by its name, the one it is installed from by its origin.
+        assert_eq!(candidate.offer.listed_from(), "one");
+    }
+    assert_eq!(install::respelled(&named, "one"), None);
+    assert_eq!(install::respelled(&printed, &url(&one)), None);
+    let said = install::respelled(&respelled, &format!("{}/", url(&one))).unwrap();
+    assert_eq!(said.code(), "from_spelling_deprecated");
+    assert_eq!(
+        said.to_string(),
+        format!(
+            "--from {}/ names the source `one` by another spelling of its URL, which --from \
+             takes for now: name it `one`",
+            url(&one)
+        )
+    );
+}
+
+#[test]
 fn from_typed_with_credentials_names_the_source_they_were_taken_out_of_and_repeats_none() {
     let (_dir, workspace, project, ledger) = ready(&["deploy"]);
     // As if gathered from an https address rather than from a path.
@@ -1573,17 +1621,25 @@ fn from_typed_with_credentials_names_the_source_they_were_taken_out_of_and_repea
 // ---------------------------------------------------------------------------
 
 /// A shelf holding `deploy` with a `.claude-plugin` folder beside its
-/// `SKILL.md`, as a plugin's skill is gathered, and a project marked by its
-/// settings naming every agent.
+/// `SKILL.md`, as a build before #101 gathered a plugin's skill, and a
+/// project marked by its settings naming every agent.
+///
+/// Put on the shelf by hand once it is gathered, since a gather leaves it
+/// out now: what an install says of it is the same whoever offers it, a
+/// workspace's own or a loaded one's among them.
 fn plugin_skill() -> (TempDir, WeaverWorkspace, MindProject, Ledger) {
     let (dir, workspace, _, ledger) = gathered(&[
         ("skills/deploy/SKILL.md", &skill("deploy", "Ship it")),
-        (
-            "skills/deploy/.claude-plugin/plugin.json",
-            r#"{"name": "deploy", "hooks": "hooks.json"}"#,
-        ),
         ("skills/deploy/scripts/.claude-plugin/example.json", "{}"),
     ]);
+    let shelved = ledger.gathered().unwrap()[0].path.clone();
+    write_files(
+        &workspace.root().join(shelved),
+        &[(
+            ".claude-plugin/plugin.json",
+            r#"{"name": "deploy", "hooks": "hooks.json"}"#,
+        )],
+    );
     let root = dir.path().join("alpha");
     fs::create_dir(&root).unwrap();
     let (project, _) =
@@ -2031,6 +2087,7 @@ fn a_candidate_from_the_shelf_serializes_without_the_credentials_its_source_carr
                 subdirectory: String::from("skills"),
                 revision: Some("4f9c2a7".into()),
                 directory: String::from("github.com-acme-skills"),
+                name: mindweaver_core::value::SourceName::parse("acme-skills").unwrap(),
             },
         }),
         standing: Standing::Outdated,
@@ -2047,7 +2104,7 @@ fn a_candidate_from_the_shelf_serializes_without_the_credentials_its_source_carr
             r#""summary":"Review a change","revision":"4f9c2a7","gathered_at":1790000000,"#,
             r#""source":{"kind":"git","url":"https://github.com/acme/skills.git","#,
             r#""reference":"main","subdirectory":"skills","revision":"4f9c2a7","#,
-            r#""directory":"github.com-acme-skills"},"#,
+            r#""directory":"github.com-acme-skills","name":"acme-skills"},"#,
             r#""origin":"https://github.com/acme/skills.git#main"},"#,
             r#""standing":"outdated"}"#,
         )

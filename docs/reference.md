@@ -26,6 +26,7 @@ says why each part is the way it is.
 - [Gathering skills from elsewhere](#gathering-skills-from-elsewhere)
 - [Installing into a project](#installing-into-a-project)
 - [Loading another workspace](#loading-another-workspace)
+- [Exporting and backing up the library](#exporting-and-backing-up-the-library)
 - [What each project has](#what-each-project-has)
 - [Machine-readable output](#machine-readable-output)
 - [Following a project that moved](#following-a-project-that-moved)
@@ -519,8 +520,10 @@ mindweaver load <path>...  # offer another workspace's own skills and rules,
                            # read live
 mindweaver unload <path>...  # stop offering them
 
-mindweaver gather git <URL>
-                           # collect skills from a repository onto the shelf
+mindweaver gather git <URL> [--path DIR] [--ref REF] [--name NAME] [--dry-run]
+                           # collect skills from a repository onto the shelf,
+                           # wherever it keeps them, under a name --from
+                           # takes; with --dry-run, say what it would take
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver install         # a screen for putting skills, rules and MCP
@@ -535,6 +538,13 @@ mindweaver adopt -p PROJECT <NAME> [--yes]
                            # a skill a project keeps by hand in an agent's
                            # folder, into the library and managed from there;
                            # without --yes, say what would happen
+mindweaver export <DIR> [--kind KIND]... [--yes]
+                           # its own skills, rules and MCP servers into DIR,
+                           # as a workspace `load` reads; without --yes,
+                           # nothing there is changed or removed
+mindweaver backup <URL> [--branch BRANCH] [--kind KIND]... [-m MESSAGE] [--token-env VAR]
+                           # the same, committed and pushed to a git
+                           # repository with the git on the PATH
 mindweaver agents|share|targets -p PROJECT ...
                            # mind's agents, share and targets, for one of its
                            # projects
@@ -771,19 +781,25 @@ workspace and belonging to no project yet.
 
 ```
 $ mindweaver gather git https://github.com/acme/skills
-https://github.com/acme/skills at a1b2c3d
+acme-skills: https://github.com/acme/skills at a1b2c3d
   added  commit-style  How this repo writes commit messages
   added  ddd-reviewer  Review a change against the DDD layering rules
 
 2 skills: 2 added, 0 updated, 0 unchanged
 ```
 
-The repository's `skills` folder is what gets harvested; `--path agents` takes
-another one, and `--ref v2` takes a branch or a tag instead of the default. A
-repository that is a weaver workspace made by `mindweaver init` keeps its own in
-[its library](#the-workspaces-own-skills-and-rules), so it is gathered with
-`--path .mindweaver/library/skills`, or [loaded](#loading-another-workspace)
-from a clone instead.
+The skills are taken from wherever the repository keeps them; see [where a
+repository keeps its skills](#where-a-repository-keeps-its-skills). `--path
+agents` looks in that folder alone, and `--ref v2` takes a branch or a tag
+instead of the default. The source is called `acme-skills`, after its owner and
+its repository, which is what `gather list` shows and `--from` takes; `--name
+team-skills` calls it something else, and given again with another name
+renames it. A name is letters, digits, `.`, `_` and `-`, and one source's only:
+one another source has is refused before anything is fetched. A repository that
+is a weaver workspace made by `mindweaver init` keeps its own in [its
+library](#the-workspaces-own-skills-and-rules), where no repository of skills
+keeps them, so it is gathered with `--path .mindweaver/library/skills`, or
+[loaded](#loading-another-workspace) from a clone instead.
 
 With stderr on a terminal it says what it is doing while it does it
 (`connecting`, `receiving objects 120/340`, `reading folders 3/40`) on one line
@@ -801,7 +817,7 @@ second time:
 
 ```
 $ mindweaver gather git https://github.com/acme/skills
-https://github.com/acme/skills at 9f8e7d6
+acme-skills: https://github.com/acme/skills at 9f8e7d6
   updated    commit-style  How this repo writes commit messages
   unchanged  ddd-reviewer  Review a change against the DDD layering rules
 
@@ -814,7 +830,7 @@ records which came from where.
 
 ```
 $ mindweaver gather git https://github.com/other/rules
-https://github.com/other/rules at 4d5e6f7
+other-rules: https://github.com/other/rules at 4d5e6f7
   added  commit-style  Conventional commits, strictly
   added  pdf--forms    Fill in PDF forms
 
@@ -822,10 +838,43 @@ https://github.com/other/rules at 4d5e6f7
 warning: /home/you/Projects/.mindweaver/skills/github.com-other-rules/pdf--forms/SKILL.md: `pdf--forms` is not usable as a name: it has to be lowercase letters and digits, joined by single hyphens
 
 $ mindweaver gather list
-commit-style  https://github.com/acme/skills  How this repo writes commit messages
-commit-style  https://github.com/other/rules  Conventional commits, strictly
-ddd-reviewer  https://github.com/acme/skills  Review a change against the DDD layering rules
-pdf--forms    https://github.com/other/rules  Fill in PDF forms
+commit-style  acme-skills  How this repo writes commit messages
+commit-style  other-rules  Conventional commits, strictly
+ddd-reviewer  acme-skills  Review a change against the DDD layering rules
+pdf--forms    other-rules  Fill in PDF forms
+```
+
+Each is listed by the name of its source, which is what `--from` takes when
+two sources offer one name:
+
+```
+$ mindweaver install -p collapse commit-style --from other-rules
+installed commit-style into collapse, from https://github.com/other/rules
+```
+
+The install records where it came from by the source's URL, as `status` and
+`gather list --json` show it (its `origin`), and `--from` takes that too.
+
+One repository is one source however its URL is spelled. On GitHub and
+GitLab, `https://github.com/acme/skills`, `https://github.com/Acme/Skills.git`,
+`git@github.com:acme/skills.git`, `ssh://git@github.com/acme/skills` and
+`acme/skills` are the same repository, so gathering it by another of them
+brings the source it already is up to date, fetched by the spelling you gave
+this time. `acme/skills` alone is GitHub's: a folder on this machine is a
+path, `./acme/skills` when it is relative. Elsewhere only a credential, the
+case of the scheme and the host, a trailing `/` and `file://` before a path
+make no other source, since another host may serve a different repository at
+`host:path` than at `ssh://host/path`, or at `x.git` than at `x`, and at
+`alice@host:skills` than at `bob@host:skills`, so the user ssh logs in as is
+kept there; a relative path is one source of its own, whatever folder it
+names. Another spelling of
+a source's URL still works as `--from`, with a warning that it is not the
+name, and the install goes ahead:
+
+```
+$ mindweaver install -p tanukeys commit-style --from https://github.com/Acme/Skills.git
+installed commit-style into tanukeys, from https://github.com/acme/skills
+warning: --from https://github.com/Acme/Skills.git names the source `acme-skills` by another spelling of its URL, which --from takes for now: name it `acme-skills`
 ```
 
 A skill that cannot be read is a warning on stderr and does not stop the ones
@@ -882,10 +931,10 @@ $ mindweaver gather git https://me:ghp_t0ken@github.com/acme/private-skills
 error: https://github.com/acme/private-skills: a password, a token or, over http(s), a user name in the URL is refused, because gathering stores and shows the URL: gather it without one, and configure a git credential helper that has it
 ```
 
-So is such a URL typed where the branch (`--ref`) or the folder (`--path`)
-goes, which the workspace would otherwise keep as that branch or folder, word
-for word, and refused with the same words, the URL said without what it
-carried.
+So is such a URL typed where the branch (`--ref`), the folder (`--path`) or
+the name (`--name`) goes, which the workspace would otherwise keep as that
+branch or folder, word for word, and refused with the same words, the URL said
+without what it carried.
 
 The user ssh logs in as is not a credential, and is kept
 (`git@github.com:acme/skills`, `ssh://git@github.com/acme/skills`). Over https
@@ -913,6 +962,167 @@ The install screen does it when you apply what you marked, not when it opens.
 A command that only reads, such as `mindweaver gather list`, shows the URL without
 the token and leaves the file as it is.
 
+A workspace gathered into by two spellings of one repository's URL before
+names came in (#98) held two sources of it. The first command to open it with
+this version makes them one, keeping the one gathered most recently and what
+it gathered, and moves every installation from the other to it, a command
+that only reads too. The first command that writes removes the clone and the
+shelf folder of the one that went, and says so, once (again by each command
+that writes after it while a folder will not go):
+
+```
+$ mindweaver install -p collapse ddd-reviewer
+installed ddd-reviewer into collapse, from git@github.com:acme/skills.git
+note: https://github.com/acme/skills: the same repository as the source `acme-skills` (git@github.com:acme/skills.git), so the two are one source now, and the shelf keeps what `acme-skills` gathered
+```
+
+`--from https://github.com/acme/skills` still names it, with the warning
+above.
+
+### Where a repository keeps its skills
+
+A gather looks where `gh skill` and `npx skills` both look. A `SKILL.md` at the
+repository's root makes the whole repository one skill, filed under the name it
+declares. Otherwise each folder holding a `SKILL.md` is a skill when it is:
+
+- at the root, a folder of its own (`deploy/SKILL.md`);
+- in `skills/`, or in a namespace of it (`skills/<namespace>/`,
+  `skills/.curated/`, `skills/.system/`);
+- where agents read them in a project (`.agents/skills/`, `.claude/skills/`);
+- in a plugin (`plugins/<plugin>/skills/`).
+
+Nothing deeper is looked at, and neither is a folder whose name starts with `.`
+unless it is one of those, nor `node_modules`. A folder holding a `SKILL.md` is
+a skill with everything in it, so another `SKILL.md` further down, an example
+it ships, is one of its files. `--path` looks for the same places under the
+folder it names, so `--path plugins/docs` takes that plugin's skills, and
+`--path skills/review` takes that one skill. A link is followed only to a
+folder inside the one looked in, and a folder reached twice, as
+`.claude/skills` linked to `skills` is, is one skill.
+
+```
+$ mindweaver gather git https://github.com/acme/tools
+acme-tools: https://github.com/acme/tools at 5c6d7e8
+  added  commit-style  How this repo writes commit messages
+  added  lint          Tidy the code
+  added  pdf           Read PDFs
+
+3 skills: 3 added, 0 updated, 0 unchanged
+```
+
+The shelf keeps each under the name of its folder, wherever that is in the
+repository, so two skills of one repository called the same, by their folders
+or by the names they declare, are neither taken: which of them a name means is
+not a gather's to guess. Each is said where it is, and `--path` takes the one
+you want:
+
+```
+$ mindweaver gather git https://github.com/acme/ops
+acme-ops: https://github.com/acme/ops at 2b3c4d5
+  added  review  Read a change
+
+1 skill: 1 added, 0 updated, 0 unchanged
+warning: skills/ops/deploy: not taken, since skills/web/deploy in the same source is called `deploy` too; gather the one wanted with `--path`
+warning: skills/web/deploy: not taken, since skills/ops/deploy in the same source is called `deploy` too; gather the one wanted with `--path`
+```
+
+A repository that is one skill:
+
+```
+$ mindweaver gather git https://github.com/acme/deploy-skill
+acme-deploy-skill: https://github.com/acme/deploy-skill at 7a8b9c0
+  added  deploy  Ship the service
+
+1 skill: 1 added, 0 updated, 0 unchanged
+```
+
+A skill's own `.claude-plugin` folder, at its top, is left off the shelf, as
+[every install leaves it out](#where-a-project-keeps-its-artifacts), since
+Claude would load a skill holding one as a plugin; the gather says so in a note
+and does not fail:
+
+```
+$ mindweaver gather git https://github.com/acme/ops-plugin
+acme-ops-plugin: https://github.com/acme/ops-plugin at 3e4f5a6
+  added  deploy  Ship the service
+
+1 skill: 1 added, 0 updated, 0 unchanged
+note: deploy was gathered without its .claude-plugin, since Claude would load the skill as a plugin, with the hooks and MCP servers it declares
+```
+
+A repository holding no skill in any of those places is not gathered, and says
+where it was looked for:
+
+```
+$ mindweaver gather git https://github.com/acme/notes
+error: https://github.com/acme/notes: no skill found in the repository: looked for a `SKILL.md` there, in each folder there, and in each folder of `skills`, `skills/<namespace>`, `.agents/skills`, `.claude/skills` and `plugins/<plugin>/skills`; name the folder that holds them with `--path`
+```
+
+A source an older Mindweaver gathered took only the `skills` folder, which it
+looked in unless `--path` named another. Gathered again without `--path`, it
+stays the same source, called what it was, and looks through the whole
+repository from then on.
+
+### Naming a repository, a branch and a folder at once
+
+What `gh skill` and `npx skills` take for a repository is taken here too.
+`acme/skills` is the GitHub repository, as above, and `acme/skills@v2` that
+repository at the branch or tag `v2`. The address of a folder on GitHub or
+GitLab, as a browser shows it, is the repository at that branch, looked in at
+that folder, so
+
+```
+mindweaver gather git https://github.com/acme/skills/tree/main/skills/review
+```
+
+is `mindweaver gather git acme/skills --ref main --path skills/review`, and so
+is GitLab's `https://gitlab.com/acme/skills/-/tree/main/skills/review`. The
+branch is the one part after `tree`, so a branch with a `/` in it is given with
+`--ref` and `--path` instead. A branch or a folder said both ways, differently,
+is refused before anything is fetched, as is a folder outside the repository:
+
+```
+$ mindweaver gather git acme/skills@v1 --ref v2
+error: the URL names the branch `v1`, and `--ref` names `v2`: give it once
+```
+
+### What a gather would take
+
+`--dry-run` says what a gather would take, where each skill is in the
+repository, and what of it the shelf holds already, without taking anything:
+the repository is fetched into a folder of its own in `.mindweaver/tmp`, which
+goes once it has said so, and the shelf, `cache/` and `mindweaver.db` are left
+as they were.
+
+```
+$ mindweaver gather git https://github.com/acme/tools --dry-run
+acme-tools: https://github.com/acme/tools at 5c6d7e8
+  would add  commit-style  skills/commit-style      How this repo writes commit messages
+  would add  lint          .claude/skills/lint      Tidy the code
+  would add  pdf           plugins/docs/skills/pdf  Read PDFs
+
+3 skills: 3 to add, 0 to update, 0 unchanged
+nothing gathered: run it without --dry-run to gather
+```
+
+Once it is gathered, a dry run says what a gather would change:
+
+```
+$ mindweaver gather git https://github.com/acme/tools --dry-run
+acme-tools: https://github.com/acme/tools at 9d0e1f2
+  would update  lint          .claude/skills/lint      Tidy the code
+  unchanged     commit-style  skills/commit-style      How this repo writes commit messages
+  unchanged     pdf           plugins/docs/skills/pdf  Read PDFs
+
+3 skills: 0 to add, 1 to update, 2 unchanged
+nothing gathered: run it without --dry-run to gather
+```
+
+It says what the gather would warn of, and exits as the gather would, so a
+script can ask first. What it could not read it names by where it is in the
+repository, since the folder it read it from is gone. Like a gather, it makes
+the workspace in your home when that is the one it acts on and is not made yet.
+
 ### What a workspace keeps
 
 ```
@@ -935,6 +1145,8 @@ the token and leaves the file as it is.
   cache/<source>/ the clone, kept so a gather can be looked at afterwards
   skills/<source>/<name>/SKILL.md
   templates/      templates for every project it manages, if you add any
+  tmp/            a gather's --dry-run clone while it runs, and the text the
+                  control panel saves while its line runs
 ```
 
 `mindweaver.db` is SQLite, and it is the one thing Mindweaver writes that is
@@ -1131,10 +1343,12 @@ mind uninstall commit-style
 ```
 
 The same rule holds: a skill or a rule somebody wrote is never overwritten or
-removed, and says so. `--from` takes `workspace`, a shelf source's URL, or a
-loaded workspace's path or name, and is only needed when two places offer the
+removed, and says so. `--from` takes `workspace`, a shelf source's name or
+URL, or a loaded workspace's path or name, and is only needed when two places offer the
 same name: which of the two lands in the project's one folder of that name is
-not something to guess.
+not something to guess. A word that is both a source's name and a loaded
+workspace's name or path names neither, and is refused as offered twice: say
+the source's URL or `load:<path>` instead.
 
 `mindweaver install` takes `-p` once for each project, to install into several
 at once, or `--all-projects` for every one the workspace links, and `mindweaver
@@ -1262,6 +1476,174 @@ route no rule may be named; a symlink pointing out of the loaded workspace is
 not followed, and nothing it keeps as its own is ever overwritten or removed
 from a project that shares its folder. Each of these is a `warning:` line,
 like a skill that cannot be read or a loaded workspace that has gone.
+
+
+## Exporting and backing up the library
+
+The library is the one thing in a workspace that cannot be gathered again from
+somewhere: the skills, rules and MCP servers you wrote yourself. `mindweaver
+export` writes a copy of it into a folder, laid out as a workspace of its own,
+named after yours and linking nothing:
+
+```
+$ cd ~/Projects
+$ mw export ../backup
+/home/you/backup, a workspace named Projects made there
+  added  skill  deploy
+  added  rule   git/commits
+  added  mcp    github
+
+3 artifacts: 3 added, 0 updated, 0 removed, 0 unchanged
+```
+
+So the way back is one you know: [`mindweaver load`](#loading-another-workspace)
+of that folder offers all of it to the projects of any workspace, and its
+skills can be [gathered](#gathering-skills-from-elsewhere) with `--path
+.mindweaver/library/skills`.
+
+```
+$ cd ~/elsewhere
+$ mw load ../backup
+loaded Projects as ../backup: 1 skill and 1 rule and 1 MCP server to install
+  into the workspace at /home/you/elsewhere
+```
+
+`--kind` takes one kind, `skills`, `rules` or `mcp`, and can be given once for
+each; without it every kind is exported.
+
+```
+$ mw export ../backup --kind rules
+/home/you/backup, a workspace named Projects made there
+  added  rule  git/commits
+
+1 artifact: 1 added, 0 updated, 0 removed, 0 unchanged
+```
+
+Exported again, the folder is brought up to date with the library, each kind
+copied whole, so what you removed from the library goes from the export too.
+Adding to it needs nothing more, but changing or removing what an earlier
+export wrote, which somebody may have edited there since, is only said until
+`--yes`:
+
+```
+$ mw export ../backup
+/home/you/backup
+  would add     skill  review
+  would remove  rule   git/commits
+  unchanged     skill  deploy
+  unchanged     mcp    github
+
+4 artifacts: 1 to add, 0 to update, 1 to remove, 2 unchanged
+nothing exported: add --yes to go ahead
+
+$ mw export ../backup --yes
+/home/you/backup
+  added      skill  review
+  removed    rule   git/commits
+  unchanged  skill  deploy
+  unchanged  mcp    github
+
+4 artifacts: 1 added, 0 updated, 1 removed, 2 unchanged
+```
+
+A folder that is not an export is refused before anything is written: a
+workspace in use (one with a ledger, projects linked, workspaces loaded or
+others known), one whose marker keeps a kind anywhere but its library, a
+`.mindweaver` with no marker, a folder inside any workspace's own, and the
+workspace itself:
+
+```
+$ mw export .
+error: /home/you/Projects is where this workspace keeps what it would export: export into a folder of its own
+```
+
+So is a library holding an MCP server whose definition has what looks like a
+token written in it, or one that does not read, where that cannot be told: an
+export goes wherever the folder goes, a public repository included, and a
+definition [holds no secret](#what-an-mcp-server-looks-like).
+
+### Backing it up to a git repository
+
+`mindweaver backup` is the same export, made into a fresh check-out of a git
+repository, committed and pushed. The repository can be an https or ssh URL,
+or a path; a new, empty one is fine.
+
+```
+$ mw backup ../backups/library.git
+/home/you/backups/library.git, branch main
+  added  skill  deploy
+  added  rule   git/commits
+  added  mcp    github
+
+3 artifacts: 3 added, 0 updated, 0 removed, 0 unchanged
+pushed 4e1d2c9 to main
+```
+
+Run again with nothing changed, it pushes nothing:
+
+```
+$ mw backup ../backups/library.git
+/home/you/backups/library.git, branch main
+  unchanged  skill  deploy
+  unchanged  rule   git/commits
+  unchanged  mcp    github
+
+3 artifacts: 0 added, 0 updated, 0 removed, 3 unchanged
+nothing to push: main holds this already
+```
+
+It commits to the branch the repository names as its own, or to the one
+`--branch` names, started from that one when the repository has none of its
+name. `--kind` works as for `export`, and `-m` says what the commit says
+instead of `Back up the library of <name>`. A backup needs no `--yes`: what it
+takes out of the branch is still in the branch's history.
+
+```
+$ mw backup ../backups/library.git --kind skills --branch skills
+/home/you/backups/library.git, branch skills
+  added  skill  deploy
+
+1 artifact: 1 added, 0 updated, 0 removed, 0 unchanged
+pushed 9b7a310 to skills
+```
+
+To get it back, clone the repository and `mindweaver load` the clone.
+
+The check-out is made in the workspace's `.mindweaver/tmp` and taken away
+afterwards, whatever came of it, so nothing of the repository stays on the
+machine, and two machines backing up to one branch each start from what the
+other pushed.
+
+**Logging in.** It is pushed with the `git` on your PATH, logged in as that git
+logs in: its credential helper (`gh auth setup-git` makes `gh` one), or ssh's
+keys and agent for an ssh URL. A token can be given instead, for one run,
+through the environment variable `--token-env` names; it reaches `git` through
+a credential helper given on its command line, and is never written anywhere
+nor shown:
+
+```
+$ GITHUB_TOKEN=$(gh auth token) mw backup https://github.com/you/library-backup.git --token-env GITHUB_TOKEN
+```
+
+It never asks for a credential: one nothing has is an error naming the ways to
+give one, as for a [gather](#gathering-skills-from-elsewhere). A variable that
+holds nothing is refused, and so is a token for an ssh URL, which logs in with
+keys of its own, and a URL with a credential written in it, which would be kept
+in the check-out and said in every error:
+
+```
+$ mw backup https://github.com/you/library-backup.git --token-env GITHUB_TOKEN
+error: $GITHUB_TOKEN holds no token: set it for this command, or leave --token-env out to log in as git does
+
+$ mw backup https://you:hunter2@github.com/you/library-backup.git
+error: https://github.com/you/library-backup.git: carries a credential, which would be kept in the check-out and said in every error: name a variable holding a token with --token-env instead
+```
+
+The commit is made as the identity your git configuration names, or as
+`Mindweaver <mindweaver@localhost>` when it names none, and runs no hook.
+`backup` is run from a shell only, never from the TUI or the control panel: it
+sends over the network for as long as that takes, with no progress to show,
+and ssh may ask on the terminal it was started from.
 
 ## What each project has
 
@@ -1532,7 +1914,8 @@ warning: /home/you/Projects/collapse/skills/broken/SKILL.md: the file does not s
 - `templates`: each template, its `origin` the folder or file it is, `null`
   for one built in.
 - `gather list`: what can be installed from elsewhere, each with the `place`
-  it comes from (`loaded` or `shelf`) and its `origin`, as `--from` takes it.
+  it comes from (`loaded` or `shelf`) and its `origin`, as `--from` takes it,
+  and for one from the shelf its `source`, by its `name` among the rest.
 - `status`, `workspaces` and `scan`: the reports shown in [what each project
   has](#what-each-project-has), [the weavers this machine
   knows](#the-weavers-this-machine-knows) and [commands](#commands).
@@ -2008,10 +2391,13 @@ TUI does. It sends a task; the server turns it into the command lines you
 could have typed, shows them before they run, and runs them through the same
 parser, one at a time. A command that would open a screen, an editor or a
 shell, or read standard input, is refused, and so is a path outside what
-the workspace allows, each with a reason and a code. The first Ctrl-C (or,
-on Unix, the `SIGTERM` `kill` sends) lets whatever is running finish, a
-second stops at once, and on the way out it prints every command that
-changed something, with what each said, as the TUI does when it closes:
+the workspace allows, each with a reason and a code. A gather runs as any
+change does, showing how far it has got as it goes, and stops when asked,
+until it starts placing what it read on the shelf, as in the TUI. The
+first Ctrl-C (or, on Unix, the `SIGTERM` `kill` sends) stops a gather
+under way as a cancel does, lets whatever else is running finish, a second
+stops at once, and on the way out it prints every command that changed
+something, with what each said, as the TUI does when it closes:
 
 ```
 $ mindweaver -W /home/you/Projects install -p /home/you/Projects/collapse skill:commit-style
@@ -2552,10 +2938,13 @@ takes a structure is a POST that changes nothing:
   about to be written, with nothing written.
 
 Every change is a task, the command lines it is, as the panel's are: `POST
-/api/v1/tasks/preview` for the lines a task is and what of them the panel
-asks you to confirm (`{"lines": [...], "confirm": [...]}`), `POST
+/api/v1/tasks/preview` for the lines a task is, what of them the panel
+asks you to confirm and whether a run of it can be stopped
+(`{"lines": [...], "confirm": [...], "cancellable": false}`), `POST
 /api/v1/tasks` to run them, which asks nobody, answered with what each line
-said, `POST /api/v1/switch` with `{"path": "/home/you/Notes"}` to switch to
+said, `POST /api/v1/tasks/cancel` with `{"run": 3}` to stop the run under
+way, a gather, which stops before it puts anything on the shelf, `POST
+/api/v1/switch` with `{"path": "/home/you/Notes"}` to switch to
 a workspace `/api/v1/workspaces` lists, answered with its row, `GET
 /api/v1/transcript` for everything the session ran, and `GET
 /api/v1/events` for what happens as it happens, as server-sent events:
@@ -2563,8 +2952,11 @@ a workspace `/api/v1/workspaces` lists, answered with its row, `GET
 behind; right after it `watching`, or `unwatched` with a `reason` when the
 server cannot watch everything, and either again whenever that changes;
 `changed` when something watched changed; `command_started` and
-`command_finished` around each run; and `switched` once the panel acts on
-another workspace, to read everything again.
+`command_finished` around each run, with its number, `run`, which a cancel
+names; `progress` with each step a gather takes, in the words `mindweaver
+gather` draws it in, `cancelling` once one is asked to stop, and `busy`
+when a change you send waits behind one; and `switched` once the panel
+acts on another workspace, to read everything again.
 
 A POST sends its body as JSON, and says so in `Content-Type`, which curl's
 `-d` alone does not (it says a form):
@@ -2605,6 +2997,8 @@ Its status says which kind of thing went wrong, and the code which one:
 | 404 | `unknown_route` | a path no route names, `/api` without its version among them |
 | 404 | Mindweaver's | a read naming what is not there: `not_registered` for an entry, `not_found` for an artifact, `contents_missing` for a file, `browse_missing` for a folder |
 | 405 | `method_not_allowed` | a method the route does not take (with `Allow`) |
+| 409 | `not_running` | a cancel of a run that is not the one under way |
+| 409 | `uncancellable` | a cancel of the run under way, which takes none |
 | 413 | `body_too_large` | a body larger than the server reads |
 | 415 | `json_required` | a body not sent as `application/json` |
 | 422 | `invalid_body` | JSON that is not what the route reads |

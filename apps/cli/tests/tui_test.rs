@@ -1164,7 +1164,7 @@ fn gathering_in_the_tui_is_weaver_gather_git() {
         task,
         Some(Task::Gather {
             url: url.clone(),
-            folder: String::from("skills"),
+            folder: String::from(mindweaver_core::DEFAULT_SUBDIRECTORY),
             reference: None,
         })
     );

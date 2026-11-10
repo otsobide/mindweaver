@@ -176,7 +176,17 @@ under `apps/` with its own `Makefile`:
   other key kept (`mcp::retransported`, `lifecycle::retransport`, what
   `edit` told the options does), the
   agents and where each kind goes for them (`agent`), the catalog, gathering
-  (through `port::Remote`), the ledger (through `port::LedgerStore`), installing, keeping installs out of git
+  (through `port::Remote`), from wherever a repository keeps its skills
+  (`gather::LAYOUTS`), a source typed as `owner/repo@ref` or a folder's
+  address on a forge read as the repository, branch and folder it names
+  (`url::located`), and what a gather would take, with nothing written
+  (`gather::dry_run`), reading a catalog over HTTP (through
+  `port::Http`), the redirects core follows, a status that is no success,
+  JSON read into what is asked and pages that follow one another
+  (`http::Client`, `http::with_query`, `http::next_link`), and the answers a
+  workspace keeps in its `cache/http` (`http::Cache`), none of it called
+  yet (#106 and #108 are its first callers), the ledger (through
+  `port::LedgerStore`), installing, keeping installs out of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
   Claude reads that block and the `@AGENTS.md` import in a project's
@@ -209,7 +219,11 @@ under `apps/` with its own `Makefile`:
   workspace's own from every project it links before the library
   (`everywhere`), and bringing a skill somebody keeps in a project's agents'
   folders into the library, its copies recorded as installed from there
-  (`adopt`), what keeps a project's agents from what it gives them, which
+  (`adopt`), writing the library into a folder laid out as a workspace of
+  its own, a plan until told yes when that would change or remove what is
+  there (`export`), and sending it to a git repository, an export into a
+  fresh check-out committed and pushed (`backup`), what keeps a project's
+  agents from what it gives them, which
   no agent says, found from file reads alone and told the agent homes and
   the names of the variables set (`doctor`, `doctor::Machine`), the stable
   code each of its errors gives (`code`), the
@@ -237,14 +251,20 @@ under `apps/` with its own `Makefile`:
   record, a test builds through its object mother in `mother`, compiled only
   for tests (`cfg(test)`, or the `mother` feature a dev-dependency turns
   on). Its only I/O beyond files
-  goes through a port (`port`: a `Remote` a gather fetches through, a
+  goes through a port (`port`: a `Remote` a gather fetches through, the
+  `Http` a catalog is read through, one `GET` answered whatever its
+  status, with its `HttpRequest`, `HttpResponse` and `HttpError`, a
   `LedgerStore` the ledger keeps its records in, a `Clock` it stamps them
-  by), each implemented by an adapter in `adapter` (`adapter::gix::Gix`,
-  its credentials callback in `adapter/gix/credentials.rs`;
+  by, an `Upstream` a backup is checked out from and pushed to, with the
+  `Token` a front end read for the run), each implemented by an adapter in
+  `adapter` (`adapter::gix::Gix`, its credentials callback in
+  `adapter/gix/credentials.rs`; `adapter::reqwest::Reqwest`, reqwest's
+  blocking client over rustls, following no redirect and reading no proxy;
   `adapter::sqlite::Sqlite`, every query and schema step, its tests in
-  `adapter/sqlite_test.rs`; and `SystemClock`). `ledger::Ledger` is the
-  facade every caller holds, reaching its store's methods through `Deref`.
-  It never reads the environment. Under its `ts` feature, `typescript` gives what it hands a
+  `adapter/sqlite_test.rs`; `adapter::git::SystemGit`, the one place core
+  runs `git` (D-27); and `SystemClock`). `ledger::Ledger` is the facade
+  every caller holds, reaching its store's methods through `Deref`. It
+  never reads the environment. Under its `ts` feature, `typescript` gives what it hands a
   front end TypeScript (the roots its export writes), under its `schema`
   feature `schema` gives it JSON Schema (the roots its export writes, each
   given or taken, `Schemas`, `Together`), and under either `described` says
@@ -259,7 +279,9 @@ under `apps/` with its own `Makefile`:
   (workspaces, workspaces forget), `artifact` (add, edit, rename, remove,
   templates), `read` (list, show, validate), `status`, `doctor`, `settings`
   (agents, share, targets), `gather`, `install`, `update` and `migrate`
-  (each at both levels), `adopt` (mindweaver adopt) and `ui` (the panel, at
+  (each at both levels), `adopt` (mindweaver adopt), `export` and `backup`
+  (mindweaver export, mindweaver backup, which reads the token
+  `--token-env` names) and `ui` (the panel, at
   both levels).
   `add mcp`'s options for how a server is started or reached are one
   struct both binaries' `add` and `edit` flatten (`ServerOptions`), which
@@ -273,9 +295,12 @@ under `apps/` with its own `Makefile`:
   homes, and gathers them with `-W` and `$MINDWEAVER_WORKSPACE` into a
   `Lookup`. `src/task.rs` holds `Task`, work a front end asks for as the
   command lines it is, every front end's rather than the TUI's alone,
-  `Refusal`, what a front end with no terminal does not run, and
+  `Refusal`, what a front end with no terminal does not run,
   `Caution`, what a line takes away, which such a front end asks about
-  first.
+  first, and `Followed`, what a line does that a front end follows while
+  it runs and can stop, a gather. `src/progress.rs` says a gather's steps
+  in words, the line `mindweaver gather` draws and the TUI's box, and as
+  the `Step` the panel's backend reports, paced (`progress::reported`).
   `commands::run_line` runs one line a front end built, for the TUI and the
   panel alike. `src/admit.rs` holds a task sent from outside to the path
   policy (`Admission`), and `src/backend.rs` is the panel's backend
@@ -309,7 +334,11 @@ under `apps/` with its own `Makefile`:
   cookie and Bearer checks, `src/guard.rs` the Host, Origin and Fetch
   Metadata checks and the CSP, `src/api.rs` the JSON endpoints,
   `src/writer.rs` the thread every run and every switch goes through,
-  `src/transcript.rs` what
+  each run numbered and kept where a cancel reaches it (`Current`),
+  `src/underway.rs` the run under way as the backend holds it
+  (`Underway`: where it reports a step, and says what a cancel does) and
+  what `POST /api/v1/tasks/cancel` is sent and answers (`Cancel`,
+  `Cancelling`), `src/transcript.rs` what
   the session ran, `src/events.rs` the bus `/api/v1/events` streams,
   `src/watcher.rs` what watches the paths the backend names and tells the
   bus what changed, `src/log.rs` the redacting log, a line for each
@@ -440,7 +469,10 @@ These are easy to break from a single file without noticing.
   standard one overridden for each kind its settings name `targets` for, with
   every folder an install may use (`misplaced_target`), so code that needs
   one asks the project (`MindProject::targets`), as discovery and an install
-  (`install::targets`) do. Which agents read none of a project's targets is
+  (`install::targets`) do. Where in a repository a gather finds its skills
+  is core's (`gather::LAYOUTS`), and so is what a typed source names
+  (`url::located`), so no front end spells a layout or reads a URL's
+  branch. Which agents read none of a project's targets is
   core's too (`ProjectStatus::unreached`), and so is which read a rule it
   received nowhere (`ProjectStatus::missed`). Which kind a name typed bare
   is, to install or take out, is core's (`install::offered_typed`,
@@ -478,10 +510,15 @@ These are easy to break from a single file without noticing.
   Whatever core needs of the world beyond its files is a trait in `port`,
   in core's own words, its library's errors and types turned into those at
   the adapter: a gather fetches only through `Request::remote` (`Gix`
-  unless `through` hands another), the ledger keeps its records only in its
+  unless `through` hands another), a catalog is read over HTTP only through
+  an `http::Client`'s `Http` (`Reqwest` unless `Client::through` hands
+  another), which follows no redirect, keeps nothing between requests and
+  hands back whatever a server answered, every rule of what core makes of
+  it (redirects, statuses, pages, the cache) being `http`'s, the ledger
+  keeps its records only in its
   `LedgerStore` (SQLite unless `Ledger::new` hands another) and reads the
   time only through its `Clock` (`with_clock`), and no module but
-  `adapter` names `gix` for a fetch or `rusqlite` at all: a store's error
+  `adapter` names `gix` for a fetch, `reqwest` or `rusqlite` at all, nor runs `git`: a store's error
   reaches `LedgerError` boxed, so the port names no store's type. A new library outside core is an adapter of a port, injected
   with the default built in, as D-14 has it for HTTP; a new front end is
   one more driver of the command lines (`commands::run_line`), never a
@@ -517,7 +554,13 @@ These are easy to break from a single file without noticing.
   the task the page offering it sends (`UPDATE_ALL`, the link form's, one
   box's plan applied with `batchOf`), through the same runner. A gather's lines run on a
   thread of their own (`Task::runs_apart`), still through the same parsers:
-  the thread changes where they run, not what they are. The install screen applies the same way, in the TUI or
+  the thread changes where they run, not what they are. Which lines a front
+  end follows as they run and can stop is one list, `task::Followed`, read
+  off the parsed command by a match with no wildcard (`Followed::of_mind`,
+  `of_weaver`, `task::followed`): the TUI runs a task with such a line
+  apart, and the panel's backend says with its preview that a run of it
+  takes a cancel (`Preview::cancellable`), reports each step to the
+  server's `Underway` and hands the server's cancel to the watch. The install screen applies the same way, in the TUI or
   opened by `mindweaver install` (`install::apply`): its marks are the
   `mindweaver install` and `mindweaver uninstall` lines they amount to
   (`Screen::task`), as core plans them (`install::Plan::of`), each change
@@ -574,7 +617,20 @@ These are easy to break from a single file without noticing.
   type reaches a front end. A cancel is honoured until the shelf starts to
   change, and leaves the shelf and the ledger as they were, so a write to
   either before that last check is undone on a cancel, as registering the
-  source is.
+  source is, and naming it. Whether a step is still `cancellable` is core's
+  (`Progress::cancellable`), which the TUI's box and the panel's `Step`
+  both say, never a front end's guess.
+- **A gathered source is one repository, called by one name.** A source is
+  found by `url::canonical` of its URL, credential-free, at its branch
+  (empty for the remote's HEAD) and from its folder, unique behind
+  `sources_by_identity`, so every spelling of one repository gathers into
+  one source (D-13); a gather fetches `url::fetched`, `owner/repo` as
+  GitHub's. It is called by a `value::SourceName`, `owner-repo`
+  (`SourceName::derived`) unless `gather git --name` gave another, which
+  `gather list` shows (`Offer::listed_from`) and `--from` takes beside the
+  origin an install records and the JSON holds, unchanged. Another spelling
+  of its URL still names it, said with `install::Respelled`'s warning,
+  which fails nothing. No front end spells a source's identity or its name.
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -705,7 +761,10 @@ These are easy to break from a single file without noticing.
   - `rename` rewrites only the `name:` line (`frontmatter::with_key`).
   - `remove` (`mindweaver remove --everywhere` too), `migrate` at either level,
     `agents`, `share`, `targets`, `update` and `mindweaver adopt` are dry runs
-    without `--yes`.
+    without `--yes`, and so is `mindweaver export` when it would change or
+    remove what an earlier export wrote (`export::export`, told `yes`); a
+    folder it did not make, a workspace in use or one keeping a kind outside
+    its library, is refused, never written into.
     A migration of the library moves nothing a project holds, refuses as a
     whole, and keeps the marker it rewrites as `weaver.toml.v<version>`
     (`create_new`). A project's (`migrate::project`) writes its
@@ -1051,7 +1110,10 @@ These are easy to break from a single file without noticing.
     a scan is to look under or the explorer is to list, by an absolute,
     normalized path outside every `.mindweaver`, verbatim, each folder a
     listing holds held to the policy again and left out when refused
-    (`browse`). The
+    (`browse`). A gather's source is an address, held to the gather's own
+    rules, which refuse a credential in it, or a folder on this machine,
+    as a path or a `file://` URL, held as a folder to link is
+    (`policy::source`). The
     browser supplies no `-C`, `--home`, `-W` or agent home: the backend runs
     every line with the launch's, against the workspace it acts on, the one
     it was launched on or one switched to since, named with `-W` in the
@@ -1095,7 +1157,13 @@ These are easy to break from a single file without noticing.
     rules, which never climbs out (`install::is_installable_name`).
   - Symlinks are followed only inside the source (`copy::tree`'s `within`),
     and a rule offered for install that leads out of the workspace offering
-    it is refused (`InstallError::Outside`).
+    it is refused (`InstallError::Outside`). A gather looks for skills only
+    where `gather::LAYOUTS` says, following a link only to a folder inside
+    the one it looks in, reads no manifest linked out of the clone
+    (`gathered_link_outside`), and looks in a folder `--path` or a URL names
+    only when it is inside the repository (`gather_path_outside`). Two of a
+    source's skills called the same are a failure each, never a pick
+    (`gathered_name_clash`).
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1120,8 +1188,15 @@ These are easy to break from a single file without noticing.
   - URLs are stored, logged and shown without credentials. `url::redacted`
     is the one function that takes them out: the ledger applies it to every
     URL it writes and reads, `GitError` to what it says, the gix adapter's
-    scrub (`Remote::scrub`) to a clone's config and reflogs. A gather refuses a URL that carries one, and one typed as its branch or
-    folder, which the ledger would keep word for word. A
+    scrub (`Remote::scrub`) to a clone's config and reflogs. A gather refuses a URL that carries one, and one typed as its branch,
+    folder or name, which the ledger would keep word for word. So does an HTTP
+    request (`HttpRequest::get`, `at`, `http_url_credentialed`): a
+    credential goes in a header added as a secret (`HttpRequest::secret`,
+    and `Authorization`, `Cookie` and `Proxy-Authorization` however they
+    are added), which `Debug` never shows, the HTTP cache never keeps an
+    answer to, and a redirect or a next page never carries to another
+    site; and of an answer only the headers core reads are held
+    (`port::KEPT_HEADERS`), so a `Set-Cookie` is never kept. A
     command that writes to the ledger opens it with
     `WeaverWorkspace::ledger_to_write`, which scrubs what an older build
     stored first and hands back what it took out to be said; one that only
@@ -1164,7 +1239,12 @@ These are easy to break from a single file without noticing.
   Opening the ledger takes no lock: a schema migration keeps itself apart
   in its own transaction. The lock is not re-entrant: a writer never calls
   another while it holds it, and a front end never takes it. Reads
-  (`WeaverWorkspace::open`, `ledger_for_reading`) never take it. A wait is
+  (`WeaverWorkspace::open`, `ledger_for_reading`) never take it, and nor
+  does a gather's dry run (`gather::dry_run`), which writes nothing but a
+  scratch folder of its run's own, taken away after, nor the HTTP cache
+  (`http::Cache`), each answer one file replaced whole by a rename
+  (`replace_bytes_unresolved`), so reading a catalog never waits for a
+  writer. A wait is
   bounded (`lock::WAIT`), ending in a `LockError::Busy` that names the
   holder's pid, except a record drop's or carry's (`install::disown`,
   `install::carry`), which follows a change already made.
@@ -1176,7 +1256,11 @@ These are easy to break from a single file without noticing.
   connects to a remote takes the same callback. Two gaps are open questions in
   the architecture doc: what the system ssh asks on the terminal, and `gix`'s
   retry after a remote branch named `HEAD`, a connection the callback cannot
-  reach.
+  reach. Nor does a backup, the one thing sent with the system's `git`
+  (`adapter::git`): it runs with `GIT_TERMINAL_PROMPT=0`, no askpass and no
+  standard input, a login nothing answers is `UpstreamError::Credentials`,
+  and a token reaches it only through a credential helper on its command
+  line reading a variable of the child's environment, never an argument.
 - **Formats are versioned.** Each marker carries its own `version`
   (`MIND_FORMAT_VERSION` for a project's, `WEAVER_FORMAT_VERSION` for
   `weaver.toml`, so bumping one never makes older builds refuse the other)
@@ -1214,7 +1298,14 @@ These are easy to break from a single file without noticing.
     (`apps/core/tests/fixtures/ledger-v<N>.sql`) for a test to migrate.
     What no SQL can know is handed to the step rather than read by it:
     schema 5 is told each linked project's id (`Ledger::open_knowing`, from
-    `WeaverWorkspace::known`).
+    `WeaverWorkspace::known`), and schema 7 each source's identity, the
+    name a gather would give it and its URL without a credential
+    (`url::canonical`, `SourceName::derived`, `url::redacted`), worked out
+    before the step (`spelled_sources`). A step that makes two rows one
+    keeps the rows that went (schema 7's `merged_sources`,
+    `LedgerStore::merged`) until the first command that writes has said
+    them and removed their folders (`gather::scrub`), since a read takes
+    the step as often as a write does and says nothing.
 - **What is written outside the code is Mindweaver's, and a Mindflayer
   build's is read beside it, in one constant each.** Mindweaver was
   Mindflayer (D-26, in `docs/architecture.md`): what a build writes on the
@@ -1355,7 +1446,19 @@ These are easy to break from a single file without noticing.
   is the server's `Preview`, the lines and what the backend says to
   confirm, carried unread as a watched path's scope is; the server
   enforces none of it, so a run sent without the question is run, as a
-  shell runs what is typed into it. Queries and
+  shell runs what is typed into it. Beside them it says whether a run
+  takes a cancel (`cancellable`), which the server does hold a cancel to.
+  Each run is numbered as it starts, its `command_started` and
+  `command_finished` carrying `run`, and handed to the backend as an
+  `Underway`: what it reports is told as `progress`, the backend's JSON
+  carried unread, nothing once its call has returned, and what it says a
+  cancel does is what `POST /api/v1/tasks/cancel`, `{"run": n}`, reaches,
+  off the writer thread, never queued behind the run it stops; a cancel of
+  a run not under way is `not_running` and of one whose preview took none
+  `uncancellable`, each a 409 asking nothing of anything. What is queued
+  behind a run under way tells every subscriber `busy`, and a stream opened
+  while one runs is told it and its latest step; a stop asks it to stop
+  before the bus closes. Queries and
   previews run on tokio's blocking pool, and every run on the one writer
   thread, in the order it arrived, and so does a switch of what the backend
   acts on (`POST /api/v1/switch`, `Backend::switch`), which only the backend
@@ -1602,7 +1705,9 @@ These are easy to break from a single file without noticing.
   (`WorkspaceMother`, `ProjectMother`, among it a project a version 1 or 2
   build made, `version_1` and `older`, one a `settings.json` marks as a
   version 3 build wrote it, `json`, and one that names a folder for MCP
-  servers, `with_mcp`, `GitRepositoryMother`, `ShelfMother`),
+  servers, `with_mcp`, `GitRepositoryMother`, among it one keeping its
+  skills in each layout a gather reads, `layouts` and `with_skills_in`, and
+  one that is one skill, `one_skill`, `ShelfMother`),
   and what a Mindflayer build left under its names (`MindflayerMother`:
   a workspace in a `.mindflayer`, and a project's blocks, exclude lines and
   rule files for Claude as that build wrote them, records included).
@@ -1628,7 +1733,7 @@ These are easy to break from a single file without noticing.
   `tests/value_test.rs`, which holds every value to one set of laws
   (`reads_as_its_text`) and to its rule both ways, and a new port a
   contract suite every adapter of it runs (`tests/ledger_store_test.rs`,
-  `tests/remote_test.rs`).
+  `tests/remote_test.rs`, `tests/http_test.rs`).
 - No test reads the real home, the real agent homes or a workspace the
   developer's shell activated, which `HOME`, `MINDWEAVER_HOME`,
   `MINDWEAVER_WORKSPACE`, `MINDFLAYER_HOME`, `MINDFLAYER_WORKSPACE`,
@@ -1648,6 +1753,12 @@ These are easy to break from a single file without noticing.
   `config.toml` a server's name collides with or that marks a project
   trusted, makes that folder in a temp dir and hands it over in
   `AgentHomes` (`codex_mcp_test.rs`'s `codex_home`).
+- A catalog is never read over the network either. `tests/http_test.rs`
+  holds `Reqwest` to the `Http` contract against a server it starts on
+  127.0.0.1, on a port the system picks, and a fake keeping its sites in
+  memory, under `example.com`, to the same one, every slow or endless
+  answer bounded; anything else that reads over HTTP is handed a fake
+  (`http::Client::through`).
 - Git sources are built in-process with `gix` (`common::repository`): no
   network and no `git` binary. A CLI fixture's project is a repository given
   `mind init` (`common::new_project`), so a local install keeps its copies out
@@ -1672,7 +1783,7 @@ These are easy to break from a single file without noticing.
 - The CLI end to end is `apps/cli/tests/e2e_test.rs`, one target whose
   modules under `tests/e2e/` group the use cases by what a person is
   doing (projects, authoring, installing, gathering, updating, reading,
-  workspaces, settings, adopting, removing, loading, upgrading, json,
+  workspaces, settings, adopting, removing, loading, exporting, upgrading, json,
   mistakes). Each test is one use case: it builds its own
   scenario (`e2e/scenario.rs`, `Scenario`), runs one command line as a
   person types it, and holds its exit status, stdout and stderr word for
@@ -1766,7 +1877,9 @@ These are easy to break from a single file without noticing.
   `routes_test.rs` holds the server to the table: a path and its
   parameters reach the backend as the route makes them, and what no route
   takes is refused with its status; `guard_test.rs` holds every route
-  under `/api/v1` to every guard. They bind 127.0.0.1 on port 0 and send
+  under `/api/v1` to every guard; `progress_test.rs` holds a run's steps,
+  its cancel and `busy` to what the fake's task says it reports, takes
+  and waits for at its hold (`common::Hold`). They bind 127.0.0.1 on port 0 and send
   requests through the router in process (`common::send`), or over loopback,
   and serve a fixture panel (`tests/panel`), so they need no Node. Every
   request names the server in Host, and `Auth::Cookie` sends what the panel's
@@ -1963,7 +2076,14 @@ These are easy to break from a single file without noticing.
   and Windows (`test (macos)`, `test (windows)`, which set up Node too) run
   only by hand (`workflow_dispatch`) or on PRs labelled `full-matrix`, until
   the compatibility pass (#154) puts them back on pushes to `dev`/`main` and
-  PRs from `dev`, `main` or `release/*`.
+  PRs from `dev`, `main` or `release/*`. Every job, both workflows', runs
+  on GitHub's runners, the Linux ones named `ubuntu-latest` in the
+  workflow. The steps a self-hosted runner needed, while the account was
+  locked over billing, stay: a step that needs what an image may lack
+  installs it only where it is missing, and `fmt and clippy` fails first
+  thing on a runner that is root, which writes where a test takes the
+  permission away, so a self-hosted runner can take the jobs again by
+  changing `runs-on` alone.
 - The rulesets for `dev` and `main` require every check that runs on every
   pull request: `fmt and clippy`, `test (core)`, `test (cli)`, `test
   (server)`, `test (web)`, `types drift (web)`, `build (core)`, `build

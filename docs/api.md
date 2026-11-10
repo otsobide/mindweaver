@@ -508,7 +508,8 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
   "lines": [
     "mindweaver -W /home/you/Projects link /home/you/Projects/web"
   ],
-  "confirm": []
+  "confirm": [],
+  "cancellable": false
 }
 $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
     -d '{"type": "link", "path": "/home/you/Projects/web"}' \
@@ -536,9 +537,11 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
 `uninstall`, an `unlink` or a `--force` among them, each with what it
 takes in the command's own words: the panel asks before it runs those, and
 the server runs a task whatever a preview said, as a shell runs a line
-typed into it. A run answers what each line said, its stdout, each line of
-its stderr with its code, and whether it went well: a run is a 200 when it
-ran, however the command went, and `outcome.ok` says that.
+typed into it. `cancellable` says whether a run of it can be asked to stop
+while it runs, which only a gather can ([stopping a
+run](#stopping-a-run)). A run answers what each line said, its stdout,
+each line of its stderr with its code, and whether it went well: a run is
+a 200 when it ran, however the command went, and `outcome.ok` says that.
 
 ### Installing a skill
 
@@ -555,7 +558,8 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
   "lines": [
     "mindweaver -W /home/you/Projects install -p /home/you/Projects/web skill:review"
   ],
-  "confirm": []
+  "confirm": [],
+  "cancellable": false
 }
 $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
     -d '{"type": "install", "projects": ["web"], "kind": "skill", "name": "review", "from": null}' \
@@ -629,6 +633,37 @@ Tasks run one at a time, in the order they arrive, whoever sends them, and
 a run is in the transcript before its answer leaves. A read, a plan and a
 preview are no runs, and are not there.
 
+### Stopping a run
+
+A gather is the network, and takes as long as that does. A `gather` task,
+`{"type": "gather", "url": ..., "folder": ".", "reference": null}`,
+is previewed as `cancellable`, and while it runs `/events` tells each step
+it takes ([following what happens](#following-what-happens)). Its source
+is an address, which the gather refuses when it carries a credential, or a
+folder on this machine named by its absolute path, or a `file://` URL of
+one, as a folder to link is.
+
+`POST /tasks/cancel` asks the run under way to stop, by the number
+`command_started` gave it. A gather stops before it puts anything on the
+shelf, and its outcome says it was cancelled (`gather_cancelled`); one
+already placing what it read finishes, as its outcome says too. A run that
+is not the one under way, over already or not started yet, is refused with
+a 409 and nothing is asked of any run, so a cancel that crosses the end of
+its run never stops the one behind it; so is the run under way when its
+preview did not say `cancellable` (`uncancellable`):
+
+```console
+$ curl -s -w '\n%{http_code}\n' -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"run": 2}' "$api/tasks/cancel"
+{"code":"not_running","error":"run 2 is not under way, and nothing is: a run is stopped only while it runs"}
+409
+```
+
+A cancel taken is answered with the run and its lines, `{"run": 3,
+"lines": [...]}`, and told to every stream as `cancelling`. A task or a
+switch sent while a run is under way waits its turn behind it, and every
+stream is told `busy`, with the run it waits behind.
+
 ### Switching workspace
 
 `POST /switch` has the server act on another workspace from then on, one
@@ -686,6 +721,8 @@ What the server finds itself has a code of its own:
 | 403 | `x_mindflayer_required` | a change sent with the panel's cookie without `X-Mindweaver: 1` |
 | 404 | `unknown_route` | a path no route names, of another version or of none |
 | 405 | `method_not_allowed` | a method the route does not take |
+| 409 | `not_running` | a cancel of a run that is not the one under way |
+| 409 | `uncancellable` | a cancel of the run under way, which takes none |
 | 413 | `body_too_large` | a body larger than the server reads |
 | 415 | `json_required` | a body not sent as `application/json` |
 | 422 | `invalid_body` | JSON that is not what the route reads |
@@ -735,7 +772,22 @@ Each is tagged by its `type`:
   anywhere: the API, the panel, a terminal or an editor. Nothing is said of
   what changed: read it again.
 - `command_started` and `command_finished`, with a run's `lines`, around
-  each run, whoever sent it.
+  each run, whoever sent it, and its `run`, its number, counted from 1 in
+  the order runs start, which a cancel names it by; `command_started` says
+  too whether it is `cancellable`.
+- `progress`, with a run's `run` and a step it took, `progress`: its
+  `stage` as one word, `connecting`, `receiving`, `resolving`,
+  `checking_out`, `harvesting` or `placing` for a gather, how far it got,
+  `done` of `total`, either `null` where it counts nothing or does not
+  know yet, the same in the words a terminal draws it in, `said`, and
+  whether a cancel still stops it, `cancellable`. Each stage's first step
+  and last are told, and no more than ten a second in between.
+- `cancelling`, with `run`, once a run is asked to stop, from anywhere:
+  how it finishes says whether it did.
+- `busy`, with the `run` under way, its `lines`, whether it is
+  `cancellable` and whether it is `cancelling`, when a task or a switch is
+  queued behind it, and right after `watching` on a stream opened while
+  one runs, followed by the latest step it took.
 - `switched`, with `switches`, once the server acts on another workspace:
   everything is to be read again.
 
@@ -776,10 +828,11 @@ a stream holds.
 ## Stopping it
 
 Ctrl-C stops the server, and so does `kill`, whose `SIGTERM` it takes as a
-Ctrl-C: it lets what is running finish, ends every event stream, takes the
-token file away, and prints after its link every line it ran that changed
-something, with what each said, so the session can be run again from a
-shell:
+Ctrl-C: it asks a run under way that takes a cancel to stop, as a cancel
+does, lets anything else running finish, ends every event stream, takes
+the token file away, and prints after its link every line it ran that
+changed something, with what each said, so the session can be run again
+from a shell:
 
 ```
 $ mindweaver -W /home/you/Projects link /home/you/Projects/web

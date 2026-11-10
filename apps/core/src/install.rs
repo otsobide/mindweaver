@@ -46,7 +46,7 @@ use crate::ledger::{
 use crate::paths;
 use crate::settings::Share;
 use crate::url::redacted;
-use crate::value::{ArtifactName, ContentHash, Origin};
+use crate::value::{ArtifactName, ContentHash, Origin, SourceName};
 use crate::workspace::{same_directory, Loaded, MindProject, WeaverWorkspace, WorkspaceError};
 
 pub(crate) mod entries;
@@ -332,25 +332,62 @@ impl Offer {
         }
     }
 
-    /// Whether `from`, as somebody typed it, names where this came from: the
-    /// origin as printed; a source's address without its branch; a loaded
-    /// workspace's name, unless that is the word the workspace's own go by.
-    /// The origin as printed wins over the rest ([`offered`]), so it names
-    /// its one offer wherever it is printed, `gather list` and the install
-    /// screen's lines included.
+    /// The word a listing names where it came from by, which `--from`
+    /// takes: a shelf source's name (D-13), and the origin of anything else,
+    /// which has no name of its own.
+    ///
+    /// Beside [`origin`](Self::origin) rather than in its place: the origin
+    /// is what an install records and an update finds its offer by, and the
+    /// envelope's and the snapshot's `origin` hold it as they always did.
+    pub fn listed_from(&self) -> String {
+        match self {
+            Offer::Shelf(gathered) => gathered.source.name.to_string(),
+            Offer::Workspace { .. } | Offer::Loaded { .. } => self.origin().into_string(),
+        }
+    }
+
+    /// Whether `from`, as somebody typed it, names where this came from
+    /// ([`named_by`](Self::named_by)).
+    pub fn comes_from(&self, from: &str) -> bool {
+        self.named_by(from).is_some()
+    }
+
+    /// How `from`, as somebody typed it, names where this came from, if it
+    /// does: as printed, the origin; by a name, a shelf source's (D-13) or a
+    /// loaded workspace's, unless that is the word the workspace's own go
+    /// by; loosely, a source's address without its branch; or by another
+    /// spelling of a source's URL, the same repository's
+    /// ([`crate::url::canonical`]) at the same branch, which `--from` still
+    /// takes and says ([`Respelled`]). The closest a `from` names any offer
+    /// by wins over the rest ([`offered`]), so an origin names its one offer
+    /// wherever it is printed, the install screen's lines included.
     /// A path to a loaded workspace is [`resolve_from`]'s to turn into its
     /// origin, and only when nothing matches it as typed, so a path never takes
     /// a shelf source's address or the workspace's own away. An address typed
     /// with credentials names the source they were taken out of.
-    pub fn comes_from(&self, from: &str) -> bool {
+    pub(crate) fn named_by(&self, from: &str) -> Option<Naming> {
         let from = redacted(from);
         let from = from.as_ref();
-        self.origin() == from
-            || match self {
-                Offer::Shelf(gathered) => gathered.source.url == from,
-                Offer::Loaded { workspace, .. } => from != WORKSPACE_ORIGIN && workspace == from,
-                Offer::Workspace { .. } => false,
+        if self.origin() == from {
+            return Some(Naming::Printed);
+        }
+        match self {
+            Offer::Shelf(gathered) if gathered.source.name == from => Some(Naming::Named),
+            Offer::Shelf(gathered) if gathered.source.url == from => Some(Naming::Loose),
+            Offer::Shelf(gathered) => {
+                let (url, reference) = match from.rsplit_once('#') {
+                    Some((url, reference)) => (url, Some(reference)),
+                    None => (from, None),
+                };
+                (reference == gathered.source.reference.as_deref()
+                    && crate::url::canonical(url) == crate::url::canonical(&gathered.source.url))
+                .then_some(Naming::Respelled)
             }
+            Offer::Loaded { workspace, .. } if from != WORKSPACE_ORIGIN && workspace == from => {
+                Some(Naming::Named)
+            }
+            Offer::Loaded { .. } | Offer::Workspace { .. } => None,
+        }
     }
 
     /// The directory it is copied from.
@@ -359,6 +396,62 @@ impl Offer {
             Offer::Shelf(gathered) => workspace.root().join(&gathered.path),
             Offer::Workspace { path, .. } | Offer::Loaded { path, .. } => path.clone(),
         }
+    }
+}
+
+/// How a `--from` names an offer ([`Offer::named_by`]), the closest last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Naming {
+    /// By another spelling of its source's URL.
+    Respelled,
+    /// By its source's address without the branch its origin has.
+    Loose,
+    /// By a name: a shelf source's, or a loaded workspace's. The two are as
+    /// close, so one word that is both names two places, refused as offered
+    /// twice, rather than taken for the source's: `--from team` named a
+    /// loaded workspace called `team` before sources had names, and a
+    /// script saying it would otherwise be given a source's skill unsaid.
+    Named,
+    /// By its origin, as every listing's JSON and every record holds it.
+    Printed,
+}
+
+/// A `--from` that named a shelf source by another spelling of its URL than
+/// the one it is installed from: still taken, and said, since what a listing
+/// shows and `--from` takes is a source's name (D-13).
+///
+/// What a script written before the step to schema 7 made two spellings one
+/// source says, `https://github.com/acme/skills` for the source kept as
+/// `git@github.com:acme/skills.git`, or what somebody types for a
+/// repository from memory. Refusing it as not offered would break the
+/// first for a change it did not ask for; taking it unsaid would leave
+/// nothing pointing at the name.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error(
+    "--from {from} names the source `{name}` by another spelling of its URL, which --from takes \
+     for now: name it `{name}`"
+)]
+pub struct Respelled {
+    /// What was typed, without the credentials [`redacted`] takes out.
+    pub from: String,
+    /// What the source is called, which `--from` takes.
+    pub name: SourceName,
+}
+
+codes!(Respelled => "from_spelling_deprecated");
+
+/// Whether `from` named `candidate` by another spelling of its source's URL
+/// ([`Respelled`]): what a front end says beside the install, which still
+/// goes ahead.
+pub fn respelled(candidate: &Candidate, from: &str) -> Option<Respelled> {
+    match &candidate.offer {
+        Offer::Shelf(gathered) if candidate.offer.named_by(from) == Some(Naming::Respelled) => {
+            Some(Respelled {
+                from: redacted(from).into_owned(),
+                name: gathered.source.name.clone(),
+            })
+        }
+        _ => None,
     }
 }
 
@@ -1175,14 +1268,18 @@ pub(crate) fn from_the_library(
 /// one directory of that name in each folder it is installed in, and which
 /// of the two goes there is not something to guess.
 ///
-/// An offer whose origin is `from` as printed is the one it names, though
-/// a looser reading names another too ([`Offer::comes_from`]): one address
-/// gathered at its default branch and again at `main` is offered as `<url>`
-/// and `<url>#main`, and `<url>` is also the second's address without its
-/// branch. Refusing that as offered twice would leave the first with no
-/// `--from` of its own, though one is printed beside it, and so leave the
-/// line the install screen runs for its box refused. The looser readings
-/// stand when nothing is printed as `from`, which is what they are for.
+/// An offer `from` names as printed, by its origin, is the one it names,
+/// though a looser reading names another too ([`Offer::named_by`]): one
+/// address gathered at its default branch and again at `main` is offered as
+/// `<url>` and `<url>#main`, and `<url>` is also the second's address
+/// without its branch. Refusing that as offered twice would leave the first
+/// with no `--from` of its own, though one is printed beside it, and so
+/// leave the line the install screen runs for its box refused. A name comes
+/// next, a source's and a loaded workspace's alike, so a word both are
+/// called is refused as offered twice, each still named by its origin. The
+/// looser readings stand when nothing is printed or named as `from`, which
+/// is what they are for, and another spelling of a source's URL only when
+/// nothing is named more closely ([`respelled`] says it).
 ///
 /// A project with nowhere to put `kind` ([`targets`]) is refused here, where
 /// [`survey`] offers it nothing: "not offered" would send somebody to gather
@@ -1202,13 +1299,12 @@ pub fn offered(
         .filter(|candidate| candidate.name() == name)
         .filter(|candidate| from.is_none_or(|from| candidate.comes_from(from)))
         .collect();
-    if let Some(printed) = from.map(redacted) {
-        if matching
+    if let Some(from) = from {
+        let closest = matching
             .iter()
-            .any(|candidate| candidate.origin() == printed)
-        {
-            matching.retain(|candidate| candidate.origin() == printed);
-        }
+            .filter_map(|candidate| candidate.offer.named_by(from))
+            .max();
+        matching.retain(|candidate| candidate.offer.named_by(from) == closest);
     }
     match matching.len() {
         0 => Err(InstallError::NotOffered {
@@ -1251,7 +1347,11 @@ pub fn offered(
 /// `workspace` means what it says, and only when that offers a kind nothing,
 /// as a path to a loaded workspace typed from `base` ([`resolve_from`]).
 /// Kind by kind: a kind that cannot go into the project at all refuses
-/// for that, which keeps no other from being found by the path.
+/// for that, which keeps no other from being found by the path. A shelf
+/// source's name that is also such a path names two places, refused as
+/// offered twice, as one a loaded workspace is called too is
+/// ([`Naming::Named`]): `--from team` named the workspace loaded from
+/// `./team` before sources had names, and is not to name a source unsaid.
 pub fn offered_typed(
     workspace: &WeaverWorkspace,
     ledger: &Ledger,
@@ -1262,9 +1362,27 @@ pub fn offered_typed(
 ) -> Result<Candidate, InstallError> {
     let name = reference.name();
     let resolved = from.map(|from| resolve_from(workspace, base, from));
+    let path = resolved
+        .as_deref()
+        .filter(|resolved| Some(*resolved) != from);
     let ask = |kind: Kind| match offered(workspace, ledger, project, kind, name, from) {
-        Err(InstallError::NotOffered { .. }) if resolved.as_deref() != from => {
-            offered(workspace, ledger, project, kind, name, resolved.as_deref())
+        Err(InstallError::NotOffered { .. }) if path.is_some() => {
+            offered(workspace, ledger, project, kind, name, path)
+        }
+        Ok(found)
+            if path.is_some()
+                && matches!(found.offer, Offer::Shelf(_))
+                && from.and_then(|from| found.offer.named_by(from)) == Some(Naming::Named) =>
+        {
+            match offered(workspace, ledger, project, kind, name, path) {
+                Ok(loaded) if loaded.origin() != found.origin() => {
+                    Err(InstallError::OfferedTwice {
+                        name: name.to_owned(),
+                        origins: vec![loaded.origin(), found.origin()],
+                    })
+                }
+                _ => Ok(found),
+            }
         }
         asked => asked,
     };

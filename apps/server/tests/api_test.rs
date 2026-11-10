@@ -23,7 +23,7 @@ async fn a_preview_shows_a_tasks_lines_and_runs_nothing() {
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(
         reply.json(),
-        json!({ "lines": ["fake run link beta"], "confirm": [] })
+        json!({ "lines": ["fake run link beta"], "confirm": [], "cancellable": false })
     );
     assert!(runs.lock().unwrap().is_empty());
 }
@@ -48,6 +48,7 @@ async fn a_preview_carries_what_the_backend_says_to_confirm_as_it_says_it() {
         json!({
             "lines": ["fake run unlink beta"],
             "confirm": [{ "fake_takes": "beta" }, { "fake_takes": "its copies" }],
+            "cancellable": false,
         })
     );
     assert!(runs.lock().unwrap().is_empty());
@@ -215,7 +216,9 @@ async fn a_body_that_is_no_json_too_large_or_cut_off_is_refused_with_its_code() 
 /// too, or said.
 #[tokio::test]
 async fn every_answer_under_the_api_that_is_no_success_carries_an_error_and_a_code() {
-    let (server, _) = launch();
+    let fake = Fake::default();
+    let hold = Arc::clone(&fake.hold);
+    let server = Server::new(fake).bind().unwrap();
     let port = server.address().port();
     let token = Auth::Bearer(server.token());
     let cookie = format!("{}={}", server.cookie(), server.token());
@@ -377,8 +380,34 @@ async fn every_answer_under_the_api_that_is_no_success_carries_an_error_and_a_co
             "a switch the backend refuses",
             sent("/api/v1/switch", json!({ "to": "a", "refuse": true })),
         ),
+        (
+            "a cancel of a run over",
+            sent("/api/v1/tasks/cancel", json!({ "run": 1 })),
+        ),
+        (
+            "a cancel naming no run",
+            sent("/api/v1/tasks/cancel", json!({ "all": true })),
+        ),
     ];
 
+    // A cancel of the run under way, which takes none, needs a run held
+    // under way: met first, and let go before anything above is sent,
+    // since a run among them would wait behind it.
+    let release = Release(Arc::clone(&hold));
+    let held = {
+        let router = server.router();
+        let request = sent("/api/v1/tasks", json!({ "name": "held", "hold": true }));
+        tokio::spawn(tower::ServiceExt::oneshot(router, request))
+    };
+    let reached = Arc::clone(&hold);
+    tokio::task::spawn_blocking(move || reached.reached())
+        .await
+        .unwrap();
+    let uncancellable = sent("/api/v1/tasks/cancel", json!({ "run": 1 }));
+    let path = uncancellable.uri().path().to_owned();
+    let reply = deliver(&server, uncancellable).await;
+    drop(release);
+    held.await.unwrap().unwrap();
     let listed = |path: &str| {
         let path = path.strip_prefix(API)?;
         fake_routes()
@@ -392,7 +421,11 @@ async fn every_answer_under_the_api_that_is_no_success_carries_an_error_and_a_co
                     .map(|own| own.conditions())
             })
     };
-    let mut met: Vec<String> = Vec::new();
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.text());
+    assert_eq!(reply.json()["code"], "uncancellable");
+    assert!(listed(&path).is_some_and(|listed| listed.contains(&Condition::Uncancellable)));
+    let mut met: Vec<String> = vec![String::from("uncancellable")];
+
     for (case, request) in asked {
         let path = request.uri().path().to_owned();
         let reply = deliver(&server, request).await;

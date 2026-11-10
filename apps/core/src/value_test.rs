@@ -132,3 +132,67 @@ fn redacted_is_the_one_constructor_and_it_redacts_through_url_redacted() {
         assert_eq!(Redacted::new(&url.typed), redacted(&url.typed).as_ref());
     }
 }
+
+#[test]
+fn a_source_name_is_one_plain_word_and_none_of_the_others_from_takes() {
+    for name in [
+        "acme-skills",
+        "Acme_Skills.2",
+        "a",
+        "v1.0",
+        "x--y",
+        ".hidden",
+    ] {
+        assert_eq!(
+            SourceName::parse(name).map(SourceName::into_string),
+            Some(name.to_owned()),
+            "{name}"
+        );
+    }
+    for refused in [
+        "",
+        ".",
+        "..",
+        "-skills",
+        "workspace",
+        "acme/skills",
+        "load:team",
+        "acme skills",
+        "skills#main",
+        "café",
+        "a@b",
+    ] {
+        assert!(SourceName::parse(refused).is_none(), "{refused}");
+    }
+}
+
+#[test]
+fn a_source_is_named_after_its_owner_and_repository() {
+    for (url, name) in [
+        ("https://github.com/acme/skills", "acme-skills"),
+        ("https://gitlab.com/acme/platform/skills", "platform-skills"),
+        ("ssh://example.com:2222/acme/skills.git", "acme-skills"),
+        ("example.com:acme/skills.git", "acme-skills"),
+        ("https://example.com/Team%20One/skills", "team-20one-skills"),
+        ("/srv/git/skills", "git-skills"),
+        ("/skills", "skills"),
+        ("./skills/repo", "skills-repo"),
+        ("/srv/.hidden", "srv-.hidden"),
+        ("/srv/-x-", "srv--x"),
+        ("C:\\git\\skills", "git-skills"),
+        ("https://example.com", "source"),
+        ("/", "source"),
+        ("/workspace", "workspace-2"),
+    ] {
+        let derived = SourceName::derived(url);
+        assert_eq!(derived, name, "{url}");
+        assert!(
+            SourceName::parse(&derived).is_some(),
+            "{url} gave {derived}"
+        );
+    }
+    assert_eq!(
+        SourceName::derived("https://github.com/acme/skills").numbered(2),
+        "acme-skills-2"
+    );
+}

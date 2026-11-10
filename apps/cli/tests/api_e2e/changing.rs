@@ -28,6 +28,7 @@ fn a_preview_says_the_lines_a_task_is_and_runs_none_of_them() {
         .answers(json!({
             "lines": ["mindweaver -W /home/you/Projects link /home/you/Projects/web"],
             "confirm": [],
+            "cancellable": false,
         }));
     assert_eq!(entries(&served.get("/projects")), ["api"]);
     served.get("/transcript").is(200).answers(json!([]));
@@ -109,6 +110,7 @@ fn a_preview_says_which_of_its_lines_take_something_away() {
                 "line": 0,
                 "message": "takes copies Mindweaver installed out of projects",
             }],
+            "cancellable": false,
         }));
     assert_eq!(
         scenario.files("~/Projects/api/.claude/skills"),

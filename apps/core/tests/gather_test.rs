@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 use common::{commit, repository, skill, url, workspace, write_files};
 use mindweaver_core::gather::{self, GatherError, Progress, Request, Warning, Watch};
 use mindweaver_core::ledger::{Action, Ledger, SourceKind};
-use mindweaver_core::{Kind, MindProject, ValidationIssue, WeaverWorkspace};
+use mindweaver_core::value::SourceName;
+use mindweaver_core::{Kind, MindProject, ValidationIssue, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -268,24 +269,30 @@ fn another_folder_can_be_named_instead_of_skills() {
     assert_eq!(report.added.len(), 1);
 }
 
+/// A folder named, since a gather that names none looks through the whole
+/// repository (#101), which has no folder to be without.
 #[test]
 fn a_folder_the_source_does_not_have_is_named_in_the_error() {
     let source = repository(&[("README.md", "nothing to gather\n")]);
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
 
-    let error = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap_err();
+    let request = Request::git(url(&source)).from_subdirectory("skills");
+    let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
 
     assert!(matches!(error, GatherError::NoSuchFolder { .. }), "{error}");
     assert!(error.to_string().contains("skills"));
 }
 
+/// A folder named, as above; the whole repository holding none is
+/// [`a_repository_holding_no_skill_anywhere_says_where_it_looked`]'s.
 #[test]
 fn a_gather_that_finds_no_folder_leaves_the_revision_its_shelf_came_from() {
     let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
-    gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
+    let request = Request::git(url(&source)).from_subdirectory("skills");
+    gather::gather(&workspace, &ledger, &request).unwrap();
     let before = ledger
         .source(SourceKind::Git, &url(&source), None, "skills")
         .unwrap();
@@ -293,12 +300,13 @@ fn a_gather_that_finds_no_folder_leaves_the_revision_its_shelf_came_from() {
     fs::remove_dir_all(source.path().join("skills")).unwrap();
     write_files(source.path(), &[("README.md", "moved elsewhere\n")]);
     commit(source.path());
-    let error = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap_err();
+    let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
 
     assert!(matches!(error, GatherError::NoSuchFolder { .. }), "{error}");
     let after = ledger
         .source(SourceKind::Git, &url(&source), None, "skills")
         .unwrap();
+    assert!(before.is_some());
     assert_eq!(
         after.map(|source| source.revision),
         before.map(|source| source.revision),
@@ -338,7 +346,7 @@ fn the_log_records_a_gather_and_the_source_it_came_from() {
     assert_eq!(history[0].outcome, "ok");
 
     let recorded = ledger
-        .source(SourceKind::Git, &address, None, "skills")
+        .source(SourceKind::Git, &address, None, DEFAULT_SUBDIRECTORY)
         .unwrap()
         .expect("the source was registered");
     assert!(recorded.revision.is_some());
@@ -802,57 +810,6 @@ fn what_an_older_build_stored_with_a_token_is_scrubbed_once_from_the_ledger_and_
 }
 
 #[test]
-fn a_source_that_becomes_one_with_another_takes_its_folders_with_it() {
-    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
-    let (_dir, workspace) = workspace();
-    let ledger = workspace.ledger().unwrap();
-    let report = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
-    // An older build gathered the same place with a token first, into a
-    // folder of its own, and without it later.
-    let older = "example.com-acme-skills";
-    let shelf = workspace.gathered_dir(Kind::Skill).join(older);
-    fs::create_dir_all(shelf.join("deploy")).unwrap();
-    fs::write(
-        shelf.join("deploy").join("SKILL.md"),
-        skill("deploy", "Old"),
-    )
-    .unwrap();
-    let clone = workspace.cache_dir().join(older).join(".git");
-    fs::create_dir_all(&clone).unwrap();
-    fs::write(
-        clone.join("config"),
-        "[remote \"origin\"]\n\turl = https://me:ghp_t0ken@example.com/acme/skills\n",
-    )
-    .unwrap();
-    let database = rusqlite::Connection::open(workspace.ledger_path()).unwrap();
-    database
-        .execute_batch(&format!(
-            "UPDATE sources SET url = 'https://example.com/acme/skills';
-             INSERT INTO sources (kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 SELECT kind, 'https://me:ghp_t0ken@example.com/acme/skills', reference,
-                        subdirectory, '{older}', 0, 0 FROM sources;
-             INSERT INTO artifacts (kind, name, source_id, path, gathered_at)
-                 VALUES ('skill', 'deploy', (SELECT id FROM sources WHERE directory = '{older}'),
-                         '.mindweaver/skills/{older}/deploy', 0);"
-        ))
-        .unwrap();
-
-    let (ledger, scrub) = workspace.ledger_to_write().unwrap();
-
-    assert!(scrub.leftovers.is_empty(), "{:?}", scrub.leftovers);
-    assert!(!shelf.exists(), "the shelf folder nothing points into went");
-    assert!(!workspace.cache_dir().join(older).exists(), "and its clone");
-    let gathered = ledger.gathered().unwrap();
-    assert_eq!(gathered.len(), 1, "{gathered:?}");
-    assert_eq!(gathered[0].source.directory, report.directory);
-    assert!(workspace
-        .gathered_dir(Kind::Skill)
-        .join(&report.directory)
-        .join("deploy")
-        .is_dir());
-}
-
-#[test]
 fn one_url_scrubbed_out_of_several_sources_is_told_about_once() {
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
@@ -862,10 +819,14 @@ fn one_url_scrubbed_out_of_several_sources_is_told_about_once() {
     rusqlite::Connection::open(workspace.ledger_path())
         .unwrap()
         .execute_batch(
-            "INSERT INTO sources (kind, url, reference, subdirectory, directory, first_seen, last_seen)
-                 VALUES ('git', 'https://me:ghp_t0ken@example.com/acme/skills', 'main', 'skills', 'a', 0, 0),
-                        ('git', 'https://me:ghp_t0ken@example.com/acme/skills', 'dev', 'skills', 'b', 0, 0),
-                        ('git', 'https://me:ghp_t0ken@example.com/acme/skills', 'main', 'more', 'c', 0, 0);",
+            "INSERT INTO sources (kind, url, reference, subdirectory, directory, first_seen,
+                                  last_seen, name, canonical_url, reference_key)
+                 VALUES ('git', 'https://me:ghp_t0ken@example.com/acme/skills', 'main', 'skills',
+                         'a', 0, 0, 'a', 'https://example.com/acme/skills', 'main'),
+                        ('git', 'https://me:ghp_t0ken@example.com/acme/skills', 'dev', 'skills',
+                         'b', 0, 0, 'b', 'https://example.com/acme/skills', 'dev'),
+                        ('git', 'https://me:ghp_t0ken@example.com/acme/skills', 'main', 'more',
+                         'c', 0, 0, 'c', 'https://example.com/acme/skills', 'main');",
         )
         .unwrap();
 
@@ -878,6 +839,209 @@ fn one_url_scrubbed_out_of_several_sources_is_told_about_once() {
         .collect();
     assert_eq!(told, ["https://example.com/acme/skills"]);
     assert_eq!(ledger.tainted_sources().unwrap(), []);
+}
+
+/// Fetches the repository at `from` with gix whatever URL it is asked for,
+/// as a forge would answer each spelling of one repository's: what a test
+/// needs to gather `https://github.com/...` with no network.
+#[derive(Debug)]
+struct Forge {
+    from: String,
+    asked: Mutex<Vec<String>>,
+}
+
+impl mindweaver_core::Remote for Forge {
+    fn fetch(
+        &self,
+        url: &str,
+        reference: Option<&str>,
+        into: &std::path::Path,
+        watch: &Watch,
+    ) -> Result<mindweaver_core::port::Cloned, mindweaver_core::port::GitError> {
+        self.asked.lock().unwrap().push(url.to_owned());
+        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, into, watch)
+    }
+
+    fn scrub(&self, clone: &std::path::Path) -> Result<bool, mindweaver_core::port::GitError> {
+        mindweaver_core::adapter::gix::Gix.scrub(clone)
+    }
+}
+
+#[test]
+fn two_gathers_of_one_repository_by_two_spellings_update_one_source() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let forge = Arc::new(Forge {
+        from: url(&source),
+        asked: Mutex::new(Vec::new()),
+    });
+    let gathered = |typed: &str| {
+        gather::gather(
+            &workspace,
+            &ledger,
+            &Request::git(typed).through(Arc::clone(&forge) as Arc<dyn mindweaver_core::Remote>),
+        )
+        .unwrap()
+    };
+
+    let first = gathered("https://github.com/acme/skills");
+    let second = gathered("git@github.com:Acme/skills.git");
+    let third = gathered("acme/skills");
+
+    // One source, one folder: the second gather found what the first took,
+    // where the first put it, and so did the third.
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 1, "{sources:?}");
+    assert_eq!(sources[0].name, "acme-skills");
+    assert_eq!(sources[0].url, "https://github.com/acme/skills");
+    assert_eq!(second.directory, first.directory);
+    assert_eq!(third.directory, first.directory);
+    assert_eq!(first.added.len(), 1, "{first:?}");
+    assert_eq!(second.unchanged.len(), 1, "{second:?}");
+    assert_eq!(third.unchanged.len(), 1, "{third:?}");
+    assert_eq!(ledger.gathered().unwrap().len(), 1);
+    // Each fetched as it was typed, `owner/repo` as the GitHub repository
+    // it names.
+    assert_eq!(
+        *forge.asked.lock().unwrap(),
+        [
+            "https://github.com/acme/skills",
+            "git@github.com:Acme/skills.git",
+            "https://github.com/acme/skills",
+        ]
+    );
+}
+
+// Unix's alone: a Windows path is no file URL with `file://` before it.
+#[cfg(unix)]
+#[test]
+fn two_gathers_of_a_folder_by_its_path_and_its_file_url_update_one_source() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let path = url(&source);
+
+    gather::gather(&workspace, &ledger, &Request::git(path.clone())).unwrap();
+    let again = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(format!("file://{path}/")),
+    )
+    .unwrap();
+
+    assert_eq!(ledger.sources().unwrap().len(), 1);
+    assert_eq!(again.unchanged.len(), 1, "{again:?}");
+    assert!(again.added.is_empty() && again.updated.is_empty());
+}
+
+#[test]
+fn a_gather_names_its_source_as_asked_and_a_later_one_renames_it() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let first = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source)).named(Some("team-skills")),
+    )
+    .unwrap();
+    let again = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
+    let renamed = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source)).named(Some("Team.Skills_2")),
+    )
+    .unwrap();
+
+    assert_eq!(first.name, "team-skills");
+    // A gather that names none keeps the name the source has.
+    assert_eq!(again.name, "team-skills");
+    assert_eq!(renamed.name, "Team.Skills_2");
+    let sources = ledger.sources().unwrap();
+    assert_eq!(sources.len(), 1, "{sources:?}");
+    assert_eq!(sources[0].name, "Team.Skills_2");
+    assert_eq!(renamed.directory, first.directory, "its folder stays");
+}
+
+#[test]
+fn a_name_another_source_has_is_refused_before_anything_is_registered_or_fetched() {
+    let one = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let other = repository(&[("skills/review/SKILL.md", &skill("review", "Look"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let named = |source: &TempDir| Request::git(url(source)).named(Some("skills"));
+    gather::gather(&workspace, &ledger, &named(&one)).unwrap();
+
+    let refused = gather::gather(&workspace, &ledger, &named(&other)).unwrap_err();
+    // Nor may a source gathered before take it.
+    gather::gather(&workspace, &ledger, &Request::git(url(&other))).unwrap();
+    let renaming = gather::gather(&workspace, &ledger, &named(&other)).unwrap_err();
+
+    for refused in [&refused, &renaming] {
+        assert_eq!(refused.code(), "source_name_taken", "{refused}");
+        assert_eq!(
+            refused.to_string(),
+            format!(
+                "`skills` is the name of the source at {} already: gather this one under \
+                 another `--name`",
+                url(&one)
+            )
+        );
+    }
+    let names: Vec<(String, String)> = ledger
+        .sources()
+        .unwrap()
+        .into_iter()
+        .map(|source| (source.url.to_string(), source.name.to_string()))
+        .collect();
+    assert!(
+        names.contains(&(url(&one), String::from("skills"))),
+        "{names:?}"
+    );
+    assert_eq!(names.len(), 2, "{names:?}");
+}
+
+#[test]
+fn a_name_no_source_can_take_is_refused_and_nothing_registered() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    for name in ["acme/skills", "workspace", "-skills", "", "..", "load:team"] {
+        let refused = gather::gather(
+            &workspace,
+            &ledger,
+            &Request::git(url(&source)).named(Some(name)),
+        )
+        .unwrap_err();
+
+        assert_eq!(refused.code(), "source_name_invalid", "{name}");
+    }
+    assert!(ledger.sources().unwrap().is_empty());
+    assert!(!workspace.cache_dir().exists());
+}
+
+#[test]
+fn a_cancelled_gather_leaves_its_source_called_what_it_was() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+    let first = gather::gather(&workspace, &ledger, &Request::git(url(&source))).unwrap();
+    let watch = cancelled_at(|progress| matches!(progress, Progress::Connecting));
+
+    let error = gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source))
+            .named(Some("renamed"))
+            .watched_by(watch),
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, GatherError::Cancelled), "{error}");
+    assert_eq!(ledger.sources().unwrap()[0].name, first.name);
 }
 
 // ---------------------------------------------------------------------------
@@ -933,6 +1097,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         path: std::path::PathBuf::from(format!(
             "/work/.mindweaver/skills/github.com-acme-skills/{name}"
         )),
+        route: format!("skills/{name}"),
     };
     let report = gather::Report {
         revision: Some("4f9c2a7".into()),
@@ -947,6 +1112,8 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
             path: std::path::PathBuf::from("/work/SKILL.md"),
             issue: ValidationIssue::MetadataNotAMap,
         }],
+        name: SourceName::parse("acme-skills").unwrap(),
+        left_out: Vec::new(),
     };
 
     let serialized = serde_json::to_string(&report).unwrap();
@@ -956,10 +1123,13 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         concat!(
             r#"{"revision":"4f9c2a7","directory":"github.com-acme-skills","#,
             r#""added":[{"name":"deploy","directory":"deploy","summary":"About deploy","#,
-            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/deploy"}],"#,
+            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/deploy","#,
+            r#""route":"skills/deploy"}],"#,
             r#""updated":[],"#,
             r#""unchanged":[{"name":"review","directory":"review","summary":"About review","#,
-            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review"}]}"#,
+            r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review","#,
+            r#""route":"skills/review"}],"#,
+            r#""name":"acme-skills"}"#,
         )
     );
 }

@@ -61,7 +61,10 @@ fn the_panel_runs_what_it_is_sent_and_the_next_snapshot_shows_it() {
     );
     let (status, preview) = panel.post("/api/v1/tasks/preview", install.clone());
     assert_eq!(status, 200, "{preview}");
-    assert_eq!(preview, json!({"lines": [line], "confirm": []}));
+    assert_eq!(
+        preview,
+        json!({"lines": [line], "confirm": [], "cancellable": false})
+    );
     assert_eq!(standing(&panel.snapshot(), "alpha", "commit-style"), None);
 
     let (status, ran) = panel.post("/api/v1/tasks", install);

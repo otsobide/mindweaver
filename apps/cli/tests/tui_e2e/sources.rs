@@ -57,7 +57,7 @@ fn g_gathers_from_a_repository_and_the_header_counts_what_it_put_on_the_shelf() 
         closed.shown.trim_end(),
         format!(
             "$ mindweaver gather git ../src/acme-skills\n\
-             ../src/acme-skills at {}\n\
+             src-acme-skills: ../src/acme-skills at {}\n\
              \x20 added  lint  Lint the code\n\
              \n\
              1 skill: 1 added, 0 updated, 0 unchanged",

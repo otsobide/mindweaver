@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::route::Route;
+use crate::underway::Underway;
 
 /// The front end on the other side of the server: whatever knows what a
 /// query, a task and an outcome are.
@@ -90,7 +91,13 @@ pub trait Backend: Send + Sync + 'static {
     /// and runs nothing whose preview was refused. A backend holds the task
     /// to its rules again all the same: the disk a run meets is the one it
     /// meets, and nothing promises a caller of this trait asked first.
-    fn run(&self, task: Self::Task) -> Result<Self::Outcome, Refusal>;
+    ///
+    /// `underway` is the run as whoever follows it sees it: where a run
+    /// that takes its time reports how it goes, and where it says what
+    /// asking it to stop does ([`Underway`]), for a task whose preview said
+    /// it takes a cancel ([`Preview::cancellable`]). One that does neither
+    /// leaves it be.
+    fn run(&self, task: Self::Task, underway: &Underway) -> Result<Self::Outcome, Refusal>;
 
     /// Act on what `to` names from now on, and answer with what it acts on
     /// then, as JSON of the backend's own; or refuse, with nothing changed.
@@ -119,7 +126,7 @@ pub trait Backend: Send + Sync + 'static {
 
 /// What a task would run, worked out with none of it run: what
 /// [`Backend::preview`] answers, and `POST /api/v1/tasks/preview` sends as
-/// it is, `{"lines": [...], "confirm": [...]}`.
+/// it is, `{"lines": [...], "confirm": [...], "cancellable": false}`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Preview {
@@ -139,6 +146,17 @@ pub struct Preview {
     /// whoever holds the token is the person at this machine and the
     /// question is for their slips, which is the panel's to ask.
     pub confirm: Vec<serde_json::Value>,
+    /// Whether a run of it can be asked to stop while it runs (`POST
+    /// /api/v1/tasks/cancel`): one of its lines reports how it goes and
+    /// stops when asked, a gather, as only the front end can say of its
+    /// commands.
+    ///
+    /// Said with the lines, so the server knows which run takes a cancel
+    /// from the moment it starts, the very preview it runs by, and refuses
+    /// one of a run that takes none (`uncancellable`) rather than pass on a
+    /// cancel that would do nothing; and so the panel knows to offer one
+    /// before the first step is reported.
+    pub cancellable: bool,
 }
 
 /// One path a backend asks the server to watch, and what a change to it is

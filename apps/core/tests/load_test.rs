@@ -337,6 +337,102 @@ fn from_names_a_loaded_workspace_by_its_origin_or_its_name() {
 }
 
 #[test]
+fn a_name_a_source_and_a_loaded_workspace_are_both_called_names_neither_and_their_origins_each() {
+    let (_dir, mut target, project, team) = target_and_team(&["deploy"]);
+    target.load(&team).unwrap();
+    let repo = common::repository(&[(
+        "skills/deploy/SKILL.md",
+        &common::skill("deploy", "Ship it"),
+    )]);
+    let url = common::url(&repo);
+    let ledger = target.ledger().unwrap();
+    mindweaver_core::gather::gather(
+        &target,
+        &ledger,
+        &mindweaver_core::gather::Request::git(url.clone()).named(Some("team")),
+    )
+    .unwrap();
+    let from = |typed: &str| {
+        install::offered(
+            &target,
+            &ledger,
+            &project,
+            Kind::Skill,
+            "deploy",
+            Some(typed),
+        )
+    };
+
+    // `--from team` named the loaded workspace before sources had names,
+    // so it is not the source's now, unsaid.
+    let twice = from("team").unwrap_err();
+    assert!(
+        matches!(twice, InstallError::OfferedTwice { .. }),
+        "{twice}"
+    );
+    assert_eq!(
+        twice.to_string(),
+        format!(
+            "`deploy` is offered by more than one place (load:../team, {url}), so say which \
+             with --from"
+        )
+    );
+    assert!(matches!(
+        from("load:../team").unwrap().offer,
+        Offer::Loaded { .. }
+    ));
+    assert!(matches!(from(&url).unwrap().offer, Offer::Shelf(_)));
+}
+
+#[test]
+fn a_sources_name_that_is_a_path_to_a_loaded_workspace_names_neither() {
+    let (dir, mut target, project, team) = target_and_team(&["deploy"]);
+    // Called something else, so only the path is `team`.
+    let config = team.root().join(WEAVER_DIR).join(WEAVER_CONFIG);
+    let marker = fs::read_to_string(&config).unwrap();
+    fs::write(
+        &config,
+        marker.replace("name = \"team\"", "name = \"crew\""),
+    )
+    .unwrap();
+    target
+        .load(&WeaverWorkspace::open(team.root()).unwrap())
+        .unwrap();
+    let repo = common::repository(&[(
+        "skills/deploy/SKILL.md",
+        &common::skill("deploy", "Ship it"),
+    )]);
+    let url = common::url(&repo);
+    let ledger = target.ledger().unwrap();
+    mindweaver_core::gather::gather(
+        &target,
+        &ledger,
+        &mindweaver_core::gather::Request::git(url.clone()).named(Some("team")),
+    )
+    .unwrap();
+    let typed = |from: &str, base: &Path| {
+        install::offered_typed(
+            &target,
+            &ledger,
+            &project,
+            &mindweaver_core::Reference::parse("deploy"),
+            Some(from),
+            base,
+        )
+    };
+
+    // From beside `team`, where it is the path given to load.
+    let twice = typed("team", dir.path()).unwrap_err();
+    assert!(
+        matches!(twice, InstallError::OfferedTwice { .. }),
+        "{twice}"
+    );
+    // From anywhere else it is only the source's name.
+    let named = typed("team", project.root()).unwrap();
+    assert!(matches!(named.offer, Offer::Shelf(_)));
+}
+
+#[test]
 fn a_loaded_workspace_under_the_target_reads_as_a_path_not_as_the_workspaces_own() {
     let dir = TempDir::new().unwrap();
     let (mut target, _) = WeaverWorkspace::init(dir.path()).unwrap();

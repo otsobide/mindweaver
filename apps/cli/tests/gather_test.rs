@@ -199,14 +199,62 @@ fn gather_list_names_where_each_skill_came_from() {
     let dir = TempDir::new().unwrap();
     weaver(dir.path(), &["init"]).unwrap();
     let url = source.path().to_string_lossy().into_owned();
-    weaver(dir.path(), &["gather", "git", &url]).unwrap();
+    weaver(dir.path(), &["gather", "git", &url, "--name", "acme"]).unwrap();
 
     let outcome = weaver(dir.path(), &["gather", "list"]).unwrap();
 
+    // By the name `--from` takes, which the listing is for.
     assert!(outcome.ok);
-    assert!(outcome.stdout.contains("deploy"));
-    assert!(outcome.stdout.contains(&url), "{}", outcome.stdout);
-    assert!(outcome.stdout.contains("Ship it"));
+    assert_eq!(outcome.stdout, "deploy  acme  Ship it\n");
+}
+
+#[test]
+fn gather_says_the_name_of_its_source_and_name_calls_it_what_it_is_given() {
+    let source = repository(&[("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it"))]);
+    let other = repository(&[("skills/review/SKILL.md", &skill_file("review", "Look"))]);
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let url = source.path().to_string_lossy().into_owned();
+
+    let named = weaver(dir.path(), &["gather", "git", &url, "--name", "team"]).unwrap();
+    let renamed = weaver(dir.path(), &["gather", "git", &url, "--name", "team.v2"]).unwrap();
+    let taken = weaver(
+        dir.path(),
+        &[
+            "gather",
+            "git",
+            &other.path().to_string_lossy(),
+            "--name",
+            "team.v2",
+        ],
+    )
+    .unwrap_err();
+    let unusable = weaver(dir.path(), &["gather", "git", &url, "--name", "team/v3"]).unwrap_err();
+
+    assert!(
+        named.stdout.starts_with(&format!("team: {url} at ")),
+        "{}",
+        named.stdout
+    );
+    assert!(
+        renamed.stdout.starts_with(&format!("team.v2: {url} at ")),
+        "{}",
+        renamed.stdout
+    );
+    assert_eq!(taken.error.code(), "source_name_taken");
+    assert_eq!(
+        taken.error.to_string(),
+        format!(
+            "`team.v2` is the name of the source at {url} already: gather this one under \
+             another `--name`"
+        )
+    );
+    assert_eq!(unusable.error.code(), "source_name_invalid");
+    assert_eq!(
+        unusable.error.to_string(),
+        "`team/v3` cannot name a source: it has to be letters, digits, `.`, `_` and `-`, not \
+         starting with `-`, and neither `.`, `..` nor `workspace`"
+    );
 }
 
 #[test]
@@ -264,21 +312,24 @@ fn gather_list_tells_two_branches_of_one_repository_apart() {
     weaver(dir.path(), &["init"]).unwrap();
     let url = source.path().to_string_lossy().into_owned();
 
-    // The same URL at its default branch and at a named one: two sources, and
-    // a listing that printed the URL alone would show one origin twice.
+    // The same URL at its default branch and at a named one: two sources,
+    // and two names, the second numbered.
     let head = fs::read_to_string(source.path().join(".git").join("HEAD")).unwrap();
     let branch = head.trim().rsplit('/').next().unwrap().to_owned();
-    weaver(dir.path(), &["gather", "git", &url]).unwrap();
+    weaver(dir.path(), &["gather", "git", &url, "--name", "acme"]).unwrap();
     weaver(dir.path(), &["gather", "git", &url, "--ref", &branch]).unwrap();
 
     let outcome = weaver(dir.path(), &["gather", "list"]).unwrap();
 
     assert_eq!(outcome.stdout.lines().count(), 2, "{}", outcome.stdout);
-    assert!(
-        outcome.stdout.contains(&format!("{url}#{branch}")),
-        "{}",
-        outcome.stdout
-    );
+    let names: Vec<&str> = outcome
+        .stdout
+        .lines()
+        .map(|line| line.split_whitespace().nth(1).unwrap())
+        .collect();
+    assert_eq!(names.len(), 2);
+    assert!(names.contains(&"acme"), "{}", outcome.stdout);
+    assert_ne!(names[0], names[1], "{}", outcome.stdout);
 }
 
 #[test]
@@ -413,19 +464,29 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
     weaver(dir.path(), &["init"]).unwrap();
     weaver(
         dir.path(),
-        &["gather", "git", &first.path().to_string_lossy()],
+        &[
+            "gather",
+            "git",
+            &first.path().to_string_lossy(),
+            "--name",
+            "acme",
+        ],
     )
     .unwrap();
     left_by_an_older_build(dir.path(), "https://me:ghp_t0ken@example.com/acme/skills");
 
     // Listing reads, so it rewrites nothing, and it shows nothing it should
-    // not.
+    // not, the URL its JSON holds included.
     let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
-    assert_eq!(
-        listed.stdout,
-        "deploy  https://example.com/acme/skills  Ship it\n"
-    );
+    assert_eq!(listed.stdout, "deploy  acme  Ship it\n");
     assert!(listed.stderr.is_empty(), "{:?}", listed.stderr);
+    let json = weaver(dir.path(), &["gather", "list", "--json"]).unwrap();
+    assert!(
+        json.stdout.contains("\"https://example.com/acme/skills\""),
+        "{}",
+        json.stdout
+    );
+    assert!(!json.stdout.contains("ghp_t0ken"), "{}", json.stdout);
     assert!(kept_by(dir.path()).contains("ghp_t0ken"));
 
     // The next command that writes takes it out of the ledger and the clone,
@@ -444,13 +505,12 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
         ]
     );
     assert!(!kept_by(dir.path()).contains("ghp_t0ken"));
-    // Compared word by word: the second source is a temp dir, whose length
-    // (long on macOS and Windows) sets how wide the URL column is padded.
+    // Compared word by word: the second source is named after a temp dir,
+    // whose length sets how wide the name column is padded.
     let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
     assert!(
         listed.stdout.lines().any(|line| {
-            line.split_whitespace().collect::<Vec<_>>()
-                == ["deploy", "https://example.com/acme/skills", "Ship", "it"]
+            line.split_whitespace().collect::<Vec<_>>() == ["deploy", "acme", "Ship", "it"]
         }),
         "{}",
         listed.stdout
@@ -459,6 +519,83 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
     // Said once: there is nothing left to say the second time.
     let again = weaver(dir.path(), &["gather", "git", &second]).unwrap();
     assert!(again.stderr.is_empty(), "{:?}", again.stderr);
+}
+
+/// What schema 6 wrote, as core's migration tests have it: one repository
+/// gathered by two spellings of its URL, and another the same way, once
+/// with a token an older build stored, `<token>` there.
+const VERSION_6: &str = include_str!("../../core/tests/fixtures/ledger-v6.sql");
+
+#[test]
+fn the_first_command_that_writes_after_the_step_says_which_sources_are_one_now() {
+    let token = format!("ghp_{}", "T0k3n".repeat(7) + "x");
+    let source = repository(&[("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it"))]);
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    rusqlite::Connection::open(dir.path().join(WEAVER_DIR).join("mindweaver.db"))
+        .unwrap()
+        .execute_batch(&VERSION_6.replace("<token>", &token))
+        .unwrap();
+
+    let gathered = weaver(
+        dir.path(),
+        &["gather", "git", &source.path().to_string_lossy()],
+    )
+    .unwrap();
+
+    assert!(gathered.ok, "{:?}", gathered.stderr);
+    assert_eq!(
+        gathered.stderr,
+        [
+            "note: https://github.com/Acme/Private.git: the same repository as the source \
+             `acme-private` (https://github.com/acme/private), so the two are one source now, \
+             and the shelf keeps what `acme-private` gathered",
+            "note: https://github.com/acme/skills: the same repository as the source \
+             `acme-skills` (git@github.com:acme/skills.git), so the two are one source now, and \
+             the shelf keeps what `acme-skills` gathered",
+            "note: https://github.com/acme/private: the user name, password or token an older \
+             Mindweaver stored in this URL is taken out; gathering it again needs a git \
+             credential helper that has it",
+            "note: 2 action log entries: the user names, passwords or tokens an older \
+             Mindweaver stored in URLs in them are taken out",
+        ]
+    );
+    assert!(!kept_by(dir.path()).contains(&token));
+    // Said once: there is nothing left to say the second time.
+    let again = weaver(
+        dir.path(),
+        &["gather", "git", &source.path().to_string_lossy()],
+    )
+    .unwrap();
+    assert!(again.stderr.is_empty(), "{:?}", again.stderr);
+}
+
+#[test]
+fn a_read_that_takes_the_step_leaves_saying_what_it_made_one_to_the_first_command_that_writes() {
+    let token = format!("ghp_{}", "T0k3n".repeat(7) + "x");
+    let source = repository(&[("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it"))]);
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    rusqlite::Connection::open(dir.path().join(WEAVER_DIR).join("mindweaver.db"))
+        .unwrap()
+        .execute_batch(&VERSION_6.replace("<token>", &token))
+        .unwrap();
+
+    let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
+    let gathered = weaver(
+        dir.path(),
+        &["gather", "git", &source.path().to_string_lossy()],
+    )
+    .unwrap();
+
+    assert!(listed.stderr.is_empty(), "{:?}", listed.stderr);
+    let notes: Vec<&str> = gathered
+        .stderr
+        .iter()
+        .map(|line| line.text.as_str())
+        .filter(|line| line.contains("one source now"))
+        .collect();
+    assert_eq!(notes.len(), 2, "{:?}", gathered.stderr);
 }
 
 #[test]

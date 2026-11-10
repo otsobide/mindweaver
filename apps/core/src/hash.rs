@@ -8,7 +8,9 @@
 //! platform) would call an untouched copy edited. Three recipes, one for a
 //! folder ([`tree`]), one for a file written whole ([`bytes`]) and one for
 //! an MCP server's entry in an agent's config file ([`fingerprint`]), each
-//! for its own kind of target and never compared with another.
+//! for its own kind of target and never compared with another. A fourth,
+//! [`request`], is no copy's: the key the HTTP cache keeps an answer under,
+//! here so that SHA-256 is spelled in one place.
 //!
 //! What each makes is a [`ContentHash`], the value it is, rather than the
 //! text it is written as: only these recipes, and a digest somebody hands
@@ -108,6 +110,19 @@ pub fn bytes(contents: &[u8]) -> ContentHash {
 /// however the file lays it out. The text alone, not the key it is under nor
 /// the file, as a copy's own name is not part of its tree's hash.
 pub fn fingerprint(canonical: &str) -> ContentHash {
+    hex(Sha256::new_with_prefix(canonical.as_bytes()))
+}
+
+/// The key an answer read over HTTP is kept under: the SHA-256 of what
+/// tells the request from another, as 64 lowercase hex digits.
+///
+/// Handed the request's canonical text rather than the request, since what
+/// tells one from another is the cache's to say ([`crate::http::Cache`]).
+/// A hash rather than the URL itself, as the name of the file the answer is
+/// kept in, so a file's name is one every filesystem takes whatever the URL
+/// holds, and says nothing a URL said. Never compared with the other
+/// recipes' hashes, which are of what was written, not of what was asked.
+pub fn request(canonical: &str) -> ContentHash {
     hex(Sha256::new_with_prefix(canonical.as_bytes()))
 }
 

@@ -17,6 +17,7 @@ use ts_rs::{Config, TypeVisitor, TS};
 
 use crate::backend::{Confirm, Outcome, Planned, Query, Scanned, Switch};
 use crate::error::Code;
+use crate::progress::Step;
 use crate::render::Envelope;
 use crate::task::Task;
 use crate::CODES;
@@ -24,9 +25,9 @@ use crate::CODES;
 /// Every type the CLI hands the panel whole, or takes from it, each with
 /// every type it names: a query, a task and a switch, which the panel
 /// sends; what a scan, a plan, a preview and a run are answered with, the
-/// last two what to confirm and what it produced; the envelope a reading
-/// command's `--json` prints; and every code core, the CLI and the server
-/// give.
+/// last two what to confirm and what it produced; each step a run under
+/// way reports, which the stream carries; the envelope a reading command's
+/// `--json` prints; and every code core, the CLI and the server give.
 pub fn roots(visitor: &mut impl TypeVisitor) {
     visitor.visit::<Query>();
     visitor.visit::<Task>();
@@ -34,6 +35,7 @@ pub fn roots(visitor: &mut impl TypeVisitor) {
     visitor.visit::<Planned>();
     visitor.visit::<Confirm>();
     visitor.visit::<Outcome>();
+    visitor.visit::<Step>();
     visitor.visit::<Switch>();
     visitor.visit::<Envelope<'static, ()>>();
     visitor.visit::<Code>();

@@ -6,8 +6,8 @@
 //! install may overwrite, which copy is edited) sit in the middle and depend
 //! on nothing outside them; whatever they need from outside is a port here,
 //! a trait in core's own words; and an adapter on the edge implements it with
-//! a library (`gix` for a [`Remote`], SQLite for a [`LedgerStore`], the
-//! system clock for a [`Clock`]). The
+//! a library (`gix` for a [`Remote`], reqwest for [`Http`], SQLite for a
+//! [`LedgerStore`], the system clock for a [`Clock`]). The
 //! front ends, the CLI, the TUI and the panel's backend, are the other side's
 //! adapters: they drive core through its functions and the command lines
 //! every one of them runs (`commands::run_line`), and add nothing core has to
@@ -15,8 +15,9 @@
 //! port, and a new front end is one more driver of the same commands: neither
 //! changes a rule.
 //!
-//! This is the seam D-14 chose for HTTP, kept for every port: an injectable
-//! trait, a default adapter built in, and a fake in a test. A port speaks only
+//! This is the seam D-14 chose for HTTP ([`Http`]), kept for every port: an
+//! injectable trait, a default adapter built in, and a fake in a test. A port
+//! speaks only
 //! core's types. What an adapter's library says is turned into those at the
 //! edge (an error into text, a commit into a [`Revision`]), rather than
 //! carried through, which would tie core's public API to the library's
@@ -29,9 +30,11 @@
 //! the failure a port here would invite (docs/architecture.md, "Values,
 //! ports and adapters").
 
-use std::fmt::Debug;
+use std::collections::BTreeMap;
+use std::fmt::{self, Debug};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use thiserror::Error;
 
@@ -39,11 +42,12 @@ use crate::code::codes;
 use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
-    Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Moved, Outcome,
-    Source, SourceKind, Target,
+    Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
+    Outcome, Source, SourceKind, Target,
 };
 use crate::settings::ProjectId;
-use crate::value::Revision;
+use crate::url::carries_credentials;
+use crate::value::{Redacted, Revision, SourceName};
 use crate::workspace::WorkspaceError;
 
 /// Where a source's artifacts are fetched from: a repository a gather clones
@@ -72,6 +76,120 @@ pub trait Remote: Debug + Send + Sync {
     /// in what it wrote there, returning whether there were any.
     fn scrub(&self, clone: &Path) -> Result<bool, GitError>;
 }
+
+/// Where a backup is committed: a repository a copy of is checked out,
+/// written into by an export, and sent back (`mindweaver backup`).
+///
+/// A port of its own rather than more of [`Remote`]'s: a gather only ever
+/// reads, and the library it reads with cannot send (D-27, in
+/// docs/architecture.md), so what sends is another adapter, the system's
+/// `git`, behind words of core's. What a backup writes is core's
+/// ([`crate::export`]); this only checks out, commits and pushes.
+///
+/// Neither method ever asks a person for anything: a credential nobody
+/// supplied is an error ([`UpstreamError::Credentials`]), as a gather's is.
+pub trait Upstream: Debug + Send + Sync {
+    /// Check `url` out into `into`, a folder not there yet, on `branch`, or
+    /// the branch the remote names as its own when none is given, starting
+    /// it from that one when the remote has no `branch` yet, and from
+    /// nothing when it has no commit at all. The branch it is on is handed
+    /// back.
+    fn check_out(
+        &self,
+        url: &str,
+        branch: Option<&str>,
+        into: &Path,
+        token: Option<&Token>,
+    ) -> Result<CheckedOut, UpstreamError>;
+
+    /// Commit what `paths` (routes from the work tree's root) hold now in
+    /// the work tree at `work`, as `message`, and push it to where it was
+    /// checked out from, on its branch: nothing at all when they hold what
+    /// the branch held and the remote has the branch, and the commit it was
+    /// started from, uncommitted to, when the remote has not got it yet.
+    fn publish(
+        &self,
+        work: &Path,
+        paths: &[&str],
+        message: &str,
+        token: Option<&Token>,
+    ) -> Result<Published, UpstreamError>;
+}
+
+/// A token a front end was handed for one run (D-16): sent where the run
+/// sends it, and never kept, printed or written into a `Debug`.
+///
+/// No `Display`, `Serialize` or text value, so nothing that says what a
+/// command did can hold it by mistake: only an adapter reads it, through
+/// [`reveal`](Self::reveal).
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token(String);
+
+impl Token {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// What it holds, for the adapter that sends it.
+    pub(crate) fn reveal(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Token(..)")
+    }
+}
+
+/// A repository checked out for a backup: [`Upstream::check_out`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedOut {
+    /// The branch the work tree is on, which a publish pushes to.
+    pub branch: String,
+}
+
+/// What [`Upstream::publish`] sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Published {
+    /// The paths held what the branch held: nothing was committed or sent.
+    Unchanged,
+    /// A commit was made, and the branch now points at it.
+    Pushed { revision: Revision },
+}
+
+/// Why a backup's repository could not be checked out or sent.
+///
+/// As [`GitError`], the failure as text, never the library's or the
+/// process's error, and every URL in it [`redacted`](crate::url::redacted):
+/// what `git` said is shown as it said it.
+#[derive(Debug, Error)]
+pub enum UpstreamError {
+    #[error("`git` could not be run, and a backup is sent with it: {detail}")]
+    Unavailable { detail: String },
+    #[error("{url}: cannot be checked out: {detail}")]
+    CheckOut { url: String, detail: String },
+    /// The server asked who is sending, and nothing that may answer had a
+    /// credential it would take. `url` is shown without its credentials.
+    #[error(
+        "{url}: needs credentials, and a backup never prompts for them: configure a git \
+         credential helper, use ssh-agent for an ssh URL, or name a variable holding a token \
+         with --token-env"
+    )]
+    Credentials { url: String },
+    #[error("the backup could not be committed: {detail}")]
+    Commit { detail: String },
+    #[error("{url}: the backup could not be pushed: {detail}")]
+    Push { url: String, detail: String },
+}
+
+codes!(UpstreamError {
+    Self::Unavailable { .. } => "backup_git_unavailable",
+    Self::CheckOut { .. } => "backup_check_out_failed",
+    Self::Credentials { .. } => "backup_credentials_needed",
+    Self::Commit { .. } => "backup_commit_failed",
+    Self::Push { .. } => "backup_push_failed",
+});
 
 /// The time, for what the ledger stamps an action or a gather with.
 ///
@@ -145,6 +263,429 @@ codes!(GitError {
     Self::Scrub(error) => error,
 });
 
+/// Where a catalog is read from over HTTP: the MCP Registry, a skill
+/// directory (D-14).
+///
+/// One `GET` a call, handed back whatever its status. What a status means,
+/// which redirect is followed and with which headers, what is kept and for
+/// how long, and how one page leads to the next are core's
+/// ([`crate::http`]), and the same whichever adapter asked: a rule written
+/// into an adapter is one the fake a test reads through would not keep.
+///
+/// So an adapter follows no redirect, and hands one back with its
+/// `location` made absolute against the URL asked, the one thing about it
+/// that takes a URL parser; keeps nothing between calls, no cookie, no
+/// credential and no answer, so a credential lasts the request it was given
+/// to; sends the request's headers, adding none that says who asks or
+/// carries a credential (a `Host`, or reqwest's `Accept` of anything, is
+/// neither); and reads a body only up to the request's
+/// [`limit`](HttpRequest::limit) and within its
+/// [`timeout`](HttpRequest::timeout), failing as soon as either is passed
+/// rather than once the whole body is in.
+pub trait Http: Debug + Send + Sync {
+    /// Ask for `request`'s URL, and hand back what was answered, or why
+    /// nothing was.
+    fn get(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError>;
+}
+
+/// Who is asking, in every request's `User-Agent`: the product and its
+/// version, as GitHub's API, which refuses a request without one, asks.
+pub const USER_AGENT: &str = concat!("mindweaver/", env!("CARGO_PKG_VERSION"));
+
+/// How long a request is given unless it says otherwise: from asking to
+/// the last byte of the body, redirects included, not each read on its own,
+/// so a server that sends a byte now and then cannot hold a command for
+/// longer than this.
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How many bytes of a body a request takes unless it says otherwise: 8 MiB,
+/// some forty times a page of the MCP Registry's hundred servers, so a
+/// catalog that grows is not refused, and a server that sends without end
+/// costs a command no more than this.
+pub const HTTP_LIMIT: usize = 8 * 1024 * 1024;
+
+/// The headers of an answer core reads, and so the only ones a
+/// [`HttpResponse`] holds: its type, what a cached answer is checked again
+/// by, the next page, where a redirect leads and how long to wait.
+///
+/// A list rather than every header, because what an answer holds may be
+/// kept on the disk ([`crate::http::Cache`]), and a `Set-Cookie` is a
+/// credential: one that is never kept in the first place is never written
+/// down by mistake. A catalog that needs another header adds it here.
+pub const KEPT_HEADERS: &[&str] = &[
+    "content-type",
+    "etag",
+    "last-modified",
+    "link",
+    "location",
+    "retry-after",
+];
+
+/// The headers a request sends as a secret whichever way they were added,
+/// since each carries a credential by what it is for.
+const SECRET_HEADERS: &[&str] = &["authorization", "cookie", "proxy-authorization"];
+
+/// A `GET` core asks an [`Http`] for: the URL, the headers it adds, and how
+/// long and how much it will wait for.
+///
+/// Made only through [`get`](Self::get) and [`at`](Self::at), which refuse
+/// a URL that is not `http` or `https` or carries a credential, so an
+/// adapter is never handed one: a token goes in a header, as a
+/// [`secret`](Self::secret), which no cache keeps, no redirect carries to
+/// another site and no `Debug` shows. Every request says who is asking
+/// ([`USER_AGENT`]) from the start.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HttpRequest {
+    url: Redacted,
+    headers: Vec<Header>,
+    timeout: Duration,
+    limit: usize,
+}
+
+/// One header a request sends.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Header {
+    name: String,
+    value: String,
+    secret: bool,
+}
+
+impl Header {
+    /// Its name, in lowercase, as HTTP/2 sends every name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// What it says: for an adapter to send, never to keep or print.
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    /// Whether it carries a credential, for an adapter to mark it so to its
+    /// library, which then leaves it out of what it logs.
+    pub fn is_secret(&self) -> bool {
+        self.secret
+    }
+}
+
+impl Debug for Header {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = if self.secret { "<secret>" } else { &self.value };
+        write!(f, "{}: {value}", self.name)
+    }
+}
+
+impl HttpRequest {
+    /// A `GET` of `url`, given [`HTTP_TIMEOUT`] and [`HTTP_LIMIT`].
+    pub fn get(url: &str) -> Result<Self, HttpError> {
+        Ok(HttpRequest {
+            url: asked(url)?,
+            headers: vec![Header {
+                name: String::from("user-agent"),
+                value: String::from(USER_AGENT),
+                secret: false,
+            }],
+            timeout: HTTP_TIMEOUT,
+            limit: HTTP_LIMIT,
+        })
+    }
+
+    /// This request at `url`, its headers, timeout and limit kept: the next
+    /// page, or where a redirect leads, asked the way the first was.
+    pub fn at(&self, url: &str) -> Result<Self, HttpError> {
+        Ok(HttpRequest {
+            url: asked(url)?,
+            ..self.clone()
+        })
+    }
+
+    /// This request sending `name: value` too, in place of any value it sent
+    /// under that name. `Authorization`, `Cookie` and `Proxy-Authorization`
+    /// are sent as a [`secret`](Self::secret) all the same.
+    pub fn header(self, name: &str, value: &str) -> Result<Self, HttpError> {
+        self.with(name, value, false)
+    }
+
+    /// This request sending `name: value` as a credential: never kept in the
+    /// HTTP cache, which keeps nothing a request carrying one was answered,
+    /// never sent on to another site a redirect leads to, never shown.
+    pub fn secret(self, name: &str, value: &str) -> Result<Self, HttpError> {
+        self.with(name, value, true)
+    }
+
+    /// This request given `timeout` in place of [`HTTP_TIMEOUT`].
+    pub fn within(self, timeout: Duration) -> Self {
+        HttpRequest { timeout, ..self }
+    }
+
+    /// This request taking at most `limit` bytes of a body in place of
+    /// [`HTTP_LIMIT`].
+    pub fn at_most(self, limit: usize) -> Self {
+        HttpRequest { limit, ..self }
+    }
+
+    /// This request without its secrets: what a redirect to another site is
+    /// asked as.
+    pub fn without_secrets(&self) -> Self {
+        HttpRequest {
+            headers: self
+                .headers
+                .iter()
+                .filter(|header| !header.secret)
+                .cloned()
+                .collect(),
+            ..self.clone()
+        }
+    }
+
+    /// The URL asked, which carries no credential.
+    pub fn url(&self) -> &Redacted {
+        &self.url
+    }
+
+    /// Every header it sends, `User-Agent` first, each name once.
+    pub fn headers(&self) -> &[Header] {
+        &self.headers
+    }
+
+    /// What it sends under `name`, in any case.
+    pub fn header_value(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|header| header.name.eq_ignore_ascii_case(name))
+            .map(|header| header.value.as_str())
+    }
+
+    /// Whether any header it sends is a secret.
+    pub fn carries_secrets(&self) -> bool {
+        self.headers.iter().any(|header| header.secret)
+    }
+
+    /// How long it is given, from asking to the last byte of the body.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// How many bytes of a body it takes at most.
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+
+    fn with(mut self, name: &str, value: &str, secret: bool) -> Result<Self, HttpError> {
+        let name = name.to_ascii_lowercase();
+        if name.is_empty() || !name.bytes().all(is_token) {
+            return Err(HttpError::Header {
+                name,
+                detail: String::from("a header's name is letters, digits and `!#$%&'*+-.^_`|~`"),
+            });
+        }
+        // Visible ASCII, spaces and tabs, as every HTTP library takes a
+        // value: a line break would start another header, and what one
+        // library takes beyond that another refuses. The value is not said,
+        // since it may be a secret.
+        if !value
+            .bytes()
+            .all(|byte| byte == b'\t' || (b' '..=b'~').contains(&byte))
+        {
+            return Err(HttpError::Header {
+                name,
+                detail: String::from("its value holds a line break or a character beyond ASCII"),
+            });
+        }
+        let secret = secret || SECRET_HEADERS.contains(&name.as_str());
+        self.headers.retain(|header| header.name != name);
+        self.headers.push(Header {
+            name,
+            value: value.to_owned(),
+            secret,
+        });
+        Ok(self)
+    }
+}
+
+impl Debug for HttpRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpRequest")
+            .field("url", &self.url)
+            .field("headers", &self.headers)
+            .field("timeout", &self.timeout)
+            .field("limit", &self.limit)
+            .finish()
+    }
+}
+
+/// `url` as a request may ask it: `http` or `https`, naming a host, with no
+/// space, control character or credential in it.
+///
+/// What else a URL must be is the adapter's library's to say: a parser of
+/// core's own would be a second opinion of what a URL is, and the one that
+/// sends it is the one that counts.
+fn asked(url: &str) -> Result<Redacted, HttpError> {
+    let refused = |detail: &str| HttpError::Url {
+        url: Redacted::new(url),
+        detail: Redacted::new(detail),
+    };
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(refused("it has a space or a control character in it"));
+    }
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return Err(refused("it is not an http or https URL"));
+    };
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return Err(refused("it is not an http or https URL"));
+    }
+    if rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .is_empty()
+    {
+        return Err(refused("it names no host"));
+    }
+    if carries_credentials(url) {
+        return Err(HttpError::Credentials {
+            url: Redacted::new(url),
+        });
+    }
+    Ok(Redacted::new(url))
+}
+
+/// Whether `byte` may be part of a header's name: RFC 9110's `tchar`.
+fn is_token(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+}
+
+/// What an [`Http`] was answered: the status, the headers core reads
+/// ([`KEPT_HEADERS`]), and the body, no longer than the request's limit.
+///
+/// Made only through [`new`](Self::new), which keeps those headers and no
+/// other, so an adapter or a fake that hands over every header the server
+/// sent hands core no more than it reads.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HttpResponse {
+    status: u16,
+    headers: BTreeMap<String, String>,
+    body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// What was answered with `status`, `headers` as the server sent them
+    /// (a name in any case, one sent twice twice) and `body`.
+    ///
+    /// A header sent twice is kept as one, its values joined by `, `, as
+    /// HTTP reads a list such as `Link` sent over several lines.
+    pub fn new<N, V>(status: u16, headers: impl IntoIterator<Item = (N, V)>, body: Vec<u8>) -> Self
+    where
+        N: AsRef<str>,
+        V: AsRef<str>,
+    {
+        let mut kept: BTreeMap<String, String> = BTreeMap::new();
+        for (name, value) in headers {
+            let name = name.as_ref().to_ascii_lowercase();
+            if !KEPT_HEADERS.contains(&name.as_str()) {
+                continue;
+            }
+            let value = value.as_ref().trim();
+            kept.entry(name)
+                .and_modify(|held| {
+                    held.push_str(", ");
+                    held.push_str(value);
+                })
+                .or_insert_with(|| value.to_owned());
+        }
+        HttpResponse {
+            status,
+            headers: kept,
+            body,
+        }
+    }
+
+    /// The status it was answered with.
+    pub fn status(&self) -> u16 {
+        self.status
+    }
+
+    /// Whether the status says it was answered: 200 to 299.
+    pub fn is_success(&self) -> bool {
+        (200..300).contains(&self.status)
+    }
+
+    /// Whether the status sends the request elsewhere, to where its
+    /// `location` says: 301, 302, 303, 307 or 308.
+    pub fn is_redirect(&self) -> bool {
+        matches!(self.status, 301 | 302 | 303 | 307 | 308)
+    }
+
+    /// The header `name` holds, in any case, when it is one core reads and
+    /// the server sent it.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
+    }
+
+    /// Every header kept, by its name in lowercase.
+    pub fn headers(&self) -> &BTreeMap<String, String> {
+        &self.headers
+    }
+
+    /// The body.
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+}
+
+impl Debug for HttpResponse {
+    /// The body by its length: a catalog's page printed whole would bury
+    /// whatever a failing test meant to say.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpResponse")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .field("body", &format_args!("{} bytes", self.body.len()))
+            .finish()
+    }
+}
+
+/// Why a request was answered nothing.
+///
+/// In core's words, as [`GitError`] is: every URL in it is the one asked,
+/// which carries no credential, and what the adapter's library said is
+/// [`Redacted`] all the same, since it can quote one. No header's value is
+/// ever in it, since one may be a secret.
+#[derive(Debug, Error)]
+pub enum HttpError {
+    #[error("{url}: not a URL a catalog is read from: {detail}")]
+    Url { url: Redacted, detail: Redacted },
+    /// A URL with a user or a password in it, which would be kept and shown
+    /// wherever the URL is: a credential goes in a header of its own.
+    #[error(
+        "{url}: carries a credential, which is never sent in a URL: \
+         it goes in a header of its own"
+    )]
+    Credentials { url: Redacted },
+    #[error("`{name}`: not a header that can be sent: {detail}")]
+    Header { name: String, detail: String },
+    #[error("{url}: cannot be reached: {detail}")]
+    Connect { url: Redacted, detail: Redacted },
+    #[error("{url}: answered nothing whole within {after:?}")]
+    TimedOut { url: Redacted, after: Duration },
+    #[error("{url}: answered more than the {limit} bytes it may")]
+    TooLarge { url: Redacted, limit: usize },
+    #[error("{url}: cannot be read: {detail}")]
+    Fetch { url: Redacted, detail: Redacted },
+}
+
+codes!(HttpError {
+    Self::Url { .. } => "http_url_invalid",
+    Self::Credentials { .. } => "http_url_credentialed",
+    Self::Header { .. } => "http_header_invalid",
+    Self::Connect { .. } => "http_connect_failed",
+    Self::TimedOut { .. } => "http_timed_out",
+    Self::TooLarge { .. } => "http_too_large",
+    Self::Fetch { .. } => "http_fetch_failed",
+});
+
 /// Where a workspace's records are kept: the gathered sources and what each
 /// supplied, every installation and its copies, the projects it knew, and
 /// the action log.
@@ -164,7 +705,10 @@ pub trait LedgerStore: Debug + Send {
     /// store kept nowhere says in its place (`:memory:` for SQLite's).
     fn path(&self) -> &Path;
 
-    /// The source matching this coordinate, if it has been gathered before.
+    /// The source at this coordinate, if it has been gathered before: the
+    /// one whose URL is `url` however it was spelled
+    /// ([`crate::url::canonical`]), at the same branch, or at the remote's
+    /// HEAD when `reference` is `None`, and from the same folder.
     fn source(
         &self,
         kind: SourceKind,
@@ -173,7 +717,9 @@ pub trait LedgerStore: Debug + Send {
         subdirectory: &str,
     ) -> Result<Option<Source>, LedgerError>;
 
-    /// The source for this coordinate, registering it the first time.
+    /// The source for this coordinate, registering it the first time, as
+    /// `url` was typed, under the name its URL gives it
+    /// ([`SourceName::derived`]), numbered when another source has that.
     ///
     /// Its `directory` is chosen once, here, and never recomputed: it is where
     /// files already are.
@@ -184,6 +730,47 @@ pub trait LedgerStore: Debug + Send {
         reference: Option<&str>,
         subdirectory: &str,
     ) -> Result<Source, LedgerError>;
+
+    /// The name and the folder a source registered from `url` now would be
+    /// given ([`source_for`](Self::source_for)), registering nothing: what a
+    /// gather's dry run says of a source it has not met
+    /// ([`crate::gather::dry_run`]).
+    fn would_register(&self, url: &str) -> Result<(SourceName, String), LedgerError>;
+
+    /// The source called `name`, if one is.
+    fn source_named(&self, name: &SourceName) -> Result<Option<Source>, LedgerError>;
+
+    /// Call the source `id` `name` from now on. Whether no other source has
+    /// it is the caller's to have asked ([`source_named`](Self::source_named)):
+    /// a store refuses a name two sources would hold as a failure.
+    fn rename_source(&self, id: i64, name: &SourceName) -> Result<(), LedgerError>;
+
+    /// Take the source `id` from the folder `subdirectory` of its repository
+    /// from now on: one an older build registered from `skills`, its default
+    /// folder then, which a gather naming no folder takes the whole
+    /// repository of since #101 ([`crate::gather::OLDER_DEFAULT_SUBDIRECTORY`]).
+    /// Whether no other source is at the coordinate it moves to is the
+    /// caller's to have asked ([`source`](Self::source)): a store refuses one
+    /// two sources would hold as a failure.
+    fn set_source_folder(&self, id: i64, subdirectory: &str) -> Result<(), LedgerError>;
+
+    /// The sources the step to schema 7 made one with another ([`Merged`])
+    /// whose folders are not gone yet, in the order the step made them one.
+    ///
+    /// Kept from the step until then, rather than handed back by the opening
+    /// that took it: a read takes the step as often as a write does, the
+    /// first command after an upgrade being a `status` or a `list` as often
+    /// as not, and says nothing of it, so the first command that writes is
+    /// the one to say each merge and clear its folders
+    /// ([`crate::gather::scrub`]), whichever opened the ledger first. None
+    /// once that is done, and none from a store that never had an older
+    /// schema to step from.
+    fn merged(&self) -> Result<Vec<Merged>, LedgerError>;
+
+    /// Forget the merge [`merged`](Self::merged) hands back with the folders
+    /// called `directory`, once they are gone: a folder name a source may be
+    /// given again from then on, and a merge said for the last time.
+    fn cleared_merge(&self, directory: &str) -> Result<(), LedgerError>;
 
     /// Note which revision a source was last gathered at.
     fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError>;
@@ -467,28 +1054,19 @@ pub trait LedgerStore: Debug + Send {
     /// never the one it has: nothing the ledger returns carries a credential.
     fn tainted_sources(&self) -> Result<Vec<Source>, LedgerError>;
 
-    /// Store a source's URL without the credentials in it, handing back the
-    /// row that went if that made two rows one.
+    /// Store a source's URL without the credentials in it.
     ///
-    /// When another source already holds that URL, with the same branch and
-    /// folder, the two are one place gathered twice, so they become one row
-    /// rather than two with the same address: two rows would make the shelf
-    /// offer each skill twice under one origin, and `--from` could not tell
-    /// them apart. The one whose shelf was filled most recently is kept, since
-    /// its folder holds the newer files; a row whose gather failed before it
-    /// filled anything loses to one that did, however recently it was tried.
-    /// What the other one gathered goes with it, rather than moving to the
-    /// kept row: its files are in the other's folder, and a record pointing
-    /// there would outlive the folder's owner, so the next source given that
-    /// folder would gather over files the kept row still claims. An
-    /// installation that pointed at the other points at the kept one, which
-    /// is the same place. The row that went is handed back for its folders to
-    /// go too, which nothing points into any more.
+    /// Two rows it would make one are one already: the URL a source is
+    /// known by holds no credential ([`crate::url::canonical`]), so a row
+    /// whose URL only a credential told from another's was made one with it
+    /// by the step to schema 7, which kept the one whose shelf was filled
+    /// most recently ([`Merged`]). Before that step the scrub made them one
+    /// itself, by the same rule.
     ///
     /// An installation's origin is rewritten with the URL it spells: schema 3
     /// filled it in from the URL as it was stored, credentials and all, and
     /// nothing else would take them out of it.
-    fn scrub_source(&self, id: i64) -> Result<Option<Source>, LedgerError>;
+    fn scrub_source(&self, id: i64) -> Result<(), LedgerError>;
 
     /// Rewrite every action log entry without the credentials of any URL in
     /// it, returning how many there were.

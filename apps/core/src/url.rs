@@ -92,6 +92,279 @@ pub fn carries_credentials(url: &str) -> bool {
     matches!(redacted(url), Cow::Owned(_))
 }
 
+/// The hosts whose repositories are one identity whichever transport names
+/// them: `https://`, `git@host:` and `ssh://` reach the same repository
+/// there, and the forge reads an owner's and a repository's name in any
+/// case and with or without `.git`.
+///
+/// Only these two, because they are the ones that promise it: on a host of
+/// somebody's own, `host:path` is a path from the login's home where
+/// `ssh://host/path` is one from the root, and `x` and `x.git` can be two
+/// repositories.
+const FORGES: [&str; 2] = ["github.com", "gitlab.com"];
+
+/// The URL a gathered source is known by: one identity for every spelling of
+/// one repository's address, and no credential in it, so two spellings
+/// gather into one source and the identity can be stored and shown.
+///
+/// On GitHub and GitLab ([`FORGES`]) every transport is one identity,
+/// spelled `https://<host>/<path>` in lowercase, without `.git`, a port or a
+/// trailing `/`: `git@github.com:Acme/Skills.git`,
+/// `ssh://git@github.com/acme/skills` and `https://github.com/acme/skills/`
+/// are `https://github.com/acme/skills`, and so is `acme/skills`, the
+/// `owner/repo` a person types for a GitHub repository ([`fetched`]).
+/// Elsewhere only what cannot tell two repositories apart goes: any
+/// credential, the case of the scheme and the host, a trailing `/`, and
+/// `file://` in front of a path, which names the same folder without it. A
+/// relative path stays as it was typed, its own identity, since which
+/// folder it names depends on where it was typed, which a rule of text
+/// cannot know.
+///
+/// [`redacted`] first, so a credential is out of it however oddly it was
+/// typed. The user ssh logs in as goes only on a forge, where it is always
+/// `git` and names no repository: elsewhere it stays, as [`redacted`] keeps
+/// it, since `alice@host:skills` and `bob@host:skills` are folders in two
+/// homes, and one repository two logins reach is two sources, as it was
+/// before identities, rather than two repositories one. Parsing with
+/// `gix::url` was the other way, rejected for the reasons [`redacted`]
+/// gives, and because what is kept here is a rule of Mindweaver's, not how
+/// one library reads a URL.
+pub fn canonical(url: &str) -> String {
+    let url = fetched(&redacted(url)).into_owned();
+    if let Some((scheme, rest)) = url.split_once("://") {
+        let scheme = scheme.to_ascii_lowercase();
+        if scheme == "file" {
+            // `file:///srv/x` and `file://localhost/srv/x` are `/srv/x`.
+            let path = rest.strip_prefix("localhost").unwrap_or(rest);
+            if path.starts_with('/') {
+                return trimmed(path).to_owned();
+            }
+            return format!("file://{}", trimmed(rest));
+        }
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        let (login, host) = logged_in(authority);
+        if let Some(forge) = forge(&host) {
+            return forged(forge, path);
+        }
+        let path = trimmed(path);
+        return if path.is_empty() {
+            format!("{scheme}://{login}{host}")
+        } else {
+            format!("{scheme}://{login}{host}/{path}")
+        };
+    }
+    if let Some((before, path)) = scp_like(&url) {
+        let (login, host) = logged_in(before);
+        if let Some(forge) = forge(&host) {
+            return forged(forge, path);
+        }
+        return format!("{login}{host}:{}", trimmed(path));
+    }
+    trimmed(&url).to_owned()
+}
+
+/// What a gather fetches for `url`: `https://github.com/<owner>/<repo>` for
+/// the `owner/repo` a person types for a GitHub repository, and `url` as it
+/// was typed otherwise.
+///
+/// `owner/repo` is two plain names with one `/` between them, the first not
+/// starting with a `.`: a folder on this machine is a path that says so,
+/// `./skills/repo` when it is relative, as `gh` and Claude Code's plugin
+/// marketplaces read it. Reading `owner/repo` as a folder whenever one of
+/// that name happened to be there was the other way, and is rejected: which
+/// repository a command names would then depend on where it ran.
+pub fn fetched(url: &str) -> Cow<'_, str> {
+    match owner_and_repo(url) {
+        Some((owner, repo)) => Cow::Owned(format!("https://github.com/{owner}/{repo}")),
+        None => Cow::Borrowed(url),
+    }
+}
+
+/// `text` as the `owner/repo` a person types for a GitHub repository, when
+/// it is one ([`fetched`]).
+fn owner_and_repo(text: &str) -> Option<(&str, &str)> {
+    let (owner, repo) = text.split_once('/')?;
+    (is_plain(owner) && is_plain(repo) && !owner.starts_with('.') && repo != "..")
+        .then_some((owner, repo))
+}
+
+/// What a typed source names: the repository a gather fetches, and the
+/// branch and the folder in it that the text itself says, when it says
+/// them ([`located`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    /// What a gather fetches, as [`fetched`] reads it.
+    pub url: String,
+    /// The branch or tag the text names.
+    pub reference: Option<String>,
+    /// The folder the text names, as it spells it, from the repository's
+    /// root: a gather holds it to being inside the repository, not this.
+    pub path: Option<String>,
+}
+
+/// What `typed` names (#101), as `gh skill` and `npx skills` read it:
+/// `owner/repo@ref` is the GitHub repository [`fetched`] reads `owner/repo`
+/// as, at that branch or tag; the address of a folder on github.com or
+/// gitlab.com, `/tree/<ref>/<path>` after the repository (GitLab's
+/// `/-/tree/` too), is that repository, at that branch, and that folder;
+/// anything else is the repository [`fetched`] reads it as, and says
+/// neither.
+///
+/// The branch is the one part after `tree`, as both tools read it: a
+/// branch with a `/` in it reads as a shorter branch and a folder, and is
+/// given with `--ref` and `--path` instead. Asking the remote which of its
+/// branches the address starts with was the other way, and is rejected: it
+/// would make reading what was typed a fetch of its own. A tree address is
+/// fetched over https from the forge's own host, `www.` left off, as the
+/// repository a browser was showing.
+///
+/// Read after a gather has refused a credential in what was typed, so what
+/// it hands back holds none of one.
+pub fn located(typed: &str) -> Located {
+    if let Some((repository, reference)) = typed.split_once('@') {
+        if !reference.is_empty() {
+            if let Some((owner, repo)) = owner_and_repo(repository) {
+                return Located {
+                    url: format!("https://github.com/{owner}/{repo}"),
+                    reference: Some(reference.to_owned()),
+                    path: None,
+                };
+            }
+        }
+    }
+    tree(typed).unwrap_or_else(|| Located {
+        url: fetched(typed).into_owned(),
+        reference: None,
+        path: None,
+    })
+}
+
+/// The repository, branch and folder the address of a folder on a forge's
+/// website names, when `typed` is one ([`located`]).
+fn tree(typed: &str) -> Option<Located> {
+    let (scheme, rest) = typed.split_once("://")?;
+    if !["https", "http"]
+        .iter()
+        .any(|web| scheme.eq_ignore_ascii_case(web))
+    {
+        return None;
+    }
+    // What a browser adds after the address is no part of the folder.
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    let (host, path) = rest.split_once('/')?;
+    let host = host.to_ascii_lowercase();
+    let forge = forge(host.strip_prefix("www.").unwrap_or(&host))?;
+    let parts: Vec<&str> = path.split('/').collect();
+    // Where the repository's own path ends, and where the branch is.
+    let (end, branch) = match forge {
+        "github.com" => (2, 3),
+        _ => match parts.iter().position(|part| *part == "-") {
+            Some(dash) => (dash, dash + 2),
+            None => {
+                let tree = parts.iter().position(|part| *part == "tree")?;
+                (tree, tree + 1)
+            }
+        },
+    };
+    if end < 2 || parts.get(branch - 1) != Some(&"tree") {
+        return None;
+    }
+    let repository = &parts[..end];
+    let reference = parts
+        .get(branch)
+        .filter(|reference| !reference.is_empty())?;
+    if repository.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    let folder: Vec<&str> = parts[branch + 1..]
+        .iter()
+        .copied()
+        .filter(|part| !part.is_empty())
+        .collect();
+    Some(Located {
+        url: format!("https://{forge}/{}", repository.join("/")),
+        reference: Some((*reference).to_owned()),
+        path: (!folder.is_empty()).then(|| folder.join("/")),
+    })
+}
+
+/// Whether `part` is a name a forge takes for an owner or a repository:
+/// letters, digits, `.`, `_` and `-`, at least one of them.
+fn is_plain(part: &str) -> bool {
+    !part.is_empty()
+        && part
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+/// The forge `host` is, without the port it may name.
+fn forge(host: &str) -> Option<&'static str> {
+    let host = host.split_once(':').map_or(host, |(host, _)| host);
+    FORGES.into_iter().find(|forge| *forge == host)
+}
+
+/// A repository at `path` on `forge`, as [`canonical`] spells it there.
+fn forged(forge: &str, path: &str) -> String {
+    let path = trimmed(path.trim_start_matches('/'));
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    format!("https://{forge}/{}", path.to_ascii_lowercase())
+}
+
+/// `path` without the `/`s it ends with, unless it is nothing else.
+fn trimmed(path: &str) -> &str {
+    match path.trim_end_matches('/') {
+        "" if path.starts_with('/') => "/",
+        kept => kept,
+    }
+}
+
+/// The login, `user@` or nothing, and the host in lowercase, of the text
+/// before an address's path: after [`redacted`], the only userinfo left is
+/// the user ssh logs in as.
+fn logged_in(authority: &str) -> (&str, String) {
+    match authority.rsplit_once('@') {
+        Some((user, host)) => (&authority[..=user.len()], host.to_ascii_lowercase()),
+        None => ("", authority.to_ascii_lowercase()),
+    }
+}
+
+/// The text before the path, `[user@]host`, and the path of an scp-like
+/// address: what `gix` reads as one when the `:` comes before any `/`. A
+/// single letter before it is a Windows drive, not a host.
+fn scp_like(url: &str) -> Option<(&str, &str)> {
+    let (before, path) = url.split_once(':')?;
+    if before.contains('/') || before.contains('\\') {
+        return None;
+    }
+    let host = before.rsplit_once('@').map_or(before, |(_, host)| host);
+    (host.len() > 1).then_some((before, path))
+}
+
+/// Whether `url` is reached over ssh: a scheme naming it, legacy spellings
+/// included, or the scp-like form, `[user@]host:path`, whose `:` comes
+/// before any `/`.
+///
+/// What a token is never sent over: ssh logs in with keys of its own, and a
+/// token handed over for such a URL would be for nothing, so it is refused
+/// rather than ignored. A Windows drive letter (`C:\repos`) is a path.
+pub fn over_ssh(url: &str) -> bool {
+    if let Some((scheme, _)) = url.split_once("://") {
+        return is_ssh(scheme);
+    }
+    match url.find(':') {
+        Some(colon) => colon > 1 && !url[..colon].contains(['/', '\\']),
+        None => false,
+    }
+}
+
+/// Whether `url` is a path on this machine rather than an address: no
+/// scheme, and not the scp-like form ssh reads ([`over_ssh`]). What a front
+/// end resolves against the folder a command was typed in, since `git`
+/// would resolve it against wherever it runs.
+pub fn is_path(url: &str) -> bool {
+    !url.contains("://") && !over_ssh(url)
+}
+
 /// Whether `authority`, a URL's text from its `://` to its first `/`, is a
 /// user and the start of a password a `/` cut short rather than a host: a
 /// `:` with something other than a port's digits after it.

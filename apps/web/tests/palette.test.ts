@@ -316,6 +316,10 @@ describe('the command palette', () => {
     expect(entries()).toEqual(['Link nothing here at all'])
   })
 
+  // Five pages drawn, each opened from the palette: about a second alone,
+  // but beside every other suite, a worker on each core, every step took
+  // five times as long, waiting on nothing but the CPU, and the whole
+  // outlasted Vitest's five seconds in most runs on a 16-thread machine.
   it('goes where a link on a page would, once it has closed', async () => {
     const { router } = await render('/', fixture('workspace'))
 
@@ -333,7 +337,7 @@ describe('the command palette', () => {
       expect(palette()).toBeNull()
       await settled()
     }
-  })
+  }, 20_000)
 
   it('lets a choice go when it is opened again before it has gone, rather than doing it at the next close, and opens anew', async () => {
     animating()

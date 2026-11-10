@@ -968,6 +968,7 @@
       "source": {
         "directory": "github.com-acme-skills",
         "kind": "git",
+        "name": "acme-skills",
         "reference": null,
         "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
         "subdirectory": "skills",
@@ -985,6 +986,7 @@
       "source": {
         "directory": "github.com-acme-skills",
         "kind": "git",
+        "name": "acme-skills",
         "reference": null,
         "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
         "subdirectory": "skills",
@@ -997,6 +999,7 @@
     {
       "directory": "github.com-acme-skills",
       "kind": "git",
+      "name": "acme-skills",
       "origin": "https://github.com/acme/skills",
       "reference": null,
       "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",

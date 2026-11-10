@@ -21,6 +21,14 @@ impl Visitor for Given {
             .into_root_schema_for::<T>();
         self.0.push((T::schema_name().into_owned(), schema));
     }
+
+    fn taken<T: JsonSchema + ?Sized>(&mut self) {
+        let schema = SchemaSettings::draft2020_12()
+            .for_deserialize()
+            .into_generator()
+            .into_root_schema_for::<T>();
+        self.0.push((T::schema_name().into_owned(), schema));
+    }
 }
 
 /// The schema of the root named `name`.
@@ -76,6 +84,9 @@ fn every_event() -> Vec<Event> {
         match event {
             Event::Changed { .. }
             | Event::CommandStarted { .. }
+            | Event::Progress { .. }
+            | Event::Cancelling { .. }
+            | Event::Busy { .. }
             | Event::CommandFinished { .. }
             | Event::Switched { .. }
             | Event::Resync { .. }
@@ -89,9 +100,22 @@ fn every_event() -> Vec<Event> {
             scopes: vec![json!({"type": "workspace"}), json!("anything")],
         },
         Event::CommandStarted {
+            run: 1,
             lines: lines.clone(),
+            cancellable: true,
         },
-        Event::CommandFinished { lines },
+        Event::Progress {
+            run: 1,
+            progress: json!({"stage": "connecting"}),
+        },
+        Event::Cancelling { run: 1 },
+        Event::Busy {
+            run: 1,
+            lines: lines.clone(),
+            cancellable: true,
+            cancelling: false,
+        },
+        Event::CommandFinished { run: 1, lines },
         Event::Switched { switches: 2 },
         Event::Resync { switches: 0 },
         Event::Watching,
@@ -102,12 +126,33 @@ fn every_event() -> Vec<Event> {
 }
 
 #[test]
-fn the_server_s_roots_are_a_preview_a_run_an_event_and_a_refusal() {
+fn the_server_s_roots_are_a_preview_a_run_a_cancel_an_event_and_a_refusal() {
     let mut given = Given::default();
     roots(&mut given);
     let names: Vec<&str> = given.0.iter().map(|(name, _)| name.as_str()).collect();
 
-    assert_eq!(names, ["Preview", "Ran", "Event", "Refused"]);
+    assert_eq!(
+        names,
+        ["Preview", "Ran", "Cancel", "Cancelling", "Event", "Refused"]
+    );
+}
+
+/// A cancel names a run by its number and nothing else, and is answered
+/// with that run's number and lines.
+#[test]
+fn a_cancel_and_what_it_is_answered_with_hold_to_their_schemas() {
+    holds_to(
+        "Cancelling",
+        &Cancelling {
+            run: 3,
+            lines: vec!["mindweaver gather git https://example.com/skills".to_owned()],
+        },
+    );
+    holds(&schema("Cancel"), &json!({"run": 3})).unwrap();
+    refused_by("Cancel", &json!({"run": -1}));
+    refused_by("Cancel", &json!({"run": 3, "all": true}));
+    refused_by("Cancel", &json!({}));
+    refused_by("Cancelling", &json!({"run": 3}));
 }
 
 #[test]
@@ -125,6 +170,11 @@ fn an_event_serde_never_writes_is_refused() {
     refused_by("Event", &json!({"type": "changed"}));
     refused_by("Event", &json!({"type": "switched", "switches": -1}));
     refused_by("Event", &json!({"scopes": []}));
+    refused_by("Event", &json!({"type": "progress", "progress": {}}));
+    refused_by(
+        "Event",
+        &json!({"type": "command_started", "lines": [], "cancellable": false}),
+    );
 }
 
 /// The backend's JSON, which the server carries unread, is any JSON in
@@ -136,6 +186,7 @@ fn a_preview_and_a_run_hold_to_their_schemas_whatever_the_backend_hands_over() {
         &Preview {
             lines: vec!["mindweaver unlink gone".to_owned()],
             confirm: vec![json!({"line": 0, "caution": "unlinks"}), json!(1)],
+            cancellable: false,
         },
     );
     holds_to(
@@ -143,6 +194,7 @@ fn a_preview_and_a_run_hold_to_their_schemas_whatever_the_backend_hands_over() {
         &Preview {
             lines: Vec::new(),
             confirm: Vec::new(),
+            cancellable: true,
         },
     );
     holds_to(
@@ -153,6 +205,10 @@ fn a_preview_and_a_run_hold_to_their_schemas_whatever_the_backend_hands_over() {
         },
     );
     refused_by("Preview", &json!({"lines": ["mindweaver unlink gone"]}));
+    refused_by(
+        "Preview",
+        &json!({"lines": [], "confirm": [], "cancellable": "no"}),
+    );
     refused_by(
         "Ran",
         &json!({"lines": "mindweaver unlink gone", "outcome": null}),
@@ -381,7 +437,8 @@ fn a_status_only_the_backend_gives_is_listed_only_when_it_may_give_it() {
 }
 
 /// The backend is asked about each route that hands it a request, its
-/// reads, a preview, a run and a switch, and about no other.
+/// reads, a preview, a run and a switch, and about no other: not a cancel,
+/// which reaches the run under way and hands the backend nothing sent.
 #[test]
 fn only_a_route_that_reaches_the_backend_is_refused_on_its_grounds() {
     let mut asked = Asked {
@@ -446,12 +503,16 @@ fn the_servers_own_answers_say_what_the_backend_fills_them_with() {
         json!({"type": "array", "items": ran})
     );
     assert_eq!(answer("/switch"), json!({"carried": "Switched"}));
+    assert_eq!(answer("/tasks/cancel"), json!({"own": "Cancelling"}));
     let events = &operation_at(&described, "/events")["responses"]["200"]["content"];
     assert_eq!(
         events["text/event-stream"]["x-itemSchema"],
         json!({"allOf": [
             {"own": "Event"},
-            {"properties": {"scopes": {"items": {"carried": "Scope"}}}},
+            {"properties": {
+                "scopes": {"items": {"carried": "Scope"}},
+                "progress": {"carried": "Progress"},
+            }},
         ]})
     );
     assert_eq!(events["text/event-stream"]["schema"]["type"], "string");
@@ -459,6 +520,7 @@ fn the_servers_own_answers_say_what_the_backend_fills_them_with() {
     for (path, body) in [
         ("/tasks/preview", "Task"),
         ("/tasks", "Task"),
+        ("/tasks/cancel", "Cancel"),
         ("/switch", "Switch"),
     ] {
         assert_eq!(

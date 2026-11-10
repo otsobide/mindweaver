@@ -19,8 +19,9 @@ use crate::code::Condition;
 use crate::events::Events;
 use crate::route::{self, Arguments, Own, Route};
 use crate::transcript::Transcript;
+use crate::underway::Cancel;
 use crate::watcher::Watcher;
-use crate::writer::Writer;
+use crate::writer::{Uncancelled, Writer};
 use crate::{Backend, Refusal};
 
 /// What every handler under `/api` shares.
@@ -65,6 +66,7 @@ pub(crate) fn own<B: Backend>(own: Own) -> MethodRouter<Arc<Api<B>>> {
     match own {
         Own::Preview => on(method, preview::<B>),
         Own::Run => on(method, run::<B>),
+        Own::Cancel => on(method, cancel::<B>),
         Own::Switch => on(method, switch::<B>),
         Own::Transcript => on(method, transcript::<B>),
         Own::Events => on(method, events::<B>),
@@ -166,6 +168,62 @@ pub(crate) async fn run<B: Backend>(
         Ok(Ok(ran)) => Json(ran).into_response(),
         Ok(Err(refusal)) => refused_by(refusal),
         Err(failed) => error(failed.condition, failed.message),
+    }
+}
+
+/// `POST /api/v1/tasks/cancel`: ask run `run` to stop, the one under way,
+/// and say which run that was and its lines; or why it was not asked.
+///
+/// Never queued on the writer thread, which the run holds: it reaches the
+/// run where it is kept for a cancel, and hands it to what the backend said
+/// one does. Whether the run stops, and where, is the run's, which its
+/// finish and its outcome say: a gather past the point where it can stop
+/// places what it read and finishes. Refused, with nothing asked of
+/// anything, for a run that is not the one under way (`not_running`, a
+/// 409), one over already among them, so a cancel that crosses the end of
+/// its run never stops the one queued behind; and for the run under way
+/// when its preview said it takes none (`uncancellable`, a 409), rather
+/// than pass on a cancel that would do nothing.
+pub(crate) async fn cancel<B: Backend>(
+    State(api): State<Arc<Api<B>>>,
+    uri: Uri,
+    body: Result<Json<Cancel>, JsonRejection>,
+) -> Response {
+    if let Some(refusal) = unasked(&uri) {
+        return refusal;
+    }
+    let Cancel { run } = match body {
+        Ok(Json(cancel)) => cancel,
+        Err(rejection) => return refused(rejection),
+    };
+    match api.writer.cancel(run).await {
+        Ok(cancelling) => Json(cancelling).into_response(),
+        Err(Uncancelled::NotRunning { under_way: None }) => error(
+            Condition::NotRunning,
+            &format!(
+                "run {run} is not under way, and nothing is: a run is stopped only while it runs"
+            ),
+        ),
+        Err(Uncancelled::NotRunning {
+            under_way: Some(under_way),
+        }) => error(
+            Condition::NotRunning,
+            &format!(
+                "run {run} is not under way, run {under_way} is: a run is stopped only while \
+                 it runs"
+            ),
+        ),
+        Err(Uncancelled::Uncancellable) => error(
+            Condition::Uncancellable,
+            &format!(
+                "run {run} takes no cancel: none of its lines stops when asked, so it runs to \
+                 its end"
+            ),
+        ),
+        Err(Uncancelled::Failed) => error(
+            Condition::BackendFailed,
+            "the backend failed while asking the run to stop",
+        ),
     }
 }
 

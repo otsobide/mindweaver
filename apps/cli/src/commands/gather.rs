@@ -29,14 +29,28 @@ pub(crate) fn run_gather(
             url,
             path,
             reference,
+            name,
+            dry_run,
         } => {
+            // Found as a gather finds it, a dry run's too, which fetches into
+            // the workspace's scratch folder and so needs one made.
             let workspace = workspace_here(directory, lookup)?;
-            let (ledger, scrub) = workspace.ledger_to_write().map_err(CliError::from)?;
-            let said = scrubbed(&scrub);
             let request = Request::git(url.clone())
                 .from_subdirectory(path.clone())
                 .at(reference.clone())
+                .named(name.clone())
                 .watched_by(watch.clone());
+            if *dry_run {
+                // A read of the ledger, which a workspace that never
+                // gathered does not make, and no scrub: a dry run writes
+                // nothing of the ledger's, and says nothing of it either.
+                let ledger = workspace.ledger_for_reading().map_err(CliError::from)?;
+                let report =
+                    gather::dry_run(&workspace, &ledger, &request).map_err(CliError::from)?;
+                return Ok(foreseen(url, &report));
+            }
+            let (ledger, scrub) = workspace.ledger_to_write().map_err(CliError::from)?;
+            let said = scrubbed(&scrub);
             match gather::gather(&workspace, &ledger, &request) {
                 Ok(report) => Ok(said.before(gathered(url, &report))),
                 Err(error) => Err(Failure {
@@ -127,18 +141,33 @@ impl Scrubbed {
 /// person can act on: every source it scrubbed now needs its credential from
 /// a git credential helper.
 pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
+    // What the step to schema 7 made one first, which came first: the
+    // spelling that went is what a script may still name it by.
     let mut notes: Vec<Warning> = scrub
-        .sources
+        .merged
         .iter()
-        .map(|source| {
+        .map(|merged| {
+            let went = match &merged.reference {
+                Some(reference) => format!("{}#{reference}", merged.url),
+                None => merged.url.to_string(),
+            };
             format!(
-                "note: {}: the user name, password or token an older Mindweaver stored in this \
-                 URL is taken out; gathering it again needs a git credential helper that has it",
-                source.url
+                "note: {went}: the same repository as the source `{name}` ({kept}), so the two \
+                 are one source now, and the shelf keeps what `{name}` gathered",
+                name = merged.into.name,
+                kept = merged.into.origin(),
             )
             .into()
         })
         .collect();
+    notes.extend(scrub.sources.iter().map(|source| {
+        format!(
+            "note: {}: the user name, password or token an older Mindweaver stored in this \
+                 URL is taken out; gathering it again needs a git credential helper that has it",
+            source.url
+        )
+        .into()
+    }));
     match scrub.actions {
         0 => {}
         1 => notes.push(
@@ -171,8 +200,9 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
     }
 }
 
-/// What one gather did, in the order it is worth reading: the source, then
-/// every artifact and what happened to it, then the count.
+/// What one gather did, in the order it is worth reading: the source, by
+/// the name `--from` takes and the URL it was gathered from, then every
+/// artifact and what happened to it, then the count.
 ///
 /// The source is named without credentials, as everywhere a URL is shown.
 /// A gather that got this far was given none, since core refuses them, so
@@ -185,7 +215,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         .as_deref()
         .map(short)
         .map_or_else(String::new, |revision| format!(" at {revision}"));
-    let _ = writeln!(stdout, "{url}{at}");
+    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
 
     // Added first, then updated, then unchanged: a second gather is run to
     // find out what moved, and what moved should not be at the bottom.
@@ -217,15 +247,75 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         );
     }
 
+    said(stdout, report, "was")
+}
+
+/// What a gather's dry run found, laid out as the gather would report it,
+/// with where each skill is in the source beside it, since that is what a
+/// source of many layouts leaves to be asked, and what `--path` takes.
+///
+/// It exits as the gather would, on what could not be taken and on what is
+/// wrong with what would be, so a script can ask before it gathers.
+fn foreseen(url: &str, report: &Report) -> Outcome {
+    let url = redacted(url);
+    let mut stdout = String::new();
+    let at = report
+        .revision
+        .as_deref()
+        .map(short)
+        .map_or_else(String::new, |revision| format!(" at {revision}"));
+    let _ = writeln!(stdout, "{}: {url}{at}", printable(&report.name));
+
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for (label, harvested) in [
+        ("would add", &report.added),
+        ("would update", &report.updated),
+        ("unchanged", &report.unchanged),
+    ] {
+        for artifact in harvested {
+            rows.push(vec![
+                label.to_owned(),
+                printable(&artifact.name),
+                printable(&artifact.route),
+                printable(artifact.summary.as_deref().unwrap_or("")),
+            ]);
+        }
+    }
+    if rows.is_empty() {
+        stdout.push_str("  nothing to gather there\n");
+    } else {
+        stdout.push_str(&indent(&table(&rows)));
+        let _ = writeln!(
+            stdout,
+            "\n{}: {} to add, {} to update, {} unchanged\n\
+             nothing gathered: run it without --dry-run to gather",
+            plural(report.total(), "skill"),
+            report.added.len(),
+            report.updated.len(),
+            report.unchanged.len()
+        );
+    }
+    said(stdout, report, "would be")
+}
+
+/// `stdout`, with what `report` has to say beside it on stderr: what could
+/// not be taken, what is wrong with what was, both warnings, and what the
+/// shelf's copies were taken without, a note, which `was` says of a gather
+/// and `would be` of a dry run.
+fn said(stdout: String, report: &Report, was: &str) -> Outcome {
     // An artifact that could not be taken is a warning beside what was, not a
     // reason to be told nothing about the rest; so is what is wrong with one
-    // that was taken anyway.
-    let stderr: Vec<Warning> = report
+    // that was taken anyway. Printable, because a warning quotes what the
+    // source holds, a folder's name or what a skill declares.
+    let mut stderr: Vec<Warning> = report
         .failures
         .iter()
-        .map(|failure| Warning::coded(failure.code(), format!("warning: {failure}")))
-        // Printable, because a warning quotes what the skill declares, which
-        // is the source's to write.
+        .map(|failure| {
+            Warning::coded(
+                failure.code(),
+                format!("warning: {}", printable(&failure.to_string())),
+            )
+        })
         .chain(report.warnings.iter().map(|warning| {
             Warning::coded(
                 warning.issue.code(),
@@ -234,11 +324,26 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         }))
         .collect();
     let ok = stderr.is_empty();
+    // A note rather than a warning: leaving it out is what gathering does,
+    // and nothing for whoever gathered to fix.
+    stderr.extend(report.left_out.iter().map(|unshelved| {
+        let left = &unshelved.left;
+        let what = left.path.file_name().map_or_else(
+            || left.path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        Warning::from(format!(
+            "note: {} {was} gathered without its {what}, since {}",
+            printable(&unshelved.name),
+            left.reason
+        ))
+    }));
     Outcome { stdout, stderr, ok }
 }
 
 /// Everything that can be installed from elsewhere, with where each thing
-/// comes from, spelled as `--from` takes it.
+/// comes from, spelled as `--from` takes it: a source by its name
+/// ([`Offer::listed_from`]).
 ///
 /// Empty, it says how to fill it, and suggests loading only when nothing is
 /// loaded yet; `mindweaver load` on its own lists what is.
@@ -272,7 +377,7 @@ fn shelf_listing(shelf: &[Offer], nothing_loaded: bool) -> String {
                 row.push(entry.kind().slug().to_owned());
             }
             row.push(printable(entry.name()));
-            row.push(printable(&entry.origin()));
+            row.push(printable(&entry.listed_from()));
             row.push(printable(entry.summary().unwrap_or("")));
             row
         })

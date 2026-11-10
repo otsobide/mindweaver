@@ -149,8 +149,18 @@ pub enum Condition {
     /// A method the route at that path does not take; the answer's `Allow`
     /// says which it does.
     MethodNotAllowed,
+    /// A cancel of a run that is not under way: one over already, one not
+    /// started yet, or a number no run was given. A run is stopped only
+    /// while it runs, so one that ended is told apart from one that will
+    /// not stop, and nothing queued behind it is stopped in its place.
+    NotRunning,
+    /// A cancel of the run under way, which takes none: its preview said
+    /// none of its lines stops when asked, so it runs to its end, rather
+    /// than the cancel be passed on to do nothing.
+    Uncancellable,
     /// The backend failed while answering, its call panicking, so there
-    /// is no answer to give: a query, a preview, a run or a switch.
+    /// is no answer to give: a query, a preview, a run, a switch or what a
+    /// cancel does.
     BackendFailed,
     /// The thread every run and switch goes through has stopped, so
     /// nothing can be queued on it.
@@ -176,6 +186,8 @@ codes!(Condition {
     Self::InvalidParameters => (BAD_REQUEST, "invalid_parameters"),
     Self::UnknownRoute => (NOT_FOUND, "unknown_route"),
     Self::MethodNotAllowed => (METHOD_NOT_ALLOWED, "method_not_allowed"),
+    Self::NotRunning => (CONFLICT, "not_running"),
+    Self::Uncancellable => (CONFLICT, "uncancellable"),
     Self::BackendFailed => (INTERNAL_SERVER_ERROR, "backend_failed"),
     Self::WriterStopped => (INTERNAL_SERVER_ERROR, "writer_stopped"),
 });

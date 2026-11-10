@@ -165,7 +165,7 @@ fn capital_r_reads_the_disk_again_after_a_shell_beside_the_screen_changed_it() {
 }
 
 #[test]
-fn s_shows_the_shelf_as_gather_list_says_it() {
+fn s_shows_the_shelf_as_gather_list_says_it_each_source_by_its_name() {
     let scenario = collapse_and_tanukeys();
     scenario
         .source(
@@ -177,6 +177,8 @@ fn s_shows_the_shelf_as_gather_list_says_it() {
         )
         .given("~/Projects", "mindweaver gather git ../src/acme-skills");
     let listed = scenario.run("~/Projects", "mindweaver gather list");
+    // Its source by its name, which `--from` takes.
+    assert_eq!(listed.stdout, "lint  src-acme-skills  Lint the code\n");
     let mut terminal = scenario.open("~/Projects", "mindweaver");
     terminal.shows("1 on the shelf");
 

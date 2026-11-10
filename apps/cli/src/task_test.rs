@@ -1381,7 +1381,7 @@ fn line(line: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_gathers_or_shows() {
+fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_or_shows() {
     for (said, refusal) in [
         ("mind", Refusal::Screen),
         ("mind tui", Refusal::Screen),
@@ -1407,8 +1407,12 @@ fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_gathers_or_sh
         ("mindweaver activate", Refusal::Shell),
         ("mind weaver activate --shell fish work", Refusal::Shell),
         (
-            "mindweaver gather git https://example.com/skills.git",
-            Refusal::Unwatched,
+            "mindweaver backup https://example.com/library.git",
+            Refusal::Sends,
+        ),
+        (
+            "mind weaver backup ../library.git --kind skills --token-env TOKEN",
+            Refusal::Sends,
         ),
         ("mind show deploy", Refusal::Unheld),
         ("mind -C alpha show --json rule:style", Refusal::Unheld),
@@ -1460,6 +1464,10 @@ fn without_the_ui_feature_there_is_no_ui_command() {
 fn a_front_end_with_no_terminal_runs_everything_else() {
     for said in [
         "mindweaver gather list",
+        // The network, followed as it goes and stopped when asked, and
+        // never a prompt (#112).
+        "mindweaver gather git https://example.com/skills.git",
+        "mind weaver gather git --path tools --ref v2 /srv/git/skills",
         "mindweaver install -p alpha deploy",
         "mindweaver install --all-projects deploy",
         // Half an install, which opens no screen: the command refuses it
@@ -1491,12 +1499,49 @@ fn a_task_is_refused_for_the_first_of_its_lines_that_is() {
         let expected = match &task {
             Task::OpenInstall => Some(Refusal::Screen),
             Task::Edit { .. } => Some(Refusal::Editor),
-            Task::Gather { .. } => Some(Refusal::Unwatched),
             Task::Show { .. } => Some(Refusal::Unheld),
             _ => None,
         };
 
         assert_eq!(task.refusal(), expected, "{task:?}");
+    }
+}
+
+/// A gather is followed as it goes and stopped when asked, whichever
+/// binary spells it and whatever it is told; nothing else is, a gather's
+/// list among it.
+#[test]
+fn a_front_end_follows_a_gather_and_nothing_else() {
+    for said in [
+        "mindweaver gather git https://example.com/skills.git",
+        "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
+        "mind weaver gather git git@example.com:acme/skills.git",
+        "mind -C alpha weaver gather git file:///srv/git/skills",
+    ] {
+        assert_eq!(followed(&line(said)), Some(Followed::Gather), "{said}");
+    }
+    for said in [
+        "mindweaver gather list",
+        "mindweaver link alpha",
+        "mind install deploy",
+        "mindweaver",
+        "mindweaver frobnicate",
+        "ls",
+    ] {
+        assert_eq!(followed(&line(said)), None, "{said}");
+    }
+}
+
+/// What runs apart, in the TUI, is what a front end follows: asked of the
+/// lines, as a refusal is, so every task building a gather's line runs
+/// apart, and no other does.
+#[test]
+fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
+    let values = VALUES.into_iter().filter(|value| !value.is_empty());
+    for task in values.flat_map(every) {
+        let expected = matches!(task, Task::Gather { .. });
+
+        assert_eq!(task.runs_apart(), expected, "{task:?}");
     }
 }
 
@@ -1559,9 +1604,9 @@ fn a_refusal_says_why_by_a_code_of_its_own() {
         Refusal::Editor,
         Refusal::Input,
         Refusal::Shell,
-        Refusal::Unwatched,
         Refusal::Unheld,
         Refusal::Panel,
+        Refusal::Sends,
     ]
     .iter()
     .map(Refusal::code)
@@ -1611,6 +1656,11 @@ fn a_line_that_takes_something_away_is_asked_about_for_what_it_takes() {
         ("mind weaver unlink alpha", vec![Unlinks]),
         ("mind unload ../team", vec![Unloads]),
         ("mindweaver unload team", vec![Unloads]),
+        ("mindweaver export ../backup --yes", vec![Removes]),
+        (
+            "mind weaver export --kind rules -y ../backup",
+            vec![Removes],
+        ),
     ] {
         assert_eq!(cautions(&line(said)), expected, "{said}");
     }
@@ -1634,6 +1684,8 @@ fn a_line_that_takes_nothing_away_is_asked_about_for_nothing() {
         "mindweaver relink alpha beta",
         "mindweaver load ../team",
         "mindweaver adopt -p alpha --yes legacy",
+        "mindweaver export ../backup",
+        "mindweaver backup https://example.com/library.git",
         "mindweaver agents -p alpha --yes claude",
         "mind share --yes local",
         "mind targets set --yes skills .skills",

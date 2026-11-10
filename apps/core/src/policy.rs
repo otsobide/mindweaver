@@ -20,6 +20,10 @@
 //!   marker, its ledger, its library and the clones it gathered, none of
 //!   which is a project to make or link. A path that leads into one through
 //!   a link is refused as one inside it.
+//! - **A gather's source is an address or such a folder** ([`source`]): an
+//!   address is the gather's to judge, as one typed at a terminal is, and a
+//!   folder on this machine, as a path or a `file://` URL, is held as a
+//!   folder to link is.
 //! - **A workspace to switch to is named by its path as a list of core's
 //!   spells it** ([`switched`]): one of the workspaces this machine knows,
 //!   or the one the front end was launched on ([`crate::known::switchable`]),
@@ -186,6 +190,43 @@ pub fn path(given: &str) -> Result<PathBuf, PolicyError> {
     }
     Ok(normal)
 }
+
+/// `given`, as the source of a gather a request may name: an address, or a
+/// folder on this machine named as a folder to link is.
+///
+/// An address, a URL whose scheme is not `file` (`https://`, `ssh://`,
+/// `git://`) or git's `host:path`, a colon before any slash, is a value,
+/// which the gather holds to its own rules as it holds one typed at a
+/// terminal: one carrying a credential is refused there, by its code and
+/// with nothing of the credential said, and no prompt is ever made for
+/// one. A folder, a path or a `file://` URL naming one, is held to
+/// [`path`]: absolute, spelled as it is normalized, and outside every
+/// `.mindweaver`, so the preview shows the repository the gather reads, a
+/// relative one read from wherever the line runs is never guessed at, and
+/// no workspace's own folder, its clones among them, is gathered from.
+///
+/// Here rather than left to the gather, as every value a request names on
+/// the disk is held here: a gather typed at a terminal takes a folder
+/// relative to where it is typed, which a browser has no place for.
+pub fn source(given: &str) -> Result<(), PolicyError> {
+    if let Some(folder) = given
+        .get(..FILE.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(FILE))
+        .map(|_| &given[FILE.len()..])
+    {
+        return path(folder).map(drop);
+    }
+    let scp_like = given
+        .find(':')
+        .is_some_and(|colon| colon > 0 && !given[..colon].contains(['/', '\\']));
+    if given.contains("://") || (scp_like && !Path::new(given).is_absolute()) {
+        return Ok(());
+    }
+    path(given).map(drop)
+}
+
+/// What a `file://` URL starts with, its path after it.
+const FILE: &str = "file://";
 
 /// The entry of `workspace`'s registry spelled `entry`, as a snapshot lists
 /// it, with where it points and the project there, or why there is none.
