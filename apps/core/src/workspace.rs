@@ -1252,6 +1252,18 @@ pub struct WeaverConfig {
     /// it edits the marker, since every edit goes through `toml_edit`.
     #[serde(default)]
     pub known: Vec<PathBuf>,
+    /// The skill directories `mindweaver gather search` may ask, each by
+    /// the name of its [`crate::finder::Finder`], or none for the default
+    /// ([`crate::finder::DEFAULT_FINDERS`], GitHub's code search alone), so
+    /// a directory whose terms somebody has to read first is asked only
+    /// once a person lists it here, by hand (D-15).
+    ///
+    /// No new [`WEAVER_FORMAT_VERSION`], as for `known`: a build from
+    /// before it reads past the key, which changes nothing it reads, and
+    /// keeps it when it edits the marker. A name this build knows no finder
+    /// by is said and passed over, never a reason to refuse the marker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finders: Option<Vec<String>>,
     /// Where the workspace keeps its own artifacts (the ones it shares with
     /// every project it manages), relative to its root. A kind it does not
     /// name is kept in its library ([`Directories::library_for`]).

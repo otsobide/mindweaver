@@ -44,7 +44,7 @@
   ],
   "$defs": {
     "Stage": {
-      "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's.",
+      "description": "What a run under way is doing, as one word: each step of a gather, in\nthe order it takes them, then a backup's that are not a gather's, then a\nsearch's.",
       "oneOf": [
         {
           "description": "Reaching the source, before it has sent anything.",
@@ -90,6 +90,11 @@
           "description": "A backup's push of its commit, past which a cancel is too late.",
           "type": "string",
           "const": "pushing"
+        },
+        {
+          "description": "A search's asking a skill directory, counted by the finders that\nhave answered.",
+          "type": "string",
+          "const": "asking"
         }
       ]
     }

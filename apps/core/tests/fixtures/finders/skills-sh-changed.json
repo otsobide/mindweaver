@@ -1,0 +1,11 @@
+{
+  "query": "pdf",
+  "results": [
+    {
+      "slug": "acme/skills/pdf",
+      "title": "pdf",
+      "weeklyInstalls": 2263
+    }
+  ],
+  "count": 1
+}

@@ -3825,8 +3825,10 @@ reason to take that away.
 The MCP Registry (#106) and the skill directories (#108) are HTTP APIs, not
 repositories, so they are read over HTTP rather than cloned
 ([D-14](#d-14-core-owns-http-behind-a-seam)). #105 built the seam they are
-read through, and #106 is the first to read through it ([the official MCP
-Registry](#the-official-mcp-registry)).
+read through, and the skill directories a search asks are its first
+caller ([searching the skill
+directories](#searching-the-skill-directories)), the MCP Registry its
+next ([the official MCP Registry](#the-official-mcp-registry)).
 
 **The port** is one `GET` (`port::Http::get`), answered whatever its status.
 An `HttpRequest` is made only through `HttpRequest::get` and `at`, which
@@ -3847,8 +3849,9 @@ the body comes, a length said beyond it refused before a byte is read and
 a body that says none, or lies, refused one chunk past it rather than read
 to its end. An `HttpResponse` keeps the status, the body and only the
 headers core reads (`KEPT_HEADERS`: type, tag, time, `Link`, `Location`,
-`Retry-After`), so a `Set-Cookie`, a credential, never reaches core to be
-kept by mistake. A failure is an `HttpError`, each variant with a code of
+`Retry-After`, and `X-RateLimit-Remaining` and `X-RateLimit-Reset`, which
+tell a rate limit), so a `Set-Cookie`, a credential, never reaches core to
+be kept by mistake. A failure is an `HttpError`, each variant with a code of
 its own (unreachable, timed out, too large, or anything else the library
 said), every URL in it the one asked and what the library said
 `Redacted`.
@@ -3875,7 +3878,15 @@ async task.
 
 **What core makes of an answer** is `http::Client`'s: a status that is no
 success is a failure by its status (`http_status_unsuccessful`), never the
-body; JSON is read into what the caller asks for (`http_json_invalid`); and
+body, but for a rate limit, which is one by name (`http_rate_limited`,
+#108): a `429`, or a `403` that says it is one, with no request left
+(`X-RateLimit-Remaining: 0`) or a wait asked for (`Retry-After`), as
+GitHub's API answers its limits, a `403` saying neither being a token
+without the right. When it lets a request through again is read from
+`Retry-After`, seconds or a date as written, then from `X-RateLimit-Reset`,
+said as the UTC time it is, the order GitHub asks a caller to read them in,
+and said rather than waited for: a command that slept an hour on a front
+end's behalf would look hung, and a retry is a caller's to choose; JSON is read into what the caller asks for (`http_json_invalid`); and
 a catalog's pages follow one another as each says (`Client::pages`), by a
 cursor put into the first page's URL (`with_query`) or by the `Link` an
 answer names (`next_link`). Paging stops, said beside the pages read rather
@@ -3922,10 +3933,141 @@ slower than the one and longer than the other, and runs core's client,
 redirects, pages and cache included, through both. Nothing reaches the
 network.
 
+### Searching the skill directories
+
+`mindweaver gather search QUERY` (#108,
+[D-15](#d-15-skill-search-is-github-plus-opt-in-finders)) asks the skill
+directories, each a `finder::Finder`, what they find, and lists each skill
+by its name, the repository it is in, its folder there, its installs or
+stars and the finders that found it. A finder helps find a skill and names
+where it is; it is never a source. What is taken is gathered from that
+repository as `gather git` gathers it, so a directory that changes or goes
+away breaks nothing on the shelf, and a finder failing is a warning beside
+what the others found, never a reason to hide it.
+
+**Three finders**, each asked at its own address through the HTTP client
+([catalogs over HTTP](#catalogs-over-http)), at most `PER_FINDER` results
+each, their first page: GitHub's code search (`/search/code`, `filename:
+SKILL.md` added to the query), its documented REST API, which answers no
+code search without a token; skills.sh's `/api/search`; and
+api.claude-plugins.dev's `/api/skills/search`. The last two are documented
+by nobody, so they are unstable: read as each answered on 2026-11-10, the
+day the fixtures their tests read were shaped (`tests/fixtures/finders`),
+best-effort, and said to be so wherever a person is told of them. Their
+names are the services' own (`github`, `skills.sh`,
+`claude-plugins.dev`), so what a marker lists is what somebody reading the
+terms looked up.
+
+**Which are asked is the workspace's**, in its marker's `finders`, written
+by hand (`finder::enabled`). With no such key a workspace asks
+`DEFAULT_FINDERS`, GitHub's code search alone, D-15's default, which asks
+nothing without a token; the two unstable directories are asked only once
+a person lists them, D-15 having the owner read their terms first, and
+`finders = []` asks none. One that is not enabled is never sent anything:
+a test holds every finder the marker leaves out to have been asked
+nothing, whatever answers, and `--finder` naming one is refused rather than
+asked (`finder_not_enabled`). A name this build does not know is said and
+passed over (`finder_unknown`), never a reason to refuse the marker, since
+a later build may know it. The key moves no `WEAVER_FORMAT_VERSION`, as
+`known` did not: an older build reads past it, and keeps it, comment and
+all, whenever it edits the marker through `toml_edit`. No command writes
+it: enabling a directory is a person's choice, made having read its
+terms, which no form should make in one keypress.
+
+**A token is GitHub's alone.** It is read by the front end, from the
+variable `--token-env` names or from `gh auth token` for the host core says
+it is for (`Search::token_host`, `github.com` for the API at
+`api.github.com`), as a gather's is
+([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
+and read only when a finder to ask takes one, so `--gh` runs `gh` for no
+search that would send its token nowhere. Core sends it to GitHub's
+finder alone, as a secret header, which no redirect carries to another
+site and the HTTP cache keeps nothing of; without one GitHub is skipped,
+sent nothing, and a hint says so, and when that leaves nothing to ask the
+search is refused (`finder_none_asked`) rather than answered empty. The
+TUI and the panel hand none over, so from either GitHub is never asked.
+
+**What a finder answers is read leniently**, as somebody else's JSON is:
+each finder's own module (`finder/github.rs`, `skills_sh.rs`,
+`claude_plugins.rs`) reads the answer's shape, then each result on its
+own. An answer in a shape this build does not read is a failure of that
+finder alone (`finder_answer_unreadable`), the API having changed under
+it; one that is not JSON, unreachable or rate limited is the client's
+failure, said with its code. A result that does not read, names no
+repository, names one with a credential (dropped without repeating it),
+names a folder that climbs out of its repository, or names a folder on this
+machine is dropped and said by its place in the finder's answer
+(`finder_result_dropped`). A folder on this machine is taken from a finder
+on this machine alone, a person's own or a test's, since a service
+elsewhere naming one would have a gather put on the shelf whatever a
+folder here holds. Every word a front end is handed is made printable.
+
+**A skill two finders name is listed once.** An address is read as `gather
+git` reads one (`url::located`), so `owner/repo` and a forge's address of a
+folder name a repository, a branch and a folder, and a result is listed by
+the repository's `url::canonical` and its folder (`Found::add`), so every
+spelling of one repository meets. A result with no folder, which skills.sh
+always is, is told by its name in its repository, since by its repository
+alone every skill such a finder lists of one would be folded into the
+first; folded into one that has a folder, it takes that folder and the
+branch it was found at, so a take gathers what was found rather than the
+whole repository. Results come in `Finder::ALL`'s order, the documented one
+first, each finder's as it ranked them.
+
+**`--take N` gathers the result listed N** through the function `gather
+git` runs, from its repository and its folder, at the branch a finder
+named, after saying the line it amounts to, so what was taken can be
+gathered again without searching. The number is the result's as the
+search lists it then, which is why the two unstable finders' answers are
+kept in the workspace's HTTP cache for `FRESH_FOR`, ten minutes, once it is
+made: a take made soon after a listing finds each result where it was.
+GitHub's, asked with a secret, is never kept. A token handed over goes on
+to that gather only for a repository on the host it is for
+(`Search::token_reaches`), since a finder may name any host and a gather
+sends its token to the one it fetches from. A result at the root, or one no
+finder names a folder for, gathers the whole repository.
+
+**`--finder-url FINDER=URL`** asks a finder at another address that speaks
+its API: a GitHub Enterprise server's (`https://ghe.example/api/v3`), a
+mirror, or a test's on loopback. Over https, or plain http to this machine
+alone, with no query, fragment or credential (`finder_url_invalid`), since
+a token and a query go to it. Read by core (`finder::addressed`), so
+whether it names a finder is said with a code (`finder_url_unnamed`).
+
+**A search is followed**, as a gather is: it is the network, one finder
+after another, each within the client's timeout. Its `finder::Watch` is
+told each finder it asks (`Progress::Asking`), and a cancel stops it before
+the next (`search_cancelled`), every step taking one, since a search
+writes nothing a cancel would leave half done. `task::Followed::Search`
+says so of the line, so the TUI runs it apart and draws which finder it is
+asking, and the panel's backend previews it as `cancellable`; with
+`--take` the line is a gather, followed as one.
+
+**The TUI** searches from the shelf's page: `f` opens a form for the query,
+whose task (`Task::SearchSkills`) is `mindweaver gather search --json
+<query>`, and the screen of results reads back the JSON the line printed,
+by the names the envelope's `data` gives each result (`finder::Hit`, which
+reads back as it goes out, its repository redacted again), never a table's
+columns, and draws each as the command's table does
+(`commands::search::rows`). `enter` on one runs `Task::Gather` of its
+repository, folder and branch, the line `--take` amounts to rather than
+`--take` itself, so the transcript gathers the same again however the
+finders answer by then. The panel has no page for it yet; its server runs a
+`search_skills` task as any other, which asks the finders the workspace
+enables with no token.
+
+Rejected: reading the TUI's results back from the HTTP cache once the line
+is over, which a search asked with a token could not be read from and which
+would make the cache a channel between a command and a screen; asking the
+finders from the TUI's own thread rather than through a line, a path of the
+TUI's own into core; and a branch dropped from a result that names one,
+which would gather a folder from a branch that may not hold it.
 ### The official MCP Registry
 
-#106 is the first caller of [catalogs over HTTP](#catalogs-over-http):
-`mcp_registry` reads the official MCP Registry,
+#106 is the second caller of [catalogs over HTTP](#catalogs-over-http),
+after the skill directories ([searching the skill
+directories](#searching-the-skill-directories)): `mcp_registry` reads the
+official MCP Registry,
 `registry.modelcontextprotocol.io` (`OFFICIAL`), at its `/v0.1` read API
 (`API`), which the registry froze as stable while it is in preview, and
 makes one of its servers into a definition of the library's ([what an MCP
@@ -12742,8 +12884,14 @@ redirects, reading JSON and paging, and the answers a workspace keeps in
 [D-26](#d-26-the-product-is-mindweaver) has given the folder since. Retries
 are not among it yet: no catalog has said what it needs, so a `429` or a
 `503` is a failure by its status, its `Retry-After` kept for the caller
-that first acts on it. #106 is its first caller ([the official MCP
-Registry](#the-official-mcp-registry)), and #108 the next.
+that first acts on it. #106 and #108 are its first callers. #108 acts on
+it first: a rate limit is a failure of its own, `FetchError::RateLimited`,
+saying when it lets a request through again, and is not retried, since a
+search waiting out GitHub's limit would hold a command for as long as it
+lasts.
+#106 reads the MCP Registry through it ([the official MCP
+Registry](#the-official-mcp-registry)), retrying nothing either: a rate
+limit ends a listing as any failure does, said beside what was read.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -12756,6 +12904,16 @@ finder only returns addresses that resolve to git sources, so an endpoint that
 changes breaks nothing already gathered, and its failure is a warning.
 Rejected: GitHub alone, and no finders at all, both of which leave the skill
 directories out (vision point 5). Unblocks #108.
+
+Carried out by #108 ([searching the skill
+directories](#searching-the-skill-directories)): the three finders behind
+the HTTP client, each enabled only where a workspace's `weaver.toml` lists
+it in `finders`, GitHub's code search alone when it lists none, and asked
+only with a token handed over for the run; the two unstable ones are said
+to be so wherever a person reads of them, and no test or trial asked
+either service. Whether the owner has read their terms is not something
+the code can know, so nothing enables them but a hand edit of the marker,
+and that the owner reads them first is an open question until then.
 
 ### D-16: Credentials come from the front end, never from a prompt
 
@@ -13182,6 +13340,33 @@ repository, stays on `gix`.
 
 ## Open questions
 
+- **The two unstable directories' terms.** skills.sh and
+  api.claude-plugins.dev are asked only once a workspace lists them, and no
+  test or trial of #108 asked either, but D-15 has the owner read both
+  services' terms before either is used: whether their APIs may be asked
+  this way, and with what attribution, is unanswered until then, and the
+  reference says to read them before listing them. A finder found to need
+  a key or attribution leaves the list, as SkillsMP and Glama were left out.
+- **A search's results are numbered as the finders rank them now.**
+  `--take N` searches again, answered from the cache for ten minutes by
+  the unstable finders, but GitHub's answer, asked with a token, is never
+  kept, so a take later than a listing, or after GitHub ranks otherwise,
+  can take another result than the one read. The line it takes is said
+  first, and the TUI takes by the line rather than by the number; keeping
+  what a search found, for a take to name, waits for somebody to need a
+  take across sessions.
+- **A branch a finder names makes a source of its own.** A result at a
+  forge's address of a folder names the branch it was found at, `main` as
+  often as not, which a take gathers at: a source's identity holds its
+  branch, so the same repository gathered from its default branch with
+  `gather git` is another source, offering the same skills under another
+  origin. Telling a branch that is the default from one that is not would
+  ask the remote, which reading a finder's answer should not.
+- **The panel has no search yet.** Its server runs a `search_skills` task,
+  and reports the finder asked, but no page sends one or lists what it
+  found: what the TUI's results screen shows waits for a page of the
+  shelf's to show it.
+
 - **What ssh asks during a backup.** `git` is told never to prompt, but the
   ssh it runs for an ssh URL asks for a key's passphrase or a host key on
   the terminal itself, as it does for a gather
@@ -13224,10 +13409,12 @@ repository, stays on `gix`.
   test asking a server on loopback would ask a developer's proxy instead
   ([catalogs over HTTP](#catalogs-over-http)). gix's transport does read
   one, through reqwest's defaults, so somebody behind a proxy can gather
-  and cannot read the MCP Registry (#106). A proxy the front end reads and
-  hands to the adapter, as it will a credential
+  and neither search the skill directories (#108) nor read the MCP
+  Registry (#106). A proxy the front end reads and hands to the adapter,
+  as it does a credential
   ([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
-  closes it when the first catalog does.
+  closes it; the first catalog read left it for somebody behind one to
+  ask for.
 - **A source an older build named `http`.** The ledger gives no source the
   name of the HTTP cache's folder any more (`RESERVED_IN_CACHE`), but one
   a build from before #105 gave it keeps it, its clone in the folder the

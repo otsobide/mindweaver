@@ -23,7 +23,8 @@
 //! any one of them runs alone (`cargo test -p mindweaver-cli --test e2e_test
 //! <name>`). The use cases are grouped by what a person is doing: making
 //! projects and workspaces, writing skills and rules, installing them,
-//! gathering them from git, keeping copies up to date, reading what is
+//! gathering them from git, searching the skill directories for them,
+//! keeping copies up to date, reading what is
 //! where, saying which workspace a command is about, changing a project's
 //! agents, share and targets, adopting a skill somebody keeps, removing
 //! one everywhere, loading another workspace, exporting the library
@@ -51,6 +52,9 @@ mod installing;
 
 #[path = "e2e/gathering.rs"]
 mod gathering;
+
+#[path = "e2e/searching.rs"]
+mod searching;
 
 #[path = "e2e/updating.rs"]
 mod updating;

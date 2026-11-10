@@ -530,6 +530,9 @@ mindweaver gather git <URL> [--kind KIND] [--path DIR] [--ref REF] [--pin COMMIT
                            # over https with a token for this run
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
+mindweaver gather search <QUERY> [--finder F]... [--token-env VAR|--gh] [--finder-url F=URL]... [--take N|--json]
+                           # the skills the directories weaver.toml enables
+                           # find; --take gathers one
 mindweaver install         # a screen for putting skills, rules and MCP
                            # servers into its projects
 mindweaver install (-p PROJECT)...|--all-projects <NAME> [--from ORIGIN] [--force] [--yes]
@@ -1331,12 +1334,123 @@ A gather of rules from the TUI is not offered yet: its gather form takes
 skills. The control panel's server runs one sent as a task with `"kind":
 "rule"` ([the API's guide](api.md)).
 
+### Searching the skill directories
+
+`gather search` asks the skill directories, each a **finder**, what they
+find for a query, and lists each skill found by its name, the repository it
+is in, its folder there (`.` for the root, or where no finder says), its
+installs or its repository's stars, and the finders that found it,
+numbered:
+
+```
+$ mindweaver gather search pdf
+1  pdf           https://github.com/acme/skills#main  skills/pdf     2263 installs  skills.sh, claude-plugins.dev
+2  commit-style  https://github.com/beta/house-rules  .              56 installs    skills.sh
+3  slides        https://github.com/beta/decks#main   skills/slides  7 stars        claude-plugins.dev
+hint: github was not asked, since its search needs a token: --token-env or --gh hands one over
+```
+
+A finder only helps find a skill: what is taken is gathered from its
+repository as `gather git` gathers one, so a directory whose answers change,
+or that goes away, breaks nothing on the shelf. There are three:
+
+- `github`, GitHub's code search, for a `SKILL.md` the query matches: its
+  documented API, which answers a code search only with a token.
+  `--token-env GITHUB_TOKEN` names the variable holding one, and `--gh` asks
+  `gh auth token` for github.com's; either is read for this one search, sent
+  to GitHub's API alone, and never printed, logged or kept, nor is anything
+  GitHub answered it. Without one GitHub is not asked, which a `hint:` says.
+- `skills.sh` and `claude-plugins.dev`: skills.sh's search, and the one
+  api.claude-plugins.dev keeps of the skills it lists. **Both are unstable
+  and best-effort**: neither API is documented, so each is read as it
+  answers today, and an answer in another shape is a warning beside what the
+  others found. Read each service's terms before you list it.
+
+Which are asked is the workspace's `weaver.toml`'s to say, in `finders`,
+which you write in by hand:
+
+```toml
+finders = ["github", "skills.sh", "claude-plugins.dev"]
+```
+
+With no `finders`, a workspace asks GitHub's code search alone, and only
+with a token, so the two unstable directories are never asked until you
+list them, and nothing at all is sent without a token:
+
+```
+$ mindweaver gather search pdf
+error: nothing was searched: github needs a token, handed over with --token-env or --gh, and no finder that needs none is enabled
+```
+
+`finders = []` asks none. `--finder skills.sh` asks that one alone, once
+for each finder, and one named that `finders` does not list is refused,
+never asked. A name this build does not know is a warning, and passed over.
+The key moves no format version: an older Mindweaver reads past it, and
+keeps it, with any comment above it, whenever a command edits the marker.
+
+A skill two finders name is listed once, by its repository, however each
+spells it, and its folder; where a finder says no folder, as skills.sh
+never does, by its name in its repository, so each skill of one repository
+is listed, and one another finder names a folder for takes that folder.
+Each finder's results come in the order it ranked them, GitHub's first.
+A finder that cannot be reached, answers with what is not JSON, answers in
+a shape this build does not read, or is rate limited is a warning with its
+code beside the rest, and the search exits non-zero; a rate limit says when
+it lets a search through again, when the answer says:
+
+```
+warning: github: https://api.github.com/search/code?q=pdf%20filename%3ASKILL.md&per_page=20: rate limited (status 403), and lets a request through again at 2027-01-15T08:00:00Z
+warning: skills.sh: its answer is not in the shape this build reads, so nothing it found is listed: missing field `skills`
+```
+
+A result whose repository is not one `gather git` would take is dropped
+with a warning: no address, one carrying a credential, which is never
+repeated, a folder that climbs out of the repository, or a folder on this
+machine, which only a finder on this machine may name. What a finder says
+is shown as text, with no control character a terminal would act on.
+`--json` prints what was found in the envelope ([machine-readable
+output](#machine-readable-output)). What the two unstable finders answer
+is kept in the workspace's `cache/http` for ten minutes, once the workspace
+is made, so a search made again soon asks nothing and lists the same; what
+GitHub answered a token is never kept.
+
+`--take 2` gathers the result listed 2 instead of listing them, from its
+repository and its folder there, at the branch a finder named, saying first
+the line it amounts to, then what that gather says:
+
+```
+$ mindweaver gather search pdf --take 2
+taking result 2, commit-style: mindweaver gather git https://github.com/beta/house-rules
+beta-house-rules: https://github.com/beta/house-rules at 7c1d2e9
+  added  commit-style  How this repo writes commit messages
+
+1 skill: 1 added, 0 updated, 0 unchanged
+hint: github was not asked, since its search needs a token: --token-env or --gh hands one over
+```
+
+The number is the result's as the search lists it now, so a finder that
+answers otherwise can move it; a number it does not list is refused, and
+nothing is gathered. A result listed at `.` is gathered from the root of
+its repository, bringing every skill the repository holds onto the shelf,
+not only the one found. A token handed over goes on to that gather only for
+a repository on GitHub, the host it is for: a finder may name any host.
+
+`--finder-url skills.sh=https://skills.example` asks a finder at another
+address that speaks its API, over https, or plain http on this machine: a
+GitHub Enterprise server's (`github=https://ghe.example/api/v3`, whose
+token `--gh` asks `gh` for by its host), or a mirror. Directories that need
+a key of their own (SkillsMP, Glama, skills.sh's v1 API) are not asked. In
+the TUI, `f` on the shelf's page searches the finders `weaver.toml`
+enables, with no token, and `enter` on a result gathers it, as
+`mindweaver gather git [--path <folder>] [--ref <branch>] <url>`.
+
 ### What a workspace keeps
 
 ```
 .mindweaver/
-  weaver.toml     the projects it manages, the workspaces it loads, and where
-                  its own skills and rules are
+  weaver.toml     the projects it manages, the workspaces it loads, where
+                  its own skills and rules are, and the skill directories
+                  `gather search` may ask
   weaver.toml.v2  weaver.toml as it was before `mindweaver migrate --library`
                   rewrote it, if it did
   library/skills/<name>/SKILL.md
@@ -1351,6 +1465,8 @@ skills. The control panel's server runs one sent as a task with `"kind":
                   updated it, if it did
   lock            held by a command while it changes the workspace
   cache/<source>/ the clone, kept so a gather can be looked at afterwards
+  cache/http/     what the skill directories answered a search, kept ten
+                  minutes
   skills/<source>/<name>/SKILL.md
   rules/<source>/<route>.md
                   what was gathered, by the source it came from
@@ -2066,7 +2182,8 @@ with its `code` and `message`.
 
 The commands that report what is there take `--json`, at either level:
 `list`, `show`, `validate`, `templates`, `status` and `doctor`, and `mindweaver
-workspaces`, `mindweaver scan` and `mindweaver gather list`. Each prints what it
+workspaces`, `mindweaver scan`, `mindweaver gather list` and `mindweaver gather
+search`. Each prints what it
 read in one envelope, the same for every command, so a script or an agent
 reads them all one way, and reads what a workspace holds, its own
 artifacts and each project's, their templates and what it can install from
@@ -2146,6 +2263,12 @@ warning: /home/you/Projects/collapse/skills/broken/SKILL.md: the file does not s
   ...}`, `{"from": "file", "file": "LICENSE.txt", "text": ...}` or
   `{"from": "unknown"}`. Each of those three is `null` for a skill gathered
   before they were kept, until its source is gathered again.
+- `gather search`: each result in `hits`, by its `name`, its `repository`,
+  its `path` there and the `reference` a finder named, `null` for the root
+  and the default branch, its `installs` and `stars`, `null` where no finder
+  counts them, and the `finders` that found it; the finders `asked`, those
+  `skipped` for want of a token, and each finder that failed and each result
+  dropped in `failures`, each with its `code` and `message`.
 - `status`, `workspaces` and `scan`: the reports shown in [what each project
   has](#what-each-project-has), [the weavers this machine
   knows](#the-weavers-this-machine-knows) and [commands](#commands).
@@ -2533,7 +2656,7 @@ Every key runs a command you could have typed, through the same parser:
 | `x` | export the library into a folder, a kind at a time when some are unticked; ticking `replace` lets it change or remove what an earlier export wrote there, once you say yes | `mindweaver export [--kind <kind>]... [--yes] <folder>` |
 | `b` | back the library up to a git repository, on a branch, with a message and the variable a token is read from when you type them, showing each step; `esc` stops it, until it starts pushing | `mindweaver backup [--branch <branch>] [--kind <kind>]... [--message <message>] [--token-env <variable>] <url>` |
 | `L` | load another workspace's own skills and rules; enter on a loaded one unloads it | `mindweaver load <path>`, `mindweaver unload <path>` |
-| `s` | what is on the shelf | `mindweaver gather list` |
+| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>` |
 | `w` | the weavers this machine knows, the one in use marked | `mindweaver workspaces` |
 | `i` | install skills, rules and MCP servers from the workspace's own, a loaded workspace, or the shelf; `tab` switches between them, and `v` turns the screen round to every project for one of them | `mindweaver install` opens it; `a` runs `mindweaver install -p <project>... --from <origin> <kind:name>`, with `--yes` for an MCP server from elsewhere than the library once `a` has shown what each agent would run, and `mindweaver uninstall -p <project>... <kind:name>` |
 | `R` | read the disk again | nothing: it changes nothing |

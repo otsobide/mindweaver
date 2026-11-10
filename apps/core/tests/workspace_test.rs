@@ -279,6 +279,34 @@ fn link_keeps_the_comments_that_explain_the_file() {
     assert!(after.contains(&format!("name = \"{}\"", workspace.name())));
 }
 
+/// The skill directories a workspace lets `gather search` ask are a key a
+/// person writes by hand (D-15), which moves no version: a build from
+/// before it reads past it, and an edit keeps it, comment and all.
+#[test]
+fn the_finders_a_marker_lists_are_read_and_kept_through_an_edit() {
+    let (_dir, workspace, projects) = workspace_with(1);
+    assert_eq!(workspace.config().finders, None);
+    let marker = workspace.config_path();
+    let listed = "# Read their terms first.\nfinders = [\"github\", \"skills.sh\"]\n";
+    let text = fs::read_to_string(&marker).unwrap().replacen(
+        "loaded = []\n",
+        &format!("loaded = []\n{listed}"),
+        1,
+    );
+    fs::write(&marker, text).unwrap();
+    let mut workspace = WeaverWorkspace::open(workspace.root()).unwrap();
+
+    workspace.link(&projects[0]).unwrap();
+
+    assert_eq!(
+        workspace.config().finders,
+        Some(vec![String::from("github"), String::from("skills.sh")])
+    );
+    let after = config_text(&workspace);
+    assert!(after.contains(listed), "{after}");
+    assert!(after.contains(&format!("version = {WEAVER_FORMAT_VERSION}")));
+}
+
 #[test]
 fn linking_the_same_project_twice_changes_nothing() {
     let (_dir, mut workspace, projects) = workspace_with(1);

@@ -1,14 +1,16 @@
 //! What a run a front end follows is doing, in words, and drawn on the
-//! terminal while it runs: a gather, or a backup.
+//! terminal while it runs: a gather, a backup, or a search of the skill
+//! directories.
 //!
 //! Core says which step each is at ([`gather::Progress`],
-//! [`backup::Progress`]), and until which a cancel is honoured; how that
+//! [`backup::Progress`], [`finder::Progress`]), and until which a cancel is
+//! honoured; how that
 //! reads is the front end's to decide, and every one of this crate's says it
 //! with [`said`]: the line `mindweaver gather` and `mindweaver backup` keep
 //! rewriting on stderr, the box the TUI draws while one runs, and each step
 //! the panel's backend reports to the server ([`Step`], [`reported`]).
 //!
-//! Every line a front end runs is handed one [`Watch`] of either run's step
+//! Every line a front end runs is handed one [`Watch`] of any run's step
 //! ([`Progress`]), whichever command the line is, and the command hands its
 //! run the watch [relaying](mindweaver_core::follow::Watch::relaying) to it:
 //! one flag a front end cancels, and one sink it reads, whatever is running.
@@ -17,7 +19,7 @@ use std::io::{self, IsTerminal as _, Write};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use mindweaver_core::{backup, follow, gather};
+use mindweaver_core::{backup, finder, follow, gather};
 use serde::Serialize;
 
 /// A step of a run a front end follows ([`crate::task::Followed`]), as core
@@ -28,21 +30,25 @@ pub enum Progress {
     Gather(gather::Progress),
     /// A step of `mindweaver backup`.
     Backup(backup::Progress),
+    /// A step of `mindweaver gather search`: a finder asked.
+    Search(finder::Progress),
 }
 
 impl Progress {
     /// Whether a cancel asked now still stops the run, as core says of the
-    /// run's step: a gather until it places, a backup until it pushes.
+    /// run's step: a gather until it places, a backup until it pushes, a
+    /// search before the next finder it asks.
     pub fn cancellable(self) -> bool {
         match self {
             Progress::Gather(progress) => progress.cancellable(),
             Progress::Backup(progress) => progress.cancellable(),
+            Progress::Search(progress) => progress.cancellable(),
         }
     }
 }
 
 /// How a front end follows the lines it runs, and stops them: one watch of
-/// either run's step, handed to every line.
+/// any run's step, handed to every line.
 pub type Watch = follow::Watch<Progress>;
 
 /// One step of a run, as a person reads it: what is being done or counted,
@@ -58,6 +64,11 @@ pub(crate) fn said(progress: Progress) -> String {
                 backup::Progress::Pushing => "pushing",
             })
         }
+        Progress::Search(finder::Progress::Asking {
+            finder,
+            done,
+            total,
+        }) => return format!("asking {finder} {done}/{total}"),
     };
     let (what, done, total) = match progress {
         gather::Progress::Connecting => return String::from("connecting"),
@@ -108,7 +119,8 @@ pub struct Step {
 }
 
 /// What a run under way is doing, as one word: each step of a gather, in
-/// the order it takes them, then a backup's that are not a gather's.
+/// the order it takes them, then a backup's that are not a gather's, then a
+/// search's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -133,6 +145,9 @@ pub enum Stage {
     Committing,
     /// A backup's push of its commit, past which a cancel is too late.
     Pushing,
+    /// A search's asking a skill directory, counted by the finders that
+    /// have answered.
+    Asking,
 }
 
 impl Step {
@@ -164,6 +179,9 @@ impl Step {
                     backup::Progress::Pushing => Stage::Pushing,
                 };
                 (stage, None, None)
+            }
+            Progress::Search(finder::Progress::Asking { done, total, .. }) => {
+                (Stage::Asking, Some(done), Some(total))
             }
         };
         Step {
@@ -226,9 +244,9 @@ fn paced(report: impl Fn(Step) + Send + Sync + 'static, pace: Duration) -> Watch
     })
 }
 
-/// A run's progress, a gather's or a backup's, drawn on one line of stderr
-/// and rewritten in place as it changes, then wiped before the command says
-/// what it did.
+/// A run's progress, a gather's, a backup's or a search's, drawn on one
+/// line of stderr and rewritten in place as it changes, then wiped before
+/// the command says what it did.
 ///
 /// Only when stderr is a terminal. Piped, or read by a test, a line rewritten
 /// with carriage returns is noise in a log, and the report that follows says
@@ -258,8 +276,8 @@ impl ProgressLine {
         }
     }
 
-    /// The watch to run a command with, so how a gather or a backup goes
-    /// is drawn here.
+    /// The watch to run a command with, so how a gather, a backup or a
+    /// search goes is drawn here.
     pub fn watch(&self) -> Watch {
         let Some(drawn) = &self.drawn else {
             return Watch::new();

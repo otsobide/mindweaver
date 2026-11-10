@@ -884,7 +884,8 @@ fn a_redirect_that_never_ends_stops_after_the_most_followed<U: Upstream>() {
 fn an_answer_that_is_no_success_is_a_failure_by_its_status<U: Upstream>() {
     let upstream = U::start();
     let at = target();
-    let status = random::pick(&[400, 401, 403, 404, 410, 429, 500, 502, 503]);
+    // A 429 is a rate limit, whatever it says, which is said by name.
+    let status = random::pick(&[400, 401, 403, 404, 410, 500, 502, 503]);
     upstream.answer(&at, Answer::bytes(b"no".to_vec()).with_status_of(status));
     let url = upstream.url(&at);
 
@@ -1231,7 +1232,7 @@ fn a_kept_answer_holds_only_the_headers_core_reads<U: Upstream>() {
         &at,
         Answer::json(&json!(["one"]))
             .with("set-cookie", &format!("session={cookie}"))
-            .with("x-ratelimit-remaining", "59"),
+            .with("x-request-id", "4f9c2a7e"),
     );
     let clock = Hands::new();
     let (_workspace, client, cache) = caching(&upstream, &clock);
@@ -1252,7 +1253,7 @@ fn a_kept_answer_holds_only_the_headers_core_reads<U: Upstream>() {
     );
     let text = String::from_utf8_lossy(bytes);
     assert!(!text.contains(&cookie), "{text}");
-    assert!(!text.contains("x-ratelimit"), "{text}");
+    assert!(!text.contains("x-request-id"), "{text}");
     assert!(text.contains(&upstream.url(&at)), "{text}");
     assert!(text.ends_with(r#"["one"]"#), "{text}");
 }
