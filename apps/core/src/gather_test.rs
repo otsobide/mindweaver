@@ -78,7 +78,8 @@ fn a_request_for_a_git_source_gathers_skills_from_all_of_it_at_its_head() {
             reference: None,
         }
     );
-    assert_eq!(request.subdirectory, DEFAULT_SUBDIRECTORY);
+    assert_eq!(request.subdirectory, None);
+    assert_eq!(default_folder(request.kind), Some(DEFAULT_SUBDIRECTORY));
     assert_eq!(DEFAULT_SUBDIRECTORY, ".");
     assert_eq!(OLDER_DEFAULT_SUBDIRECTORY, "skills");
     assert_eq!(request.kind, Kind::Skill);
@@ -94,9 +95,19 @@ fn a_request_takes_the_folder_and_the_branch_it_is_told() {
             .from_subdirectory(folder.clone())
             .at(Some(branch.clone()));
 
-        assert_eq!(request.subdirectory, folder);
+        assert_eq!(request.subdirectory.as_deref(), Some(folder.as_str()));
         assert_eq!(request.source.reference(), Some(branch.as_str()));
     }
+}
+
+#[test]
+fn a_request_taking_rules_looks_in_no_folder_unless_one_is_named() {
+    let request = Request::git(UrlMother::https()).taking(Kind::Rule);
+
+    assert_eq!(request.kind, Kind::Rule);
+    assert_eq!(request.subdirectory, None);
+    assert_eq!(default_folder(Kind::Rule), None);
+    assert_eq!(default_folder(Kind::Mcp), None);
 }
 
 /// `at(None)` is the remote's HEAD again, not the branch asked for before.
@@ -237,22 +248,91 @@ fn a_credentialed_url_typed_as_the_branch_the_folder_or_the_name_is_refused_alik
 }
 
 #[test]
-fn a_gather_of_rules_is_refused_and_fetches_nothing() {
+fn a_gather_of_mcp_servers_is_refused_and_fetches_nothing() {
     let (_dir, workspace) = WorkspaceMother::empty();
     let ledger = Ledger::in_memory().unwrap();
     let remote = Arc::new(Unreached::default());
-    let mut request = Request::git(UrlMother::https()).through(remote.clone());
-    request.kind = Kind::Rule;
+    for request in [
+        Request::git(UrlMother::https()),
+        Request::git(UrlMother::https()).from_subdirectory(random::word()),
+    ] {
+        let request = request.taking(Kind::Mcp).through(remote.clone());
 
-    let refused = gather(&workspace, &ledger, &request).unwrap_err();
+        let refused = gather(&workspace, &ledger, &request).unwrap_err();
+        let foreseen = dry_run(&workspace, &ledger, &request).unwrap_err();
 
-    assert!(
-        matches!(refused, GatherError::NotGatherable { kind: Kind::Rule }),
-        "{refused:?}"
-    );
-    assert_eq!(refused.to_string(), "rules cannot be gathered yet");
+        assert!(
+            matches!(refused, GatherError::NotGatherable { kind: Kind::Mcp }),
+            "{refused:?}"
+        );
+        assert_eq!(refused.to_string(), "MCP servers cannot be gathered yet");
+        assert_eq!(foreseen.code(), refused.code());
+    }
     assert_eq!(*remote.asked.lock().unwrap(), 0);
     assert!(ledger.sources().unwrap().is_empty());
+}
+
+/// Every markdown file under the folder a gather of rules looks in is a
+/// rule, so the folder is named: a gather that names none, by `--path` or
+/// in the URL, is refused before anything is registered or fetched, by a
+/// gather and its dry run alike (#111).
+#[test]
+fn a_gather_of_rules_naming_no_folder_is_refused_and_fetches_nothing() {
+    let (_dir, workspace) = WorkspaceMother::empty();
+    let ledger = Ledger::in_memory().unwrap();
+    let remote = Arc::new(Unreached::default());
+    let request = Request::git(UrlMother::https())
+        .taking(Kind::Rule)
+        .through(remote.clone());
+
+    let refused = gather(&workspace, &ledger, &request).unwrap_err();
+    let foreseen = dry_run(&workspace, &ledger, &request).unwrap_err();
+
+    assert!(
+        matches!(refused, GatherError::FolderUnnamed { kind: Kind::Rule }),
+        "{refused:?}"
+    );
+    assert_eq!(refused.code(), "gather_folder_unnamed");
+    assert_eq!(
+        refused.to_string(),
+        "rules are gathered from the folder `--path` names, every markdown file in it one: name \
+         the folder that holds them, or `--path .` for the whole repository"
+    );
+    assert_eq!(foreseen.code(), refused.code());
+    assert_eq!(*remote.asked.lock().unwrap(), 0);
+    assert!(ledger.sources().unwrap().is_empty());
+}
+
+/// A folder named for rules, by `--path`, `--path .` among them, or in the
+/// URL, is the one looked in: the request goes on to be fetched.
+#[test]
+fn a_gather_of_rules_naming_its_folder_any_way_is_fetched() {
+    let named = [
+        Request::git(UrlMother::https()).from_subdirectory(random::word()),
+        Request::git(UrlMother::https()).from_subdirectory("."),
+        Request::git(format!(
+            "https://github.com/{}/{}/tree/main/{}",
+            random::kebab(),
+            random::kebab(),
+            random::word()
+        )),
+    ];
+    for request in named {
+        let (_dir, workspace) = WorkspaceMother::empty();
+        let ledger = Ledger::in_memory().unwrap();
+        let remote = Arc::new(Unreached::default());
+        let request = request.taking(Kind::Rule).through(remote.clone());
+
+        let refused = gather(&workspace, &ledger, &request).unwrap_err();
+
+        // The fake refuses as a cancel, once it was asked.
+        assert!(
+            matches!(refused, GatherError::Cancelled),
+            "{:?}: {refused:?}",
+            request.subdirectory
+        );
+        assert_eq!(*remote.asked.lock().unwrap(), 1);
+    }
 }
 
 /// A branch or a folder the URL names beside another given for it is one
@@ -365,6 +445,7 @@ fn a_report_counts_everything_now_on_the_shelf_because_of_it() {
             warnings: Vec::new(),
             left_out: Vec::new(),
             pin: None,
+            kind: random::pick(&[Kind::Skill, Kind::Rule]),
             // Off the shelf now, so in no count of what is on it.
             removed: (0..removed).map(|_| harvested()).collect(),
         };
@@ -654,6 +735,184 @@ fn a_manifest_linked_out_of_the_clone_is_not_read() {
     assert!(!failures[0].to_string().contains("Not the source's"));
 }
 
+/// Every markdown file at any depth is a rule's, in order, its extension in
+/// any case, but a README and a licence at the top of the folder looked in,
+/// and whatever is hidden or a package manager's (#111).
+#[test]
+fn rule_files_are_every_markdown_file_under_the_folder_but_what_documents_it() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let mut expected: Vec<PathBuf> = Vec::new();
+    for _ in 0..random::between(1, 6) {
+        let route: Vec<String> = (0..random::between(1, 4))
+            .map(|_| random::kebab())
+            .collect();
+        let file = root.join(format!("{}.md", route.join("/")));
+        write(&file, &crate::mother::RuleMother::random());
+        expected.push(file);
+    }
+    for kept in ["shouting.MD", "docs/README.md", "docs/LICENSE.md"] {
+        write(&root.join(kept), "# Kept\n");
+        expected.push(root.join(kept));
+    }
+    for passed in [
+        "README.md",
+        "LICENSE.md",
+        "Licence-MIT.md",
+        "LICENSE",
+        "notes.txt",
+        ".hidden.md",
+        ".github/pull_request.md",
+        "node_modules/dep/readme.md",
+    ] {
+        write(&root.join(passed), "# Passed over\n");
+    }
+    expected.sort();
+    expected.dedup();
+
+    assert_eq!(rule_files(root, "md").unwrap(), expected);
+}
+
+#[test]
+fn documents_the_folder_is_a_readme_or_a_licence_in_any_case() {
+    for name in [
+        "README.md",
+        "readme.md",
+        "ReadMe.markdown",
+        "LICENSE.md",
+        "licence.md",
+        "LICENSE-MIT.md",
+        "LICENSE",
+    ] {
+        assert!(documents_the_folder(std::ffi::OsStr::new(name)), "{name}");
+    }
+    for name in ["readmes.md", "licensed.md", "style.md", "notes-readme.md"] {
+        assert!(!documents_the_folder(std::ffi::OsStr::new(name)), "{name}");
+    }
+}
+
+/// A folder linked into the one looked in is not gone into, so no loop is
+/// walked and nothing outside is reached; a file linked is one more rule,
+/// read only inside the clone.
+#[cfg(unix)]
+#[test]
+fn rule_files_go_into_no_linked_folder_and_take_a_linked_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().join("rules");
+    write(&root.join("style.md"), "# Style\n");
+    symlink(&root, root.join("again")).unwrap();
+    let outside = dir.path().join("elsewhere");
+    write(&outside.join("secret.md"), "# Secret\n");
+    symlink(&outside, root.join("away")).unwrap();
+    symlink(root.join("style.md"), root.join("tone.md")).unwrap();
+
+    assert_eq!(
+        rule_files(&root, "md").unwrap(),
+        [root.join("style.md"), root.join("tone.md")]
+    );
+}
+
+/// A rule is named by its route from the folder looked in, without its
+/// extension, and filed by its route with it, which its source gave it.
+#[test]
+fn a_rule_is_named_and_filed_by_its_route_from_the_folder_looked_in() {
+    let dir = TempDir::new().unwrap();
+    let clone = dir.path();
+    let root = clone.join("rules");
+    let route: Vec<String> = (0..random::between(1, 4))
+        .map(|_| random::kebab())
+        .collect();
+    let file = root.join(format!("{}.MD", route.join("/")));
+    write(&file, &crate::mother::RuleMother::create("tone"));
+    let mut failures = Vec::new();
+
+    let (from, filed, artifact) = read_rule(&file, &root, clone, &mut failures).unwrap();
+
+    assert_eq!(from, file);
+    assert_eq!(filed, format!("{}.MD", route.join("/")));
+    assert_eq!(artifact.name().as_str(), route.join("/"));
+    assert_eq!(artifact.kind(), Kind::Rule);
+    assert_eq!(artifact.summary(), Some("tone"));
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+/// A route that is no rule's name is not taken: said by where it is in the
+/// source and what is wrong with it, and never read.
+#[test]
+fn a_rule_whose_route_is_no_name_is_said_and_not_taken() {
+    let dir = TempDir::new().unwrap();
+    let clone = dir.path();
+    let root = clone.join("rules");
+    for (route, problem) in [
+        (
+            "Style.md",
+            ValidationIssue::NameNotKebabCase {
+                segment: String::from("Style"),
+            },
+        ),
+        (
+            "python/style_guide.md",
+            ValidationIssue::NameNotKebabCase {
+                segment: String::from("style_guide"),
+            },
+        ),
+        (
+            "a.b.md",
+            ValidationIssue::NameNotKebabCase {
+                segment: String::from("a.b"),
+            },
+        ),
+    ] {
+        let file = root.join(route);
+        write(&file, "# Never read\n");
+        let mut failures = Vec::new();
+
+        assert!(read_rule(&file, &root, clone, &mut failures).is_none());
+
+        assert!(
+            matches!(&failures[..], [Failure::Unnamed { path, .. }] if *path == file),
+            "{failures:?}"
+        );
+        assert_eq!(failures[0].code(), "gathered_route_unusable");
+        assert_eq!(
+            failures[0].to_string(),
+            format!("rules/{route}: not taken, since a rule is named by its route, and {problem}")
+        );
+    }
+}
+
+/// A rule's file linked out of the clone is never read, as a skill's
+/// manifest is not.
+#[cfg(unix)]
+#[test]
+fn a_rule_linked_out_of_the_clone_is_not_read() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new().unwrap();
+    let clone = dir.path().join("clone");
+    let outside = dir.path().join("secret.md");
+    write(&outside, "Not the source's\n");
+    fs::create_dir_all(clone.join("rules")).unwrap();
+    symlink(&outside, clone.join("rules/secret.md")).unwrap();
+    let mut failures = Vec::new();
+
+    let taken = read_rule(
+        &clone.join("rules/secret.md"),
+        &clone.join("rules"),
+        &clone,
+        &mut failures,
+    );
+
+    assert!(taken.is_none());
+    assert!(
+        matches!(&failures[..], [Failure::Outside { path }] if path.ends_with("rules/secret.md")),
+        "{failures:?}"
+    );
+    assert!(!failures[0].to_string().contains("Not the source's"));
+}
+
 /// A skill at the root of the clone is filed under the name it declares,
 /// since the clone's folder is named for the source.
 #[test]
@@ -804,6 +1063,21 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
         "/w/.mindweaver/skills/s/review: no longer in its source, and cannot be taken off the \
          shelf: busy"
     );
+    let unnamed = Failure::Unnamed {
+        path: PathBuf::from("/w/.mindweaver/cache/s/rules/Style.md"),
+        route: String::from("rules/Style.md"),
+        problem: crate::artifact::issue_list(&crate::artifact::name_issues("Style")),
+    };
+    assert_eq!(unnamed.code(), "gathered_route_unusable");
+    assert_eq!(
+        unnamed.path(),
+        Path::new("/w/.mindweaver/cache/s/rules/Style.md")
+    );
+    assert_eq!(
+        unnamed.to_string(),
+        "rules/Style.md: not taken, since a rule is named by its route, and `Style` is not \
+         usable as a name: it has to be lowercase letters and digits, joined by single hyphens"
+    );
     assert_eq!(
         Failure::CODES,
         [
@@ -813,6 +1087,7 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
             "gathered_link_outside",
             "gathered_root_unnamed",
             "gathered_unhashed",
+            "gathered_route_unusable",
             "gathered_unremoved",
         ]
     );
@@ -872,12 +1147,18 @@ fn a_failure_routed_from_a_root_is_named_by_its_route_under_it() {
             path: root.join("skills/y/SKILL.md"),
             source: io::Error::other("denied"),
         }),
+        Failure::Unnamed {
+            path: root.join("rules/Style.md"),
+            route: String::from("rules/Style.md"),
+            problem: String::from("wrong"),
+        },
     ];
     let routes = [
         "skills/x/SKILL.md",
         "SKILL.md",
         "skills/x",
         "skills/y/SKILL.md",
+        "rules/Style.md",
     ];
 
     for (failure, route) in failures.into_iter().zip(routes) {
@@ -942,8 +1223,13 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
             GatherError::NothingFound {
                 url: UrlMother::https(),
                 path: String::from(DEFAULT_SUBDIRECTORY),
+                kind: Kind::Skill,
             },
             "gather_nothing_found",
+        ),
+        (
+            GatherError::FolderUnnamed { kind: Kind::Rule },
+            "gather_folder_unnamed",
         ),
         (
             GatherError::PathOutside {
@@ -985,7 +1271,7 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
             "source_pin_invalid",
         ),
         (
-            GatherError::NotGatherable { kind: Kind::Rule },
+            GatherError::NotGatherable { kind: Kind::Mcp },
             "kind_not_gatherable",
         ),
         (

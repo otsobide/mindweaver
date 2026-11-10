@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, Parser};
 
+use mindweaver_core::DEFAULT_SUBDIRECTORY;
+
 use super::*;
 use crate::tui::minds::{Minds, Row, Standing};
 use crate::{Cli, Credential, WeaverCli};
@@ -129,11 +131,25 @@ fn every(value: &str) -> Vec<Task> {
             url: owned(),
             folder: owned(),
             reference: Some(owned()),
+            kind: Kind::Skill,
         },
         Task::Gather {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
+            kind: Kind::Skill,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: owned(),
+            reference: None,
+            kind: Kind::Rule,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: String::from(DEFAULT_SUBDIRECTORY),
+            reference: Some(owned()),
+            kind: Kind::Rule,
         },
         Task::UpdateSources {
             names: vec![owned(), String::from("plain")],
@@ -973,6 +989,89 @@ fn a_task_sent_with_a_field_it_does_not_have_is_refused() {
     }
 }
 
+/// A gather task says its kind as `--kind` does, and leaves out only the
+/// kind a gather takes unsaid and the folder a gather of its kind looks in
+/// unsaid: rules from the whole repository say `--path .`, which core asks
+/// of them (#111).
+#[test]
+fn a_gather_task_says_its_kind_and_the_folder_a_gather_of_rules_is_told() {
+    let gather = |folder: &str, kind: Kind| Task::Gather {
+        url: String::from("acme/rules"),
+        folder: folder.to_owned(),
+        reference: None,
+        kind,
+    };
+    let line = |words: &[&str]| -> Vec<Vec<String>> {
+        vec![words.iter().map(|word| (*word).to_owned()).collect()]
+    };
+
+    assert_eq!(
+        gather(".", Kind::Skill).commands(),
+        line(&["mindweaver", "gather", "git", "acme/rules"])
+    );
+    assert_eq!(
+        gather("rules", Kind::Rule).commands(),
+        line(&[
+            "mindweaver",
+            "gather",
+            "git",
+            "--kind",
+            "rules",
+            "--path",
+            "rules",
+            "acme/rules"
+        ])
+    );
+    assert_eq!(
+        gather(".", Kind::Rule).commands(),
+        line(&[
+            "mindweaver",
+            "gather",
+            "git",
+            "--kind",
+            "rules",
+            "--path",
+            ".",
+            "acme/rules"
+        ])
+    );
+}
+
+/// A gather task sent before it carried a kind, or leaving it out, gathers
+/// skills, as the command does without `--kind`.
+#[test]
+fn a_gather_task_that_names_no_kind_gathers_skills() {
+    let sent = r#"{"type": "gather", "url": "acme/skills", "folder": ".", "reference": null}"#;
+
+    let task: Task = serde_json::from_str(sent).unwrap();
+
+    assert!(
+        matches!(
+            &task,
+            Task::Gather {
+                kind: Kind::Skill,
+                ..
+            }
+        ),
+        "{task:?}"
+    );
+    let rules: Task = serde_json::from_str(
+        r#"{"type": "gather", "url": "acme/rules", "folder": "rules", "reference": null,
+            "kind": "rule"}"#,
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            &rules,
+            Task::Gather {
+                kind: Kind::Rule,
+                ..
+            }
+        ),
+        "{rules:?}"
+    );
+}
+
 /// The panel enters no credential (D-16): a gather it sends names the
 /// repository, the folder and the branch, and a token beside them, by
 /// whatever name, is a field the task does not have.
@@ -1001,11 +1100,13 @@ fn a_gather_task_s_lines_hand_over_no_token_whatever_its_values() {
                 url: value.to_owned(),
                 folder: String::from(DEFAULT_SUBDIRECTORY),
                 reference: None,
+                kind: Kind::Skill,
             },
             Task::Gather {
                 url: String::from("acme/private"),
                 folder: value.to_owned(),
                 reference: Some(value.to_owned()),
+                kind: Kind::Rule,
             },
         ] {
             for words in task.commands() {
@@ -2111,11 +2212,13 @@ fn carrying(url: &str) -> Vec<Task> {
             url: url.to_owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
+            kind: Kind::Skill,
         },
         Task::Gather {
             url: url.to_owned(),
             folder: String::from("rules"),
             reference: Some(String::from("main")),
+            kind: Kind::Rule,
         },
         Task::Install {
             projects: vec![String::from("alpha")],

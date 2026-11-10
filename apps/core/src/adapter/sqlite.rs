@@ -802,6 +802,11 @@ impl LedgerStore for Sqlite {
                 licence: row.licence,
             });
         }
+        // By kind in report order, a kind's declaration order, which the
+        // query sorts by its slug in the alphabet's: stable, so each kind
+        // keeps the query's order by name, then source. Nothing told the
+        // two apart while skills were all a shelf held (#111).
+        found.sort_by_key(|gathered| gathered.kind);
         Ok(found)
     }
 

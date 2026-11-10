@@ -197,6 +197,56 @@ fn gathering_the_same_name_again_updates_rather_than_duplicates() {
     assert_eq!(gathered[0].revision.as_deref(), Some("2"));
 }
 
+/// Skills before rules, as every listing orders kinds, though `rule`
+/// comes before `skill` in the alphabet the query sorts its column by;
+/// then by name, then by source (#111).
+#[test]
+fn what_was_gathered_is_listed_by_kind_in_report_order_then_name_then_source() {
+    let ledger = Sqlite::in_memory().unwrap();
+    let first = ledger
+        .source_for(SourceKind::Git, "https://h/a", None, "rules")
+        .unwrap();
+    let second = ledger
+        .source_for(SourceKind::Git, "https://h/b", None, ".")
+        .unwrap();
+    for (source, kind, name) in [
+        (&second, Kind::Rule, "tone"),
+        (&first, Kind::Rule, "tone"),
+        (&first, Kind::Rule, "git/commits"),
+        (&second, Kind::Skill, "deploy"),
+        (&first, Kind::Skill, "review"),
+    ] {
+        ledger
+            .record(source, &crate::mother::TakenMother::create(kind, name, "p"))
+            .unwrap();
+    }
+
+    let listed: Vec<(Kind, String, String)> = ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .map(|gathered| {
+            (
+                gathered.kind,
+                gathered.name.into_string(),
+                gathered.source.url.to_string(),
+            )
+        })
+        .collect();
+
+    let at = |kind, name: &str, url: &str| (kind, name.to_owned(), url.to_owned());
+    assert_eq!(
+        listed,
+        [
+            at(Kind::Skill, "deploy", "https://h/b"),
+            at(Kind::Skill, "review", "https://h/a"),
+            at(Kind::Rule, "git/commits", "https://h/a"),
+            at(Kind::Rule, "tone", "https://h/a"),
+            at(Kind::Rule, "tone", "https://h/b"),
+        ]
+    );
+}
+
 #[test]
 fn the_log_keeps_failures_too_and_reads_back_newest_first() {
     let ledger = Sqlite::in_memory().unwrap();

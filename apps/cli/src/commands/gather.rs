@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use mindweaver_core::gather::{self, GatherError, Report, Request, Scrub};
-use mindweaver_core::install::{offered_by_loads, Offer};
+use mindweaver_core::gather::{self, Report, Request, Scrub};
+use mindweaver_core::install::{is_installable_name, offered_by_loads, Offer};
 use mindweaver_core::port::Token;
 use mindweaver_core::sources::{self, Again, Regathered, Removal, Renamed};
 use mindweaver_core::url::redacted;
@@ -15,7 +15,7 @@ use mindweaver_core::{Kind, Ledger, Licence, WeaverWorkspace, DEFAULT_SUBDIRECTO
 
 use super::{reading_workspace, workspace_here};
 use crate::progress::{Progress, Watch};
-use crate::render::{counted_kind, indent, json_or_text, plural, printable, table, utc};
+use crate::render::{counted_kind, indent, json_or_text, printable, table, utc};
 use crate::{token, CliError, Credential, Failure, GatherCommand, Lookup, Outcome, Warning};
 
 /// Collect artifacts onto the workspace shelf, or say what is already on it.
@@ -32,6 +32,7 @@ pub(crate) fn run_gather(
     match command {
         GatherCommand::Git {
             url,
+            kind,
             path,
             reference,
             name,
@@ -42,8 +43,16 @@ pub(crate) fn run_gather(
             // Found as a gather finds it, a dry run's too, which fetches into
             // the workspace's scratch folder and so needs one made.
             let workspace = workspace_here(directory, lookup)?;
-            let request = Request::git(url.clone())
-                .from_subdirectory(path.clone())
+            // Each only when given, so core says what a gather of a kind
+            // looks in when no folder is named, and which kinds have none.
+            let mut request = Request::git(url.clone());
+            if let Some(kind) = kind {
+                request = request.taking(*kind);
+            }
+            if let Some(path) = path {
+                request = request.from_subdirectory(path.clone());
+            }
+            let request = request
                 .at(reference.clone())
                 .named(name.clone())
                 .pinned(pin.clone())
@@ -159,16 +168,24 @@ fn regathered(
             "no sources yet\n  take some with `mindweaver gather git <url>`\n",
         )));
     }
-    let mut tokens = tokens_for(&chosen, credential)?;
-    let again = sources::update(workspace, ledger, chosen, |source| {
-        let token = tokens.remove(&source.id).transpose()?;
-        Ok(Request::again(source)
+    let tokens = tokens_for(&chosen, credential)?;
+    let again = sources::update(workspace, ledger, chosen, |source, kind| {
+        let token = match tokens.get(&source.id) {
+            Some(token) => Some(token.clone()),
+            // None goes to it: why, as a gather handed one would say it.
+            None if credential.gh => {
+                gather::token_host(source.url.as_str())?;
+                None
+            }
+            None => None,
+        };
+        Ok(Request::again(source, kind)
             .watched_by(watch.relaying(Progress::Gather))
             .with_token(token))
-    });
+    })?;
 
     let mut outcome = Outcome::plain(String::new());
-    for Regathered { source, again } in again {
+    for Regathered { source, again, .. } in again {
         match again {
             Again::Gathered(report) => {
                 let said = gathered(source.url.as_str(), &report);
@@ -201,30 +218,31 @@ fn regathered(
 /// The token each of `chosen` is handed, by its row id, as `credential`
 /// says: the one in the variable `--token-env` names, read once, or what
 /// `gh` has for the host core says a token for it goes to, asked once a
-/// host, or why none goes to it. None when neither is given.
+/// host. None for a source no token goes to, nor when neither is given.
 fn tokens_for(
     chosen: &[mindweaver_core::ledger::Source],
     credential: &Credential,
-) -> Result<HashMap<i64, Result<Token, GatherError>>, CliError> {
+) -> Result<HashMap<i64, Token>, CliError> {
     let mut tokens = HashMap::new();
     if let Some(name) = &credential.token_env {
         let token = token::from_variable(name)?;
         for source in chosen {
-            tokens.insert(source.id, Ok(token.clone()));
+            tokens.insert(source.id, token.clone());
         }
     } else if credential.gh {
         let mut asked: HashMap<String, Token> = HashMap::new();
         for source in chosen {
-            let token = match gather::token_host(source.url.as_str()) {
-                Ok(host) => match asked.get(&host) {
-                    Some(token) => Ok(token.clone()),
-                    None => {
-                        let token = token::from_gh(&host)?;
-                        asked.insert(host, token.clone());
-                        Ok(token)
-                    }
-                },
-                Err(error) => Err(error),
+            // Refused for it when it is gathered, which says why.
+            let Ok(host) = gather::token_host(source.url.as_str()) else {
+                continue;
+            };
+            let token = match asked.get(&host) {
+                Some(token) => token.clone(),
+                None => {
+                    let token = token::from_gh(&host)?;
+                    asked.insert(host, token.clone());
+                    token
+                }
             };
             tokens.insert(source.id, token);
         }
@@ -408,14 +426,22 @@ fn shelf(workspace: &WeaverWorkspace, found: &mut Option<Vec<Offer>>) -> Result<
     let mut offers: Vec<Offer> = loads.offers;
     let mut stderr = stderr;
     for gathered in ledger.gathered().map_err(CliError::from)? {
-        // Listed only if it could be installed: a name that is not one folder
-        // name never can be, wherever it came from.
-        if mindweaver_core::install::is_folder_name(&gathered.name) {
+        // Listed only if it could be installed: a name no copy can be filed
+        // under never can be, wherever it came from. A skill's is one
+        // folder name, a rule's a route held to the name rules, as core
+        // says of each kind.
+        if is_installable_name(gathered.kind, &gathered.name) {
             offers.push(Offer::Shelf(gathered));
         } else {
+            let unlike = match gathered.kind {
+                Kind::Skill => String::from("which is not one folder name"),
+                Kind::Rule | Kind::Mcp => {
+                    format!("which no {} can be installed under", gathered.kind.noun())
+                }
+            };
             stderr.push(
                 format!(
-                    "warning: {}: declares the name `{}`, which is not one folder name, so it is not offered",
+                    "warning: {}: declares the name `{}`, {unlike}, so it is not offered",
                     gathered.path, gathered.name
                 )
                 .into(),
@@ -558,7 +584,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         let _ = writeln!(
             stdout,
             "\n{}: {} added, {} updated, {} unchanged{}",
-            plural(report.total(), "skill"),
+            counted_kind(report.total(), report.kind),
             report.added.len(),
             report.updated.len(),
             report.unchanged.len(),
@@ -569,7 +595,7 @@ fn gathered(url: &str, report: &Report) -> Outcome {
     said(stdout, report, "was")
 }
 
-/// How many skills `report` took off the shelf, said after the rest of the
+/// How many of its kind `report` took off the shelf, said after the rest of the
 /// count, `removed` or `to remove`: nothing when none were, so a gather of
 /// a source that dropped nothing reads as it did before one could.
 fn counted_removed(report: &Report, removed: &str) -> String {
@@ -612,7 +638,7 @@ fn foreseen(url: &str, report: &Report) -> Outcome {
             stdout,
             "\n{}: {} to add, {} to update, {} unchanged{}\n\
              nothing gathered: run it without --dry-run to gather",
-            plural(report.total(), "skill"),
+            counted_kind(report.total(), report.kind),
             report.added.len(),
             report.updated.len(),
             report.unchanged.len(),

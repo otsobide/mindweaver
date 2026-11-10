@@ -204,9 +204,7 @@ fn gathering_sources_again_says_what_each_added_updated_and_removed() {
     );
     commit(source.path());
 
-    let again = sources::update(&workspace, &ledger, ledger.sources().unwrap(), |source| {
-        Ok(Request::again(source))
-    });
+    let again = again_as_recorded(&workspace, &ledger);
 
     assert_eq!(again.len(), 1);
     let Again::Gathered(report) = &again[0].again else {
@@ -239,9 +237,7 @@ fn a_pinned_source_is_gathered_again_at_its_pin() {
     fs::remove_dir_all(source.path().join("skills/review")).unwrap();
     commit(source.path());
 
-    let again = sources::update(&workspace, &ledger, ledger.sources().unwrap(), |source| {
-        Ok(Request::again(source))
-    });
+    let again = again_as_recorded(&workspace, &ledger);
 
     let Again::Gathered(report) = &again[0].again else {
         panic!("{:?}", again[0].again);
@@ -260,15 +256,16 @@ fn a_source_that_fails_is_said_and_the_next_is_gathered_all_the_same() {
     let sources = ledger.sources().unwrap();
     let failing = sources[0].id;
 
-    let again = sources::update(&workspace, &ledger, sources, |source| {
+    let again = sources::update(&workspace, &ledger, sources, |source, kind| {
         if source.id == failing {
             Err(GatherError::TokenNotHttps {
                 url: source.url.to_string(),
             })
         } else {
-            Ok(Request::again(source))
+            Ok(Request::again(source, kind))
         }
-    });
+    })
+    .unwrap();
 
     assert!(
         matches!(
@@ -294,9 +291,13 @@ fn a_cancelled_source_stops_the_update_and_those_after_it_are_not_tried() {
     let watch = Watch::new();
     watch.cancel();
 
-    let again = sources::update(&workspace, &ledger, ledger.sources().unwrap(), |source| {
-        Ok(Request::again(source).watched_by(watch.clone()))
-    });
+    let again = sources::update(
+        &workspace,
+        &ledger,
+        ledger.sources().unwrap(),
+        |source, kind| Ok(Request::again(source, kind).watched_by(watch.clone())),
+    )
+    .unwrap();
 
     assert!(
         matches!(again[0].again, Again::Failed(GatherError::Cancelled)),
@@ -308,6 +309,54 @@ fn a_cancelled_source_stops_the_update_and_those_after_it_are_not_tried() {
         "{:?}",
         again[1].again
     );
+}
+
+/// Every source of `ledger` gathered again, each kind of it as the ledger
+/// records it.
+fn again_as_recorded(workspace: &WeaverWorkspace, ledger: &Ledger) -> Vec<sources::Regathered> {
+    sources::update(
+        workspace,
+        ledger,
+        ledger.sources().unwrap(),
+        |source, kind| Ok(Request::again(source, kind)),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_source_of_rules_is_gathered_again_as_rules_from_its_folder() {
+    let (_dir, workspace, ledger) = stamped(1);
+    let source = repository(&[
+        ("rules/git/commits.md", "# Commits\n\nOne step at a time.\n"),
+        ("rules/style.md", "# Style\n\nKeep it short.\n"),
+    ]);
+    gather::gather(
+        &workspace,
+        &ledger,
+        &Request::git(url(&source))
+            .taking(Kind::Rule)
+            .from_subdirectory("rules"),
+    )
+    .unwrap();
+    fs::remove_file(source.path().join("rules/git/commits.md")).unwrap();
+    commit(source.path());
+
+    let again = again_as_recorded(&workspace, &ledger);
+
+    assert_eq!(again.len(), 1, "{again:?}");
+    assert_eq!(again[0].kind, Kind::Rule);
+    let Again::Gathered(report) = &again[0].again else {
+        panic!("{:?}", again[0].again);
+    };
+    let removed: Vec<&str> = report
+        .removed
+        .iter()
+        .map(|gone| gone.name.as_str())
+        .collect();
+    assert_eq!(removed, ["git/commits"]);
+    let shelf = workspace.gathered_dir(Kind::Rule).join(&report.directory);
+    assert!(!shelf.join("git").exists(), "no folder of nothing is left");
+    assert!(shelf.join("style.md").is_file());
 }
 
 // ---------------------------------------------------------------------------

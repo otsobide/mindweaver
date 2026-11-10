@@ -25,7 +25,7 @@ use crate::code::codes;
 use crate::gather::{self, GatherError, Report, Request};
 use crate::install;
 use crate::kind::Kind;
-use crate::ledger::{Action, FromSource, Ledger, LedgerError, Outcome, Source};
+use crate::ledger::{Action, FromSource, Gathered, Ledger, LedgerError, Outcome, Source};
 use crate::lock::LockError;
 use crate::url::{carries_credentials, redacted};
 use crate::value::{Origin, SourceName};
@@ -93,18 +93,44 @@ pub enum Again {
     Unreached,
 }
 
-/// One source an update gathered again, as it was before, and what came of
-/// it.
+/// One source an update gathered again, as it was before, the kind it
+/// gathered of it, and what came of it.
 #[derive(Debug)]
 pub struct Regathered {
     pub source: Source,
+    pub kind: Kind,
     pub again: Again,
 }
 
-/// Gather each of `sources` again (`mindweaver gather update`), in turn, each
-/// from what `request` makes of it: [`Request::again`] of it, followed by
-/// the front end's watch and handed whatever token it reads for it, or why
-/// it cannot be gathered, a token for a URL no token goes to among it.
+/// The kinds the shelf holds of `source`, in report order, each gathered
+/// again by an update: a source no gather has put anything on the shelf
+/// from, whose kind nothing records, is gathered as a gather naming none
+/// would gather it ([`gather::DEFAULT_KIND`]).
+///
+/// Read off the shelf rather than kept on the source, since a source is a
+/// repository's folder at a branch whichever kind was gathered from it,
+/// and one folder can hold skills and rules a gather of each took.
+fn kinds_of(source: &Source, shelf: &[Gathered]) -> Vec<Kind> {
+    let kinds: Vec<Kind> = Kind::ALL
+        .into_iter()
+        .filter(|kind| {
+            shelf
+                .iter()
+                .any(|gathered| gathered.source.id == source.id && gathered.kind == *kind)
+        })
+        .collect();
+    if kinds.is_empty() {
+        vec![gather::DEFAULT_KIND]
+    } else {
+        kinds
+    }
+}
+
+/// Gather each of `sources` again (`mindweaver gather update`), in turn,
+/// each kind the shelf holds of it ([`kinds_of`]), from what `request`
+/// makes of it: [`Request::again`] of it, followed by the front end's watch
+/// and handed whatever token it reads for it, or why it cannot be gathered,
+/// a token for a URL no token goes to among it.
 ///
 /// One that fails is said beside the rest, which are gathered all the same,
 /// as one skill that cannot be taken costs none beside it; one cancelled
@@ -116,30 +142,34 @@ pub fn update(
     workspace: &WeaverWorkspace,
     ledger: &Ledger,
     sources: Vec<Source>,
-    mut request: impl FnMut(&Source) -> Result<Request, GatherError>,
-) -> Vec<Regathered> {
+    mut request: impl FnMut(&Source, Kind) -> Result<Request, GatherError>,
+) -> Result<Vec<Regathered>, SourceError> {
+    let shelf = ledger.gathered()?;
     let mut cancelled = false;
-    sources
-        .into_iter()
-        .map(|source| {
-            if cancelled {
-                return Regathered {
-                    source,
-                    again: Again::Unreached,
-                };
-            }
-            let again = match request(&source)
-                .and_then(|asked| gather::gather(workspace, ledger, &asked))
-            {
-                Ok(report) => Again::Gathered(report),
-                Err(error) => {
-                    cancelled = matches!(error, GatherError::Cancelled);
-                    Again::Failed(error)
+    let mut regathered = Vec::new();
+    for source in sources {
+        for kind in kinds_of(&source, &shelf) {
+            let again = if cancelled {
+                Again::Unreached
+            } else {
+                match request(&source, kind)
+                    .and_then(|asked| gather::gather(workspace, ledger, &asked))
+                {
+                    Ok(report) => Again::Gathered(report),
+                    Err(error) => {
+                        cancelled = matches!(error, GatherError::Cancelled);
+                        Again::Failed(error)
+                    }
                 }
             };
-            Regathered { source, again }
-        })
-        .collect()
+            regathered.push(Regathered {
+                source: source.clone(),
+                kind,
+                again,
+            });
+        }
+    }
+    Ok(regathered)
 }
 
 /// What renaming a source did: the name it had, and the source as it is

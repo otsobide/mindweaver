@@ -27,12 +27,11 @@
 //! command of exactly these words ([`shell`]).
 
 use clap::Parser as _;
+use mindweaver_core::gather;
 use mindweaver_core::install::Change;
 use mindweaver_core::mcp;
 use mindweaver_core::url::redacted;
-use mindweaver_core::{
-    codes, hash, Agent, Kind, Names, Share, WeaverWorkspace, DEFAULT_SUBDIRECTORY, QUALIFIER,
-};
+use mindweaver_core::{codes, hash, Agent, Kind, Names, Share, WeaverWorkspace, QUALIFIER};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -262,11 +261,22 @@ pub enum Task {
     /// `mindweaver workspaces`: the workspaces this machine knows, the one in
     /// use marked, to read.
     Workspaces,
-    /// `mindweaver gather git [--path <folder>] [--ref <ref>] <url>`.
+    /// `mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]
+    /// <url>`.
+    ///
+    /// `kind` is what is taken, skills unless it says rules, as the
+    /// command's `--kind` is: added after the rest (#111), and skills when
+    /// a task leaves it out, as one sent before it was there does. The line
+    /// leaves out the folder only when it is the one a gather of the kind
+    /// looks in unsaid (`gather::default_folder`), so a task of rules from
+    /// the whole repository says `--path .`, which core asks of a gather of
+    /// rules.
     Gather {
         url: String,
         folder: String,
         reference: Option<String>,
+        #[serde(default = "gathered_kind")]
+        kind: Kind,
     },
     /// `mindweaver gather update <name>...`: each source named gathered
     /// again, as it was gathered, or every one, `--all`, when `names` is
@@ -756,20 +766,22 @@ impl Task {
                 url,
                 folder,
                 reference,
+                kind,
             } => {
-                let mut head = vec!["mindweaver", "gather", "git"];
-                let path = option("--path", folder);
-                let at = reference
-                    .as_deref()
-                    .map(|reference| option("--ref", reference));
-                // The default folder is left unsaid, so the line reads the
-                // way somebody would type it.
-                if folder != DEFAULT_SUBDIRECTORY {
-                    head.extend(path.iter().map(String::as_str));
+                let mut head = owned(&["mindweaver", "gather", "git"]);
+                // The kind a gather takes unsaid and the folder a gather of
+                // that kind looks in unsaid are left out, so the line reads
+                // the way somebody would type it.
+                if *kind != gather::DEFAULT_KIND {
+                    head.extend(option("--kind", kind.folder()));
                 }
-                if let Some(at) = &at {
-                    head.extend(at.iter().map(String::as_str));
+                if gather::default_folder(*kind) != Some(folder.as_str()) {
+                    head.extend(option("--path", folder));
                 }
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[url])]
             }
             Task::UpdateSources { names } if names.is_empty() => {
@@ -1702,6 +1714,12 @@ fn kinded(kinds: &[Kind]) -> Vec<String> {
         .iter()
         .flat_map(|kind| [String::from("--kind"), kind.folder().to_owned()])
         .collect()
+}
+
+/// What a gather task takes when it says nothing of it, as one sent before
+/// it could (#111): what `mindweaver gather git` takes unsaid.
+fn gathered_kind() -> Kind {
+    gather::DEFAULT_KIND
 }
 
 /// `words` as owned words.
