@@ -1,6 +1,7 @@
 import { computed, inject, reactive, readonly, type ComputedRef, type InjectionKey } from 'vue'
 import type { QueryClient, QueryKey } from '@tanstack/vue-query'
 import type { Holder } from './generated/Holder'
+import type { Step } from './generated/Step'
 import type { LiveEvent, Transport, Unsubscribe } from './transport'
 
 /** How the server watches the workspace, as far as the panel was told. */
@@ -18,6 +19,28 @@ export interface Live {
    * on screen, a task shown or boxes marked, watches, to let it go.
    */
   switches: number
+  /**
+   * The run under way, as the stream last told it, whoever sent it: none
+   * between runs, and none until a stream opened while one runs is told
+   * `busy`.
+   */
+  underway?: Underway
+}
+
+/**
+ * A run under way, as the stream tells it: its number, which a cancel
+ * names it by, its lines, whether its preview said it takes a cancel and
+ * whether one was asked for, and the latest step it reported, in the
+ * backend's words, with whether a cancel still stops it (the generated
+ * `Step`). Nothing in it is worked out here: each field is what an event
+ * said.
+ */
+export interface Underway {
+  run: number
+  lines: readonly string[]
+  cancellable: boolean
+  cancelling: boolean
+  step?: Step
 }
 
 export const liveKey: InjectionKey<Readonly<Live>> = Symbol('live')
@@ -176,6 +199,9 @@ export function listen(transport: Transport, client: QueryClient, page: Document
       // nothing is watched: everything an event follows is asked for again,
       // and the transcript, which it is now in.
       case 'command_finished': {
+        if (live.underway?.run === event.run) {
+          live.underway = undefined
+        }
         const asked = markRan(client)
         for (const finished of waiting) {
           finished(event.lines, asked)
@@ -187,7 +213,10 @@ export function listen(transport: Transport, client: QueryClient, page: Document
       // of the workspace before as on hearing `switched`, or a task it
       // shows would be run in the new one under lines naming the old one,
       // for as long as it stayed hidden.
+      // What ran meanwhile may be over: a run still under way is told
+      // again, as `busy`, right after.
       case 'resync': {
+        live.underway = undefined
         const missed = heard !== undefined && event.switches !== heard
         heard = event.switches
         if (missed) {
@@ -207,12 +236,31 @@ export function listen(transport: Transport, client: QueryClient, page: Document
         break
       // A run under way, how it goes, and that it was asked to stop or is
       // what a run just sent waits behind: nothing on disk is told by any
-      // of them, so nothing is asked for again. What a view draws of them
-      // is the page following a run's (#113).
+      // of them, so nothing is asked for again. What it is is kept, for the
+      // runner to draw how the run it sent goes and to stop it.
       case 'command_started':
-      case 'progress':
-      case 'cancelling':
+        live.underway = { run: event.run, lines: event.lines, cancellable: event.cancellable, cancelling: false }
+        break
+      // The run before a step of it, on a stream opened while it runs,
+      // whose step comes after; its step kept when it was told already.
       case 'busy':
+        live.underway = {
+          run: event.run,
+          lines: event.lines,
+          cancellable: event.cancellable,
+          cancelling: event.cancelling,
+          step: live.underway?.run === event.run ? live.underway.step : undefined
+        }
+        break
+      case 'progress':
+        if (live.underway?.run === event.run) {
+          live.underway.step = event.progress
+        }
+        break
+      case 'cancelling':
+        if (live.underway?.run === event.run) {
+          live.underway.cancelling = true
+        }
         break
       case 'watching':
         live.state = 'watching'

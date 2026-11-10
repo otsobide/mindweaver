@@ -1,0 +1,30 @@
+[
+  {
+    "stage": "checking_out",
+    "done": null,
+    "total": null,
+    "said": "checking the repository out",
+    "cancellable": true
+  },
+  {
+    "stage": "exporting",
+    "done": null,
+    "total": null,
+    "said": "exporting the library",
+    "cancellable": true
+  },
+  {
+    "stage": "committing",
+    "done": null,
+    "total": null,
+    "said": "committing",
+    "cancellable": true
+  },
+  {
+    "stage": "pushing",
+    "done": null,
+    "total": null,
+    "said": "pushing",
+    "cancellable": false
+  }
+]

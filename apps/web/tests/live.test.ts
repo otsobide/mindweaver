@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { listen } from '@/api/live'
 import { TransportError, type LiveEvent, type Query, type Transport } from '@/api/transport'
 import { createQueryClient } from '@/query'
-import { answering, fixture, render, unmount } from './panel'
+import { answering, fixture, render, steps, unmount } from './panel'
 
 afterEach(() => {
   unmount()
@@ -428,6 +428,50 @@ describe('a switch the stream did not tell', () => {
     expect(live.switches).toBe(0)
     expect(client.getQueryData(['snapshot'])).toEqual({ workspace: 'same' })
     expect(client.getQueryState(['snapshot'])?.isInvalidated).toBe(true)
+    stop()
+  })
+})
+
+describe('the run under way', () => {
+  const lines = ['mindweaver backup https://github.com/you/library-backup.git']
+  const [checking, exporting] = steps()
+
+  it('is kept as the stream tells it: started, each step, asked to stop, and gone once it finishes', async () => {
+    const { transport, tell } = streaming()
+    const client = createQueryClient()
+    const { live, stop } = listen(transport, client)
+
+    await tell({ type: 'command_started', run: 3, lines, cancellable: true })
+    expect(live.underway).toEqual({ run: 3, lines, cancellable: true, cancelling: false })
+    await tell({ type: 'progress', run: 3, progress: checking! })
+    await tell({ type: 'progress', run: 3, progress: exporting! })
+    expect(live.underway?.step).toEqual(exporting)
+    // Another run's word is not this one's.
+    await tell({ type: 'progress', run: 2, progress: checking! })
+    await tell({ type: 'cancelling', run: 2 })
+    expect(live.underway).toEqual({ run: 3, lines, cancellable: true, cancelling: false, step: exporting })
+    await tell({ type: 'cancelling', run: 3 })
+    expect(live.underway?.cancelling).toBe(true)
+    await tell({ type: 'command_finished', run: 3, lines })
+
+    expect(live.underway).toBeUndefined()
+    stop()
+  })
+
+  it('is told again as busy on a stream opened while it runs, its step after it, and forgotten on a resync until then', async () => {
+    const { transport, tell } = streaming()
+    const client = createQueryClient()
+    const { live, stop } = listen(transport, client)
+    await tell({ type: 'command_started', run: 4, lines, cancellable: true })
+
+    await tell({ type: 'resync', switches: 0 })
+    expect(live.underway).toBeUndefined()
+    await tell({ type: 'busy', run: 4, lines, cancellable: true, cancelling: true })
+    await tell({ type: 'progress', run: 4, progress: exporting! })
+    // A busy of the same run, as one queued behind it tells, keeps its step.
+    await tell({ type: 'busy', run: 4, lines, cancellable: true, cancelling: true })
+
+    expect(live.underway).toEqual({ run: 4, lines, cancellable: true, cancelling: true, step: exporting })
     stop()
   })
 })

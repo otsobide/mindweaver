@@ -2,7 +2,7 @@
  * The one file allowed to use `fetch` and `EventSource` (see eslint.config.ts).
  */
 import type { Holder } from './generated/Holder'
-import { TransportError, type Answer, type LiveEvent, type Preview, type Query, type Ran, type Switch, type Switchable, type Task, type Transport } from './transport'
+import { TransportError, type Answer, type Cancelling, type LiveEvent, type Preview, type Query, type Ran, type Switch, type Switchable, type Task, type Transport } from './transport'
 
 /**
  * Sent with every request.
@@ -46,6 +46,10 @@ export function httpTransport(): Transport {
       return mode === 'preview'
         ? post<Preview>(`${API}/tasks/preview`, task)
         : post<Ran>(`${API}/tasks`, task)
+    },
+
+    cancel(run: number) {
+      return post<Cancelling>(`${API}/tasks/cancel`, { run })
     },
 
     switch(to: Switch) {

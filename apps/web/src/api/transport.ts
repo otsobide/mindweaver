@@ -56,7 +56,7 @@ export type Answer<Asked extends Query> = Answers[Asked['type']]
  * it runs once asked; nothing ran. Which lines take something away is the
  * backend's to say, in the generated `Confirm`, never the panel's; and so
  * is whether a run of it can be asked to stop while it runs
- * (`cancellable`), a gather's.
+ * (`cancellable`), a gather's or a backup's.
  */
 export interface Preview {
   lines: string[]
@@ -72,6 +72,16 @@ export interface Preview {
 export interface Ran {
   lines: string[]
   outcome: Outcome
+}
+
+/**
+ * A cancel the server took (`POST /api/v1/tasks/cancel`): the run it asked
+ * to stop, by its number, and its lines. Whether the run stopped is its
+ * own outcome's to say, once it finishes. The server's own, as `Ran` is.
+ */
+export interface Cancelling {
+  run: number
+  lines: string[]
 }
 
 /**
@@ -127,7 +137,7 @@ export type Unsubscribe = () => void
  * How the panel reaches the front end behind it, and the only way it does.
  *
  * An interface rather than the HTTP calls themselves, so a desktop shell can
- * answer the same five calls without a server (D-17), and so authentication
+ * answer the same calls without a server (D-17), and so authentication
  * lives in exactly one place: the implementation. Every request the panel
  * makes goes through one of these; a lint rule keeps `fetch` out of every
  * other file.
@@ -143,6 +153,14 @@ export interface Transport {
    */
   send(task: Task, mode: 'preview'): Promise<Preview>
   send(task: Task, mode: 'run'): Promise<Ran>
+
+  /**
+   * Ask the run numbered `run`, the one under way, to stop: one whose
+   * preview said it takes a cancel. Never queued behind it; refused when it
+   * is not the one under way, or takes none (409), so a cancel crossing the
+   * end of its run stops nothing else. Told to every tab as `cancelling`.
+   */
+  cancel(run: number): Promise<Cancelling>
 
   /**
    * Act on another workspace from now on: one the answer to the

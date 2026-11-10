@@ -417,6 +417,20 @@ impl Fixtures {
             "commands" | "applied" | "loads" | "updated" | "authored" | "served" => {
                 self.each(name, fixture, Self::ran);
             }
+            // A task previewed, and run where running it reaches no
+            // repository: one previewed alone holds no run.
+            "kept" => self.each(name, fixture, |fixtures, at, kept| {
+                if kept["ran"].is_null() {
+                    fixtures.is(&format!("{at}/task"), "Task", &kept["task"]);
+                    fixtures.is(&format!("{at}/preview"), "Preview", &kept["preview"]);
+                } else {
+                    fixtures.ran(at, kept);
+                }
+            }),
+            // What a run reports as it goes, each `progress` event's.
+            "steps" => self.each(name, fixture, |fixtures, at, step| {
+                fixtures.is(at, "Step", step);
+            }),
             "folders" => {
                 self.each(&format!("{name}/walked"), &fixture["walked"], Self::asked);
                 let at = format!("{name}/refused");

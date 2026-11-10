@@ -362,11 +362,13 @@ under `apps/` with its own `Makefile`:
   one query of the snapshot every view reads, `src/api/artifact.ts` the
   queries of an artifact's files and of one file, `src/api/live.ts` the
   tab's one subscription to the server's events, which it turns into what
-  Vue Query asks for again, how the server watches, and how a run and a
+  Vue Query asks for again, how the server watches, the run under way as
+  the stream tells it (`Live::underway`), and how a run and a
   switch wait for their views (`settle`, `settleSwitch`),
   `src/api/commands.ts` the runner every change goes
   through (`useRunner`: a task previewed, shown, confirmed when it takes
-  something away, and run), `src/api/transcript.ts` the query of the
+  something away, and run, its steps drawn and stopped when it takes a
+  cancel, `underway` and `stop`), `src/api/transcript.ts` the query of the
   server's transcript, `src/api/scan.ts` the query of a scan, asked for
   by hand, `src/api/plan.ts` the queries of a plan of the boxes marked
   on the matrix and of the lines it runs (`usePlan`, `usePreview`), of one
@@ -416,6 +418,8 @@ under `apps/` with its own `Makefile`:
   path of a workspace to load
   (`LoadForm`), a project's agents and share toggles
   (`SettingsForm`) and its migration, dry run first (`MigrateOffer`), the
+  library exported into a folder and backed up to a git repository, a
+  token named only by its variable (`ExportForm`, `BackupForm`), the
   removal of one of the library's own everywhere, dry run first
   (`RemoveOffer`), its rename (`RenameForm`), the editor, CodeMirror in a
   shadow root of its own (`MarkdownEditor`), what core says of a draft
@@ -1963,7 +1967,12 @@ These are easy to break from a single file without noticing.
   (`serving.json`), what its MCP page and its matrix ask of it, drafts of
   a server judged and plans of one that asks first and one that does not
   (`servers.json`), and each change they send, previewed and run each on
-  the workspace as built (`served.json`), none of them holding a token.
+  the workspace as built (`served.json`), and, of the first workspace,
+  each change the library's forms for a copy of it send, previewed and
+  run each on the workspace as built, the backup that names a token's
+  variable previewed alone and the one that names none stopped at its
+  first step, before it reaches any repository (`kept.json`), and each
+  step a backup reports (`steps.json`), none of them holding a token.
   `tests/panel.ts` reads them and
   mounts the panel at an address, answering its queries with them, and a
   task with its preview and its run, told finished on the stream before
