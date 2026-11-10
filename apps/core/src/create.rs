@@ -44,7 +44,7 @@ pub const DESCRIPTION_PLACEHOLDER: &str = "{{description}}";
 
 /// What an artifact is written from beside its name and its description.
 ///
-/// One of three, never two: a template says how a server is started as
+/// One of these, never two: a template says how a server is started as
 /// surely as a command line does, so a front end's grammar refuses both
 /// before one of these is made.
 #[derive(Debug, Clone, Copy)]
@@ -57,6 +57,16 @@ pub enum Start<'a> {
     /// reached: what [`create_server`] writes, and refused for any other
     /// kind.
     Server(&'a Given),
+    /// An MCP server's definition whole, as an import from a registry
+    /// makes one ([`crate::mcp_registry::Imported::text`]): its `name` and
+    /// `description` set to those given, as a template's are, every other
+    /// byte kept, and refused for any other kind.
+    ///
+    /// Through `add`'s path rather than a writer of its own, so what is
+    /// beside it in the folder, a file already where it goes and the rules
+    /// `validate` holds a definition to are judged by the one function
+    /// that judges every server added.
+    Definition(&'a str),
 }
 
 /// Create an artifact of `kind` called `name` in `project`, and load it back.
@@ -186,6 +196,9 @@ pub(crate) fn plan(
         Start::Server(_) if kind != Kind::Mcp => {
             return Err(CreateError::TransportNotMcp { kind });
         }
+        Start::Definition(_) if kind != Kind::Mcp => {
+            return Err(CreateError::DefinitionNotMcp { kind });
+        }
         Start::Template(template) if template.kind != kind => {
             return Err(CreateError::Template(TemplateError::WrongKind {
                 name: template.name.clone(),
@@ -193,7 +206,7 @@ pub(crate) fn plan(
                 wanted: kind,
             }));
         }
-        Start::Scratch | Start::Template(_) | Start::Server(_) => {}
+        Start::Scratch | Start::Template(_) | Start::Server(_) | Start::Definition(_) => {}
     }
     // Matched on the kind, as `rename` holds a name: a server's to the keys
     // an agent takes and to what sits beside it, read off the folder it is
@@ -224,7 +237,7 @@ pub(crate) fn plan(
     let directory = project.required_directory(kind)?;
     let template = match start {
         Start::Template(template) => Some(template),
-        Start::Scratch | Start::Server(_) => None,
+        Start::Scratch | Start::Server(_) | Start::Definition(_) => None,
     };
     // Matched on the kind rather than its layout, so a third kind has to say
     // how it is scaffolded before it compiles.
@@ -360,6 +373,13 @@ fn plan_mcp(
         Start::Server(given) => {
             writable(given)?;
             given.text(name, description)
+        }
+        Start::Definition(source) => {
+            mcp::declaring(source, name, Some(description)).map_err(|reason| {
+                CreateError::Manifest {
+                    reason: format!("the definition given: {reason}"),
+                }
+            })?
         }
     };
     let file = place_in(directory, name);
@@ -812,6 +832,9 @@ pub enum CreateError {
         .kind.noun()
     )]
     TransportNotMcp { kind: Kind },
+    /// A definition given whole for a kind that is no MCP server.
+    #[error("a definition says how an MCP server is started or reached, and a {} is neither", .kind.noun())]
+    DefinitionNotMcp { kind: Kind },
     /// A key of a transport's table given twice, which no TOML file holds:
     /// said by what it starts with alone when it looks like a token.
     #[error(
@@ -888,6 +911,7 @@ codes!(CreateError {
     Self::Write { .. } => "add_write_failed",
     Self::McpUnscaffolded { .. } => "add_mcp_unscaffolded",
     Self::TransportNotMcp { .. } => "add_transport_not_mcp",
+    Self::DefinitionNotMcp { .. } => "add_definition_not_mcp",
     Self::KeyRepeated { .. } => "add_mcp_key_repeated",
     Self::KeyUnsayable { .. } => "add_mcp_key_unsayable",
     Self::UrlUserinfo { .. } => "add_mcp_url_userinfo",
