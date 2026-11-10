@@ -13,7 +13,7 @@ use clap::{ArgGroup, Args, Parser, Subcommand};
 use mindweaver_core::mcp::{self, Address, Program};
 use mindweaver_core::scan::DEFAULT_DEPTH;
 use mindweaver_core::value::{InputName, VariableName};
-use mindweaver_core::{Agent, Kind, Share, Shell, DEFAULT_SUBDIRECTORY};
+use mindweaver_core::{Agent, Kind, Share, Shell};
 
 /// Manage the agent skills in a mind project.
 //
@@ -1560,17 +1560,23 @@ impl Credential {
 /// to say so rather than overloading a URL.
 #[derive(Debug, Subcommand)]
 pub enum GatherCommand {
-    /// Take skills from a git repository.
+    /// Take skills, or rules, from a git repository.
     Git {
         /// The repository to clone: a URL, a path, `owner/repo` on GitHub,
         /// `owner/repo@REF` at a branch or tag, or the address of a folder
         /// on github.com or gitlab.com (`.../tree/REF/DIR`).
         url: String,
 
-        /// The folder inside the repository to look for skills in, instead
-        /// of all of it (`.`).
-        #[arg(long, value_name = "DIR", default_value = DEFAULT_SUBDIRECTORY)]
-        path: String,
+        /// What to take: `skills`, or `rules`, every markdown file in the
+        /// folder `--path` names [default: skills].
+        #[arg(long, value_name = "KIND")]
+        kind: Option<Kind>,
+
+        /// The folder inside the repository to look in: for skills, instead
+        /// of all of it; for rules, the one that holds them, `.` for all of
+        /// it.
+        #[arg(long, value_name = "DIR")]
+        path: Option<String>,
 
         /// A branch or tag to take, instead of the repository's default.
         #[arg(long = "ref", value_name = "REF")]
