@@ -1,0 +1,44 @@
+[
+  {
+    "stage": "connecting",
+    "done": null,
+    "total": null,
+    "said": "connecting",
+    "cancellable": true
+  },
+  {
+    "stage": "receiving",
+    "done": 120,
+    "total": 340,
+    "said": "receiving objects 120/340",
+    "cancellable": true
+  },
+  {
+    "stage": "resolving",
+    "done": 80,
+    "total": null,
+    "said": "resolving deltas 80",
+    "cancellable": true
+  },
+  {
+    "stage": "checking_out",
+    "done": 12,
+    "total": 12,
+    "said": "checking out files 12/12",
+    "cancellable": true
+  },
+  {
+    "stage": "harvesting",
+    "done": 1,
+    "total": 2,
+    "said": "reading folders 1/2",
+    "cancellable": true
+  },
+  {
+    "stage": "placing",
+    "done": 1,
+    "total": 2,
+    "said": "placing on the shelf 1/2",
+    "cancellable": false
+  }
+]

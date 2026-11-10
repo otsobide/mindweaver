@@ -408,13 +408,14 @@ impl Fixtures {
     /// The fixture `name`, by what each part of it is an answer to.
     fn hold(&self, name: &str, fixture: &Value) {
         match name {
-            "workspace" | "candidates" | "unmade" | "assigning" | "updating" | "serving" => {
+            "workspace" | "candidates" | "unmade" | "assigning" | "updating" | "serving"
+            | "sources" => {
                 self.is(name, "Snapshot", fixture);
             }
             "library" | "scan" | "plans" | "updates" | "drafts" | "servers" => {
                 self.each(name, fixture, Self::asked);
             }
-            "commands" | "applied" | "loads" | "updated" | "authored" | "served" => {
+            "commands" | "applied" | "loads" | "updated" | "authored" | "served" | "gathered" => {
                 self.each(name, fixture, Self::ran);
             }
             // A task previewed, and run where running it reaches no
@@ -428,7 +429,7 @@ impl Fixtures {
                 }
             }),
             // What a run reports as it goes, each `progress` event's.
-            "steps" => self.each(name, fixture, |fixtures, at, step| {
+            "steps" | "gathering" => self.each(name, fixture, |fixtures, at, step| {
                 fixtures.is(at, "Step", step);
             }),
             "folders" => {

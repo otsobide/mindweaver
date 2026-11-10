@@ -15,6 +15,16 @@
   "boxes": [],
   "doctor": [],
   "format": 1,
+  "gatherable": [
+    {
+      "folder": ".",
+      "kind": "skill"
+    },
+    {
+      "folder": null,
+      "kind": "rule"
+    }
+  ],
   "healths": [
     "ok",
     "attention",
