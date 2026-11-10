@@ -3943,3 +3943,81 @@ fn an_add_from_the_registry_writes_nothing_until_it_is_sent_again_told_yes() {
     assert!(library.join("clawfetch-mcp.toml").is_file());
     assert!(backend.transcript().contains("gather mcp add --registry"));
 }
+
+/// A result a search listed, sent back whole, is taken by the gather `gather
+/// search --take` would run: a repository on this disk, which a finder on
+/// this machine may name, put on the shelf.
+#[test]
+fn a_result_sent_back_is_gathered_onto_the_shelf_by_the_line_a_take_runs() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().join("work");
+    fs::create_dir(&root).unwrap();
+    finding(&root);
+    let source = dir.path().join("house-rules");
+    repository_at(
+        &source,
+        &[(
+            "skills/commit-style/SKILL.md",
+            &skill_file("commit-style", "How this repo writes commit messages"),
+        )],
+    );
+    let registry = common::mcp_registry::Registry::recorded();
+    let directory =
+        common::finder::SkillsSh::answering(&[("commit-style", &source.to_string_lossy(), 56)]);
+    let backend = asking(&root, &registry, &directory);
+
+    let found = printed(
+        &backend
+            .run(task(json!({"type": "search_skills", "query": "commit"})))
+            .unwrap(),
+    );
+    let hit = found["data"]["hits"][0].clone();
+    assert_eq!(hit["repository"], json!(source.to_string_lossy()));
+    let take = task(json!({"type": "take_skill", "hit": hit}));
+    let preview = backend.preview(&take).unwrap();
+    let taken = backend.run(take).unwrap();
+
+    assert_eq!(
+        preview.lines,
+        [format!(
+            "mindweaver -W {} gather git {}",
+            root.display(),
+            source.display()
+        )]
+    );
+    assert!(preview.cancellable);
+    assert!(taken.ok, "{taken:?}");
+    assert!(
+        shelf(&root).contains("\"commit-style\""),
+        "{}",
+        shelf(&root)
+    );
+}
+
+/// A result whose repository is a folder named as no folder to link is
+/// refused as a gather's source would be, and nothing is gathered.
+#[test]
+fn a_result_sent_back_naming_a_folder_no_gather_may_is_refused() {
+    let dir = workspace_with_two();
+    let backend = backend(dir.path());
+    let hit = |repository: &str| {
+        json!({"name": "x", "repository": repository, "path": null, "reference": null,
+               "installs": null, "stars": null, "finders": ["skills.sh"]})
+    };
+
+    for (repository, code) in [
+        ("../etc", "path_relative"),
+        (
+            &*under(dir.path(), &[WEAVER_DIR, "cache", "x"]),
+            "path_in_mindflayer",
+        ),
+    ] {
+        let sent = task(json!({"type": "take_skill", "hit": hit(repository)}));
+        assert_eq!(
+            backend.preview(&sent).unwrap_err().code,
+            code,
+            "{repository}"
+        );
+        assert_eq!(backend.run(sent).unwrap_err().code, code, "{repository}");
+    }
+}

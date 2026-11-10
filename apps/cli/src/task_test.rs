@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, Parser};
 
+use mindweaver_core::finder::Finder;
+use mindweaver_core::value::Redacted;
 use mindweaver_core::DEFAULT_SUBDIRECTORY;
 
 use super::*;
@@ -14,7 +16,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 43] = [
+const TAGS: [&str; 44] = [
     "init_workspace",
     "init_project",
     "link",
@@ -39,6 +41,7 @@ const TAGS: [&str; 43] = [
     "shelf",
     "workspaces",
     "search_skills",
+    "take_skill",
     "search_servers",
     "import_server",
     "gather",
@@ -131,6 +134,12 @@ fn every(value: &str) -> Vec<Task> {
         Task::Shelf,
         Task::Workspaces,
         Task::SearchSkills { query: owned() },
+        Task::TakeSkill {
+            hit: hit(value, true),
+        },
+        Task::TakeSkill {
+            hit: hit(value, false),
+        },
         Task::SearchServers { query: owned() },
         Task::ImportServer {
             server: owned(),
@@ -388,6 +397,21 @@ fn every(value: &str) -> Vec<Task> {
         ]);
     }
     tasks
+}
+
+/// A skill a search found, `value` in every field a line names: its
+/// repository, and, when `placed`, its folder and its branch, which a
+/// result at the root of its repository's default branch names neither of.
+fn hit(value: &str, placed: bool) -> Hit {
+    Hit {
+        name: String::from("plain"),
+        repository: Redacted::new(value),
+        path: placed.then(|| value.to_owned()),
+        reference: placed.then(|| value.to_owned()),
+        installs: Some(56),
+        stars: None,
+        finders: vec![Finder::SkillsSh],
+    }
 }
 
 /// How a server is started, `value` in every field, as a program, or as an
@@ -1831,6 +1855,7 @@ fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
         let expected = matches!(
             task,
             Task::Gather { .. }
+                | Task::TakeSkill { .. }
                 | Task::UpdateSources { .. }
                 | Task::Backup { .. }
                 | Task::SearchSkills { .. }
@@ -2607,6 +2632,69 @@ fn a_search_of_the_skill_directories_is_its_json_line_with_no_token() {
     assert!(task.runs_apart());
     assert_eq!(task.refusal(), None);
     assert!(task.cautions().is_empty());
+}
+
+/// A result the panel sends back to take is gathered by the line the
+/// TUI's take and `gather search --take` gather it by: from its repository
+/// and its folder there at the branch a finder named, or, naming neither,
+/// the whole repository at its default branch, the folder left unsaid as
+/// a gather of skills leaves it.
+#[test]
+fn a_result_taken_is_the_gather_of_its_repository_folder_and_branch() {
+    let mut found = hit("https://github.com/acme/skills", true);
+    found.path = Some(String::from("skills/pdf"));
+    found.reference = Some(String::from("main"));
+    let at_root = hit("/home/you/src/house-rules", false);
+
+    let placed = Task::TakeSkill { hit: found.clone() };
+    let whole = Task::TakeSkill {
+        hit: at_root.clone(),
+    };
+
+    assert_eq!(
+        placed.commands(),
+        [line(
+            "mindweaver gather git --path skills/pdf --ref main https://github.com/acme/skills"
+        )]
+    );
+    assert_eq!(
+        whole.commands(),
+        [line("mindweaver gather git /home/you/src/house-rules")]
+    );
+    assert_eq!(placed.commands(), Task::taking(&found).commands());
+    assert_eq!(whole.commands(), Task::taking(&at_root).commands());
+    for task in [placed, whole] {
+        assert!(task.writes(), "{task:?}");
+        assert!(task.runs_apart(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
+        assert!(task.cautions().is_empty(), "{task:?}");
+    }
+}
+
+/// What the panel sends to take a result is the result as the search's
+/// JSON gave it, beside its tag, and nothing a browser could aim elsewhere:
+/// no address to ask, no token, no folder of its own.
+#[test]
+fn a_result_taken_goes_by_its_tag_with_the_result_as_the_search_gave_it() {
+    let task = Task::TakeSkill {
+        hit: hit("https://github.com/acme/skills", false),
+    };
+
+    assert_eq!(
+        serde_json::to_value(&task).unwrap(),
+        serde_json::json!({
+            "type": "take_skill",
+            "hit": {
+                "name": "plain",
+                "repository": "https://github.com/acme/skills",
+                "path": null,
+                "reference": null,
+                "installs": 56,
+                "stars": null,
+                "finders": ["skills.sh"],
+            },
+        })
+    );
 }
 
 /// The catalogs a front end was started with are named by each line that

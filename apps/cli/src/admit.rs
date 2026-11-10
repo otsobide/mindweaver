@@ -27,8 +27,9 @@
 //!   outside every `.mindweaver`, and goes to the command verbatim, so the
 //!   preview shows the folder it acts on; one marked to unlink is one an
 //!   entry points at. So is the folder an export writes into.
-//! - **A gather's source and a backup's repository** are an address, which
-//!   the command judges as one typed at a terminal, or such a folder.
+//! - **A gather's source, a taken search result's repository and a
+//!   backup's repository** are an address, which the command judges as one
+//!   typed at a terminal, or such a folder.
 //! - **A backup's token** is named by the variable holding it, one named
 //!   for a token (`policy::token_variable`), and never sent.
 //!
@@ -86,6 +87,14 @@ impl Admission<'_> {
             // gather holds to its own rules.
             Task::Gather { url, .. } => {
                 policy::source(url)?;
+            }
+            // A result's repository is the source its gather is from, held
+            // as a gather's is, whatever finder named it; its folder and
+            // its branch are values the gather holds to its own rules, a
+            // folder climbing out of the repository among what it refuses.
+            // The rest of what the result says reaches no line.
+            Task::TakeSkill { hit } => {
+                policy::source(&hit.repository.to_string())?;
             }
             // A source by its name, which names nothing on the disk: a value
             // core holds to its own rules, refusing one no source has, or

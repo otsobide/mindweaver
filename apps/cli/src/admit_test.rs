@@ -682,3 +682,48 @@ fn a_backup_s_repository_is_held_as_a_gather_s_source_and_its_token_named_by_its
         assert_eq!(code(admitted(&workspace, &task)), refused, "{task:?}");
     }
 }
+
+/// A result of a search, sent back to take, its repository `repository`
+/// and its folder `path`.
+fn take(repository: &str, path: Option<&str>) -> Task {
+    Task::TakeSkill {
+        hit: mindweaver_core::finder::Hit {
+            name: String::from("commit-style"),
+            repository: mindweaver_core::value::Redacted::new(repository),
+            path: path.map(str::to_owned),
+            reference: None,
+            installs: Some(56),
+            stars: None,
+            finders: vec![mindweaver_core::finder::Finder::SkillsSh],
+        },
+    }
+}
+
+/// A result's repository is the gather's source, held as a gather's is
+/// whatever finder named it: an address goes to the gather, which judges
+/// it, and a folder on this machine only as a folder to link is.
+#[test]
+fn a_result_taken_is_held_to_its_repository_as_a_gather_is_to_its_source() {
+    let (dir, workspace) = fixture();
+    let folder = text(&dir.path().join("house-rules"));
+    for task in [
+        take("https://github.com/acme/skills", Some("skills/pdf")),
+        take(&folder, None),
+    ] {
+        assert_eq!(admitted(&workspace, &task).unwrap(), task, "{task:?}");
+    }
+    assert_eq!(
+        lines(&workspace, &take(&folder, Some("skills/commit-style"))),
+        [format!(
+            "mindweaver gather git --path skills/commit-style {folder}"
+        )]
+    );
+    let clone = text(&workspace.root().join(".mindweaver").join("cache").join("x"));
+    for (task, refused) in [
+        (take("../house-rules", None), "path_relative"),
+        (take("file://etc", None), "path_relative"),
+        (take(&clone, None), "path_in_mindflayer"),
+    ] {
+        assert_eq!(code(admitted(&workspace, &task)), refused, "{task:?}");
+    }
+}

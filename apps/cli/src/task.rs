@@ -27,6 +27,7 @@
 //! command of exactly these words ([`shell`]).
 
 use clap::Parser as _;
+use mindweaver_core::finder::Hit;
 use mindweaver_core::gather;
 use mindweaver_core::install::Change;
 use mindweaver_core::mcp;
@@ -267,7 +268,8 @@ pub enum Task {
     /// <query>`: the skill directories the workspace enables asked what
     /// they find, read back from the JSON the line prints, for a front end
     /// to list and take one from with a [`Gather`](Task::Gather) of its
-    /// repository and its folder (#108).
+    /// repository and its folder (#108), or, from the panel, a
+    /// [`TakeSkill`](Task::TakeSkill) of it.
     ///
     /// No token, nor the name of a variable holding one: a front end hands
     /// none over (D-16), so the line asks no finder that needs one, GitHub's
@@ -277,6 +279,21 @@ pub enum Task {
     /// the front end was told another where it was started ([`Catalogs`]):
     /// the task names none.
     SearchSkills { query: String },
+    /// `mindweaver gather git [--path <folder>] [--ref <branch>]
+    /// <repository>`: a skill a search of the skill directories found
+    /// ([`SearchSkills`](Task::SearchSkills)), gathered from its repository
+    /// and its folder there, at the branch a finder named, by the line
+    /// `gather search --take` amounts to ([`Task::taking`]).
+    ///
+    /// What the panel sends to take a result it listed: the result as the
+    /// search's JSON gave it, sent back whole, never a gather it puts
+    /// together, so which folder a result naming none is gathered from, and
+    /// which kind a take gathers, are said by the one function the TUI's
+    /// take and `--take` follow too, never again in TypeScript, as the
+    /// panel's marks are turned into lines by [`Task::minds`]. Its
+    /// repository is held to the path policy as a gather's source is, and
+    /// it carries no token, as a gather's task carries none.
+    TakeSkill { hit: Hit },
     /// `mindweaver gather mcp search [--registry <url>] --json <query>`:
     /// the official MCP Registry asked for the servers whose name holds the
     /// query, read back from the JSON the line prints, by the names the
@@ -703,6 +720,20 @@ impl Task {
         self.lines(&workspace.scratch_route(), catalogs)
     }
 
+    /// The gather that takes `hit`, a skill a search found: skills, from
+    /// its repository and its folder there ([`Hit::folder`]), at the branch
+    /// a finder named. What `gather search --take` gathers, the TUI's take
+    /// runs and the panel's ([`TakeSkill`](Task::TakeSkill)) amounts to, so
+    /// the three take a result by one line.
+    pub fn taking(hit: &Hit) -> Task {
+        Task::Gather {
+            url: hit.repository.to_string(),
+            folder: hit.folder().to_owned(),
+            reference: hit.reference.clone(),
+            kind: Kind::Skill,
+        }
+    }
+
     /// The lines, a save's text read from the scratch folder at `scratch`,
     /// and each search and add asking the catalogs `catalogs` names.
     fn lines(&self, scratch: &str, catalogs: &Catalogs) -> Vec<Vec<String>> {
@@ -827,6 +858,7 @@ impl Task {
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[query])]
             }
+            Task::TakeSkill { hit } => Task::taking(hit).lines(scratch, catalogs),
             Task::SearchServers { query } => {
                 let mut head = owned(&["mindweaver", "gather", "mcp", "search"]);
                 head.extend(catalogs.registered());
@@ -1076,6 +1108,7 @@ impl Task {
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
                 | Task::Gather { .. }
+                | Task::TakeSkill { .. }
                 | Task::ImportServer { yes: true, .. }
                 | Task::UpdateSources { .. }
                 | Task::RemoveSource { yes: true, .. }

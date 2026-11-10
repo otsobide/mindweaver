@@ -15,7 +15,7 @@ use std::path::Path;
 use mindweaver_core::finder::{self, Enabled, Finder, Found, Hit, Search};
 use mindweaver_core::http::{Cache, Client};
 use mindweaver_core::port::Token;
-use mindweaver_core::{Kind, WeaverWorkspace};
+use mindweaver_core::WeaverWorkspace;
 
 use super::gather::run_gather;
 use super::{reading_workspace, workspace_here};
@@ -94,14 +94,7 @@ pub(crate) fn run_take(
     } else {
         Credential::default()
     };
-    let mut line = Task::Gather {
-        url: hit.repository.to_string(),
-        folder: hit.folder().to_owned(),
-        reference: hit.reference.clone(),
-        kind: Kind::Skill,
-    }
-    .commands()
-    .remove(0);
+    let mut line = Task::taking(hit).commands().remove(0);
     // Before the URL, and before the `--` a URL starting with a dash is
     // put behind, so the line read back takes the option as one.
     let handed: Vec<String> = match (&credential.token_env, credential.gh) {

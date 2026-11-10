@@ -2634,15 +2634,9 @@ impl Results {
     /// repository, at the branch a finder named, from its folder there, as
     /// `gather search --take` takes it, but by the line it amounts to, so
     /// the transcript gathers the same again however the finders answer by
-    /// then.
+    /// then ([`Task::taking`], the line the panel's take is too).
     pub fn task(&self) -> Option<Task> {
-        let hit = self.hits.get(self.pick)?;
-        Some(Task::Gather {
-            url: hit.repository.to_string(),
-            folder: hit.folder().to_owned(),
-            reference: hit.reference.clone(),
-            kind: Kind::Skill,
-        })
+        self.hits.get(self.pick).map(Task::taking)
     }
 }
 

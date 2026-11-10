@@ -516,7 +516,7 @@
       ]
     },
     {
-      "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+      "description": "`mindweaver gather search [--finder-url <finder>=<url>]... --json\n<query>`: the skill directories the workspace enables asked what\nthey find, read back from the JSON the line prints, for a front end\nto list and take one from with a [`Gather`](Task::Gather) of its\nrepository and its folder (#108), or, from the panel, a\n[`TakeSkill`](Task::TakeSkill) of it.\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back. Each finder at its own address, unless\nthe front end was told another where it was started ([`Catalogs`]):\nthe task names none.",
       "type": "object",
       "properties": {
         "query": {
@@ -534,7 +534,25 @@
       ]
     },
     {
-      "description": "`mindweaver gather mcp search --json <query>`: the official MCP\nRegistry asked for the servers whose name holds the query, read\nback from the JSON the line prints, by the names the envelope's\n`data` gives each server, for a front end to list and add one from\nwith an [`ImportServer`](Task::ImportServer) (#107).\n\nThe official registry alone, as the command asks unless told\nanother: a front end names no registry, so a browser sends no\naddress for a line to ask and take a program from.",
+      "description": "`mindweaver gather git [--path <folder>] [--ref <branch>]\n<repository>`: a skill a search of the skill directories found\n([`SearchSkills`](Task::SearchSkills)), gathered from its repository\nand its folder there, at the branch a finder named, by the line\n`gather search --take` amounts to ([`Task::taking`]).\n\nWhat the panel sends to take a result it listed: the result as the\nsearch's JSON gave it, sent back whole, never a gather it puts\ntogether, so which folder a result naming none is gathered from, and\nwhich kind a take gathers, are said by the one function the TUI's\ntake and `--take` follow too, never again in TypeScript, as the\npanel's marks are turned into lines by [`Task::minds`]. Its\nrepository is held to the path policy as a gather's source is, and\nit carries no token, as a gather's task carries none.",
+      "type": "object",
+      "properties": {
+        "hit": {
+          "$ref": "#/$defs/Hit"
+        },
+        "type": {
+          "type": "string",
+          "const": "take_skill"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "hit"
+      ]
+    },
+    {
+      "description": "`mindweaver gather mcp search [--registry <url>] --json <query>`:\nthe official MCP Registry asked for the servers whose name holds the\nquery, read back from the JSON the line prints, by the names the\nenvelope's `data` gives each server, for a front end to list and add\none from with an [`ImportServer`](Task::ImportServer) (#107).\n\nThe official registry, as the command asks unless told another, or\nthe mirror the front end was told where it was started\n([`Catalogs`]): a task names no registry, so a browser sends no\naddress for a line to ask and take a program from.",
       "type": "object",
       "properties": {
         "query": {
@@ -552,7 +570,7 @@
       ]
     },
     {
-      "description": "`mindweaver gather mcp add [--version <version>] [--yes] <server>`:\nthe official registry's server, by the name it gives it, written\ninto the workspace's library as a definition with `yes`; without\nit the dry run, which writes nothing and says what an agent would\nrun or reach, what a front end shows before it asks for the yes.\nNothing is started either way. The latest version unless `version`\nnames one.",
+      "description": "`mindweaver gather mcp add [--registry <url>] [--version <version>]\n[--yes] <server>`: the official registry's server, or the front\nend's mirror's ([`Catalogs`]), by the name it gives it, written\ninto the workspace's library as a definition with `yes`; without\nit the dry run, which writes nothing and says what an agent would\nrun or reach, what a front end shows before it asks for the yes.\nNothing is started either way. The latest version unless `version`\nnames one.",
       "type": "object",
       "properties": {
         "server": {
@@ -1100,6 +1118,15 @@
         }
       ]
     },
+    "Finder": {
+      "description": "A skill directory a search can ask, by the word the marker and a\ncommand line name it by.",
+      "type": "string",
+      "enum": [
+        "github",
+        "skills.sh",
+        "claude-plugins.dev"
+      ]
+    },
     "Given": {
       "description": "How an agent starts an MCP server, or reaches one: a program or an\naddress, never both.\n\nIn JSON, what a front end sends a command line's options as, and what\nthe snapshot says a definition is told as: tagged by `type` inside the\nobject, `{\"type\": \"program\", \"command\": \"npx\", ...}`, as a task is, each\npair as an array of its two words. A field it does not have is refused,\nas a task's is: it is a write, and one misspelled would be dropped.\nEvery secret is the name of the variable it is read from, and no field\nholds a secret's value, there being none for it to hold.",
       "oneOf": [
@@ -1249,6 +1276,64 @@
             "url_vars"
           ]
         }
+      ]
+    },
+    "Hit": {
+      "description": "One skill a search found: where it is, as `gather git` takes it, and\nwhat the finders say of it.\n\nRead back as it goes out by a front end that takes one: the TUI from the\nline's JSON, and the panel's backend from the task the panel sends it\nback in, its repository redacted again either way.",
+      "type": "object",
+      "properties": {
+        "finders": {
+          "description": "Each finder that found it, in the order they were asked.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Finder"
+          }
+        },
+        "installs": {
+          "description": "How many times it was installed, where a finder counts that.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "name": {
+          "description": "What it is called, printable: the name a finder gave it, or its\nfolder's, or its repository's for one at the root.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The folder in the repository it is in: none for the root, or where\nno finder said, which a take gathers the whole repository from.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reference": {
+          "description": "The branch a finder named, none for the repository's default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repository": {
+          "description": "The repository it is in, as [`url::canonical`] spells it.",
+          "type": "string"
+        },
+        "stars": {
+          "description": "How many stars its repository has, where a finder counts them.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "repository",
+        "finders"
       ]
     },
     "Holder": {
