@@ -208,8 +208,10 @@ under `apps/` with its own `Makefile`:
   registry gives it (`mcp_registry`), and one of its servers made into a
   definition's text, every input read from a variable, never a secret's
   value, and a manual step said where no command of its registry type
-  starts it (`mcp_registry::import`), none of it called from a command yet
-  (#107 is its first caller), the ledger (through
+  starts it (`mcp_registry::import`), a registry asked over https, or
+  plain http on this machine alone, and what a search lists of each
+  server (`mcp_registry::Summary`, each way by its word, `Way::word`), the
+  ledger (through
   `port::LedgerStore`), installing, keeping installs out of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
@@ -312,7 +314,9 @@ under `apps/` with its own `Makefile`:
   (agents, share, targets), `gather`, `install`, `update` and `migrate`
   (each at both levels), `search` (mindweaver gather search, which reads
   the token GitHub's code search is asked with, and takes a result through
-  `gather`'s own function), `adopt` (mindweaver adopt), `export` and
+  `gather`'s own function), `registry` (mindweaver gather mcp search and
+  add, an MCP registry's server written into the library through `add`'s
+  own path, a dry run without `--yes`), `adopt` (mindweaver adopt), `export` and
   `backup` (mindweaver export, mindweaver backup, which reads the token
   `--token-env` names) and `ui` (the panel, at
   both levels).
@@ -658,7 +662,13 @@ These are easy to break from a single file without noticing.
   names the envelope gives them, never a table's columns, and a result
   taken is the `Task::Gather` of its repository, folder and branch, the
   line `--take` amounts to, so the transcript gathers the same again
-  however the finders answer by then; it carries no token either. `edit` is
+  however the finders answer by then; it carries no token either. Its
+  search of the MCP Registry, `r` there, is `Task::SearchServers`,
+  `mindweaver gather mcp search --json`, read back the same way, and a
+  server picked is `Task::ImportServer` of its name and the version
+  listed, the dry run, shown as a page whose `y` runs the same task told
+  yes (`Reader::writes`); neither names a registry, so a browser sends no
+  address a line would take a program from. `edit` is
   refused in an editor and with `--contents -`, standard input, and run
   with `--contents FILE` (`Refusal::of_edit`); the one task that builds
   that line, the panel's save (`Task::Save`, its text and the hash it was
@@ -741,7 +751,7 @@ These are easy to break from a single file without noticing.
 - **Reading commands print JSON in one envelope, and its names are a
   contract.** A reading command's `--json` (`list`, `show`, `validate`,
   `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`,
-  `gather list`, `gather sources` and `gather search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
+  `gather list`, `gather sources`, `gather search` and `gather mcp search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
   [...], "coded_warnings": [...]}`, never a shape of its own, with what its
   text says on stderr as `warning:` lines in `warnings`, the same lines
   with their codes in `coded_warnings`, and the exit status its text has;
@@ -1275,7 +1285,13 @@ These are easy to break from a single file without noticing.
     here is taken from a finder on this machine alone. Every word of one
     is made printable. A finder asked elsewhere than its own address
     (`--finder-url`, `Search::at`) is asked over https, or plain http to
-    this machine alone (`finder_url_invalid`).
+    this machine alone (`finder_url_invalid`), and so is an MCP registry
+    (`--registry`, `Registry::at`, `mcp_registry_base_insecure`), whose
+    answer is a program agents start. What an import from one makes is
+    written only through `add`'s own path (`lifecycle::add`,
+    `create::Start::Definition`), and said beforehand by the same checks
+    (`lifecycle::would_add`), never by a writer of its own, and nothing it
+    names is ever started.
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1909,7 +1925,12 @@ These are easy to break from a single file without noticing.
   asks skills.sh or api.claude-plugins.dev, whose terms D-15 has the owner
   read first: the CLI's end to end asks a server on loopback in their place
   (`--finder-url`, `e2e/searching.rs`), and the TUI's tests stand a
-  `Runner` in for the line.
+  `Runner` in for the line. Nor is the MCP Registry: core's suite hands
+  `mcp_registry` a fake answering what the registry sent when it was
+  recorded (`tests/fixtures/mcp-registry`), and the CLI's suites serve
+  the same recordings from a server they start on 127.0.0.1
+  (`common::mcp_registry`, `--registry`), the TUI's `Runner` naming it
+  in each line the screen hands over.
 - Git sources are built in-process with `gix` (`common::repository`): no
   network and no `git` binary. A CLI fixture's project is a repository given
   `mind init` (`common::new_project`), so a local install keeps its copies out
@@ -1933,9 +1954,9 @@ These are easy to break from a single file without noticing.
   installs zsh so that both shells run there.
 - The CLI end to end is `apps/cli/tests/e2e_test.rs`, one target whose
   modules under `tests/e2e/` group the use cases by what a person is
-  doing (projects, authoring, installing, gathering, searching, updating,
-  reading, workspaces, settings, adopting, removing, loading, exporting,
-  upgrading, json, mistakes). Each test is one use case: it builds its own
+  doing (projects, authoring, installing, gathering, searching,
+  importing, updating, reading, workspaces, settings, adopting, removing,
+  loading, exporting, upgrading, json, mistakes). Each test is one use case: it builds its own
   scenario (`e2e/scenario.rs`, `Scenario`), runs one command line as a
   person types it, and holds its exit status, stdout and stderr word for
   word, and what it left on the disk. A scenario is a temporary folder read
