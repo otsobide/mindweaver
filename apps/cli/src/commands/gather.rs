@@ -1,18 +1,21 @@
 //! `mindweaver gather`: collecting artifacts onto the workspace's shelf, and
 //! listing everything that can be installed from elsewhere.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use mindweaver_core::gather::{self, Report, Request, Scrub};
+use mindweaver_core::gather::{self, GatherError, Report, Request, Scrub};
 use mindweaver_core::install::{offered_by_loads, Offer};
 use mindweaver_core::port::Token;
+use mindweaver_core::sources::{self, Again, Regathered, Removal, Renamed};
 use mindweaver_core::url::redacted;
-use mindweaver_core::{Kind, Licence, WeaverWorkspace};
+use mindweaver_core::view::ShelfSource;
+use mindweaver_core::{Kind, Ledger, Licence, WeaverWorkspace, DEFAULT_SUBDIRECTORY};
 
 use super::{reading_workspace, workspace_here};
 use crate::progress::{Progress, Watch};
-use crate::render::{indent, json_or_text, plural, printable, table};
+use crate::render::{counted_kind, indent, json_or_text, plural, printable, table, utc};
 use crate::{token, CliError, Credential, Failure, GatherCommand, Lookup, Outcome, Warning};
 
 /// Collect artifacts onto the workspace shelf, or say what is already on it.
@@ -71,7 +74,305 @@ pub(crate) fn run_gather(
                 reading_workspace(directory, lookup, |workspace| shelf(workspace, &mut found))?;
             Ok(json_or_text(found.filter(|_| *json), text))
         }
+        GatherCommand::Sources { json } => {
+            let mut found = None;
+            let text = reading_workspace(directory, lookup, |workspace| {
+                let ledger = workspace.ledger_for_reading().map_err(CliError::from)?;
+                let listed = ShelfSource::read(&ledger).map_err(CliError::from)?;
+                let stdout = sources_listing(&listed);
+                found = Some(listed);
+                Ok(Outcome::plain(stdout))
+            })?;
+            Ok(json_or_text(found.filter(|_| *json), text))
+        }
+        // Every source when none is named, which the grammar lets through
+        // only with `--all`.
+        GatherCommand::Update {
+            names, credential, ..
+        } => writing(directory, lookup, |workspace, ledger| {
+            regathered(workspace, ledger, names, credential, watch)
+        }),
+        GatherCommand::Rename { from, to } => writing(directory, lookup, |workspace, ledger| {
+            let renamed = sources::rename(workspace, ledger, from, to)?;
+            Ok(Outcome::plain(renamed_said(&renamed)))
+        }),
+        // The dry run is a read, which makes no workspace and no ledger, as
+        // `gather list` makes none.
+        GatherCommand::Remove { name, yes: false } => {
+            reading_workspace(directory, lookup, |workspace| {
+                let ledger = workspace.ledger_for_reading().map_err(CliError::from)?;
+                let removal = sources::removal(workspace, &ledger, name).map_err(CliError::from)?;
+                Ok(removal_said(&removal, false))
+            })
+        }
+        GatherCommand::Remove { name, yes: true } => {
+            writing(directory, lookup, |workspace, ledger| {
+                Ok(removal_said(
+                    &sources::remove(workspace, ledger, name)?,
+                    true,
+                ))
+            })
+        }
     }
+}
+
+/// Run `change` on the workspace a command that writes acts on, with its
+/// ledger opened to write, saying what the scrub that opening runs took out
+/// before whatever `change` says, or beside why it failed.
+fn writing(
+    directory: &Path,
+    lookup: &Lookup,
+    change: impl FnOnce(&WeaverWorkspace, &Ledger) -> Result<Outcome, CliError>,
+) -> Result<Outcome, Failure> {
+    let workspace = workspace_here(directory, lookup)?;
+    let (ledger, scrub) = workspace.ledger_to_write().map_err(CliError::from)?;
+    let said = scrubbed(&scrub);
+    match change(&workspace, &ledger) {
+        Ok(outcome) => Ok(said.before(outcome)),
+        Err(error) => Err(Failure {
+            error: Box::new(error),
+            warnings: said.lines(),
+        }),
+    }
+}
+
+/// `mindweaver gather update`: each source `names` names, or every one when
+/// it names none, gathered again, and what each did, said as `gather git`
+/// says it, one after the other.
+///
+/// The token `credential` asks for is read before anything is gathered, so
+/// a variable holding none, or a `gh` that has none, is said before a
+/// fetch, as `gather git` says it: the variable once for every source, and
+/// `gh` once for each host a token goes to. A source no token goes to, one
+/// reached over ssh or a path, is refused it, as a gather of it would be,
+/// and the rest are gathered.
+fn regathered(
+    workspace: &WeaverWorkspace,
+    ledger: &Ledger,
+    names: &[String],
+    credential: &Credential,
+    watch: &Watch,
+) -> Result<Outcome, CliError> {
+    let chosen = sources::chosen(ledger, names)?;
+    if chosen.is_empty() {
+        return Ok(Outcome::plain(String::from(
+            "no sources yet\n  take some with `mindweaver gather git <url>`\n",
+        )));
+    }
+    let mut tokens = tokens_for(&chosen, credential)?;
+    let again = sources::update(workspace, ledger, chosen, |source| {
+        let token = tokens.remove(&source.id).transpose()?;
+        Ok(Request::again(source)
+            .watched_by(watch.relaying(Progress::Gather))
+            .with_token(token))
+    });
+
+    let mut outcome = Outcome::plain(String::new());
+    for Regathered { source, again } in again {
+        match again {
+            Again::Gathered(report) => {
+                let said = gathered(source.url.as_str(), &report);
+                // A blank line between two sources' reports, as between two
+                // commands' in a shell.
+                if !outcome.stdout.is_empty() {
+                    outcome.stdout.push('\n');
+                }
+                outcome.stdout.push_str(&said.stdout);
+                outcome.stderr.extend(said.stderr);
+                outcome.ok &= said.ok;
+            }
+            Again::Failed(error) => {
+                outcome.stderr.push(Warning::coded(
+                    error.code(),
+                    format!("warning: {}: {}", printable(&source.name), error),
+                ));
+                outcome.ok = false;
+            }
+            // A note: the cancel that stopped it is the warning.
+            Again::Unreached => outcome.stderr.push(Warning::from(format!(
+                "note: {}: not gathered, since the update was cancelled",
+                printable(&source.name)
+            ))),
+        }
+    }
+    Ok(outcome)
+}
+
+/// The token each of `chosen` is handed, by its row id, as `credential`
+/// says: the one in the variable `--token-env` names, read once, or what
+/// `gh` has for the host core says a token for it goes to, asked once a
+/// host, or why none goes to it. None when neither is given.
+fn tokens_for(
+    chosen: &[mindweaver_core::ledger::Source],
+    credential: &Credential,
+) -> Result<HashMap<i64, Result<Token, GatherError>>, CliError> {
+    let mut tokens = HashMap::new();
+    if let Some(name) = &credential.token_env {
+        let token = token::from_variable(name)?;
+        for source in chosen {
+            tokens.insert(source.id, Ok(token.clone()));
+        }
+    } else if credential.gh {
+        let mut asked: HashMap<String, Token> = HashMap::new();
+        for source in chosen {
+            let token = match gather::token_host(source.url.as_str()) {
+                Ok(host) => match asked.get(&host) {
+                    Some(token) => Ok(token.clone()),
+                    None => {
+                        let token = token::from_gh(&host)?;
+                        asked.insert(host, token.clone());
+                        Ok(token)
+                    }
+                },
+                Err(error) => Err(error),
+            };
+            tokens.insert(source.id, token);
+        }
+    }
+    Ok(tokens)
+}
+
+/// What renaming a source did, by the name it had and the name it has, and
+/// the URL it is gathered from, which is what an install from it recorded.
+fn renamed_said(renamed: &Renamed) -> String {
+    let source = &renamed.source;
+    if renamed.was == source.name {
+        return format!(
+            "{}: called that already, gathered from {}\n",
+            printable(&source.name),
+            source.url
+        );
+    }
+    format!(
+        "renamed source {} to {}, gathered from {}\n",
+        printable(&renamed.was),
+        printable(&source.name),
+        source.url
+    )
+}
+
+/// What forgetting a source took away, or without `yes` would, and what it
+/// leaves installed, orphaned, one line each, as `adopt` and `remove
+/// --everywhere` say theirs.
+///
+/// What it leaves is said as a note once it is done, not a warning: it is
+/// what forgetting a source does, which the dry run said, and taking it out
+/// is a command of its own.
+fn removal_said(removal: &Removal, yes: bool) -> Outcome {
+    let (forget, remove, leave) = if yes {
+        ("forgot", "removed", "left")
+    } else {
+        ("would forget", "would remove", "would leave")
+    };
+    let source = &removal.source;
+    let mut stdout = format!(
+        "{forget} the source {}, gathered from {}\n",
+        printable(&source.name),
+        source.url
+    );
+    for (kind, path) in &removal.shelves {
+        let held = removal
+            .shelved
+            .iter()
+            .find(|counted| counted.kind == *kind)
+            .map_or(0, |counted| counted.count);
+        let what = match held {
+            0 => String::from("its folder"),
+            held => format!("its {}", counted_kind(held, *kind)),
+        };
+        let _ = writeln!(
+            stdout,
+            "{remove} {what} from the shelf, at {}",
+            path.display()
+        );
+    }
+    if let Some(clone) = &removal.clone {
+        let _ = writeln!(stdout, "{remove} its clone, at {}", clone.display());
+    }
+    for installed in &removal.installed {
+        let _ = writeln!(
+            stdout,
+            "{leave} {} installed in {}, orphaned",
+            printable(&installed.name),
+            printable(&installed.project)
+        );
+    }
+    let mut stderr = Vec::new();
+    if !yes {
+        stdout.push_str("nothing removed: add --yes to go ahead\n");
+    } else if !removal.installed.is_empty() {
+        stderr.push(Warning::from(String::from(
+            "note: nothing offers what was installed from it any more; `mindweaver uninstall \
+             --orphaned --all-projects` takes out what nothing offers",
+        )));
+    }
+    Outcome {
+        stdout,
+        stderr,
+        ok: true,
+    }
+}
+
+/// Every source the shelf is filled from, one a line, as `--from` takes it
+/// first: its name, then its URL, and its branch, its folder and its pin,
+/// each a column that earns its place only once a source listed has one,
+/// as `gather list` lays out its pin, then how much of it the shelf holds
+/// and when it was last gathered, in UTC, which reads the same wherever the
+/// listing is read.
+fn sources_listing(listed: &[ShelfSource]) -> String {
+    if listed.is_empty() {
+        return String::from("no sources yet\n  take some with `mindweaver gather git <url>`\n");
+    }
+    let named_reference = listed.iter().any(|one| one.source.reference.is_some());
+    let named_path = listed
+        .iter()
+        .any(|one| one.source.subdirectory != DEFAULT_SUBDIRECTORY);
+    let named_pin = listed.iter().any(|one| one.source.pin.is_some());
+    let rows: Vec<Vec<String>> = listed
+        .iter()
+        .map(|one| {
+            let source = &one.source;
+            let mut row = vec![printable(&source.name), printable(&source.url)];
+            if named_reference {
+                row.push(
+                    source
+                        .reference
+                        .as_deref()
+                        .map_or_else(String::new, |at| format!("ref {}", printable(at))),
+                );
+            }
+            if named_path {
+                row.push(match source.subdirectory.as_str() {
+                    DEFAULT_SUBDIRECTORY => String::new(),
+                    path => format!("path {}", printable(path)),
+                });
+            }
+            if named_pin {
+                row.push(
+                    source
+                        .pin
+                        .as_ref()
+                        .map_or_else(String::new, |pin| format!("pinned {}", short(pin))),
+                );
+            }
+            let held: Vec<String> = one
+                .shelved
+                .iter()
+                .map(|counted| counted_kind(counted.count, counted.kind))
+                .collect();
+            if held.is_empty() {
+                row.push(String::from("nothing on the shelf"));
+            } else {
+                row.push(held.join(", "));
+            }
+            row.push(
+                one.gathered_at
+                    .map_or_else(String::new, |at| format!("gathered {}", utc(at))),
+            );
+            row
+        })
+        .collect();
+    table(&rows)
 }
 
 /// The token `credential` says a gather of `url` logs in with, read now,
@@ -232,12 +533,14 @@ pub(crate) fn scrubbed(scrub: &Scrub) -> Scrubbed {
 fn gathered(url: &str, report: &Report) -> Outcome {
     let mut stdout = heading(url, report);
 
-    // Added first, then updated, then unchanged: a second gather is run to
-    // find out what moved, and what moved should not be at the bottom.
+    // Added first, then updated, then removed, then unchanged: a second
+    // gather is run to find out what moved, and what moved should not be
+    // at the bottom.
     let mut rows: Vec<Vec<String>> = Vec::new();
     for (label, harvested) in [
         ("added", &report.added),
         ("updated", &report.updated),
+        ("removed", &report.removed),
         ("unchanged", &report.unchanged),
     ] {
         for artifact in harvested {
@@ -254,15 +557,26 @@ fn gathered(url: &str, report: &Report) -> Outcome {
         stdout.push_str(&indent(&table(&rows)));
         let _ = writeln!(
             stdout,
-            "\n{}: {} added, {} updated, {} unchanged",
+            "\n{}: {} added, {} updated, {} unchanged{}",
             plural(report.total(), "skill"),
             report.added.len(),
             report.updated.len(),
-            report.unchanged.len()
+            report.unchanged.len(),
+            counted_removed(report, "removed")
         );
     }
 
     said(stdout, report, "was")
+}
+
+/// How many skills `report` took off the shelf, said after the rest of the
+/// count, `removed` or `to remove`: nothing when none were, so a gather of
+/// a source that dropped nothing reads as it did before one could.
+fn counted_removed(report: &Report, removed: &str) -> String {
+    match report.removed.len() {
+        0 => String::new(),
+        count => format!(", {count} {removed}"),
+    }
 }
 
 /// What a gather's dry run found, laid out as the gather would report it,
@@ -278,6 +592,7 @@ fn foreseen(url: &str, report: &Report) -> Outcome {
     for (label, harvested) in [
         ("would add", &report.added),
         ("would update", &report.updated),
+        ("would remove", &report.removed),
         ("unchanged", &report.unchanged),
     ] {
         for artifact in harvested {
@@ -295,12 +610,13 @@ fn foreseen(url: &str, report: &Report) -> Outcome {
         stdout.push_str(&indent(&table(&rows)));
         let _ = writeln!(
             stdout,
-            "\n{}: {} to add, {} to update, {} unchanged\n\
+            "\n{}: {} to add, {} to update, {} unchanged{}\n\
              nothing gathered: run it without --dry-run to gather",
             plural(report.total(), "skill"),
             report.added.len(),
             report.updated.len(),
-            report.unchanged.len()
+            report.unchanged.len(),
+            counted_removed(report, "to remove")
         );
     }
     said(stdout, report, "would be")

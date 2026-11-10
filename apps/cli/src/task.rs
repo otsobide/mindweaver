@@ -1055,9 +1055,10 @@ impl Task {
 /// it from then on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Followed {
-    /// `mindweaver gather git`: the network, for as long as it takes,
-    /// reported step by step through core's `gather::Watch`, and stopped
-    /// by its cancel until it starts placing what it read on the shelf.
+    /// `mindweaver gather git`, and `mindweaver gather update`, a gather of
+    /// each source in turn: the network, for as long as it takes, reported
+    /// step by step through core's `gather::Watch`, and stopped by its
+    /// cancel until it starts placing what it read on the shelf.
     Gather,
     /// `mindweaver backup`: the network too, through the system's `git`,
     /// reported step by step through core's `backup::Watch`, checking out,
@@ -1108,7 +1109,9 @@ impl Followed {
     /// it.
     pub fn of_weaver(command: Option<&WeaverCommand>) -> Option<Followed> {
         match command {
-            Some(WeaverCommand::Gather(GatherCommand::Git { .. })) => Some(Followed::Gather),
+            Some(WeaverCommand::Gather(
+                GatherCommand::Git { .. } | GatherCommand::Update { .. },
+            )) => Some(Followed::Gather),
             Some(WeaverCommand::Backup { .. }) => Some(Followed::Backup),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => None,
@@ -1136,7 +1139,12 @@ impl Followed {
                 | WeaverCommand::Load { .. }
                 | WeaverCommand::Unload { .. }
                 | WeaverCommand::Scan { .. }
-                | WeaverCommand::Gather(GatherCommand::List { .. })
+                | WeaverCommand::Gather(
+                    GatherCommand::List { .. }
+                    | GatherCommand::Sources { .. }
+                    | GatherCommand::Rename { .. }
+                    | GatherCommand::Remove { .. },
+                )
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1307,7 +1315,14 @@ impl Refusal {
                 // ([`Followed::Gather`]), by the panel as by the TUI, and
                 // never a prompt (#26): what kept it from a front end with
                 // no terminal until #112.
-                | WeaverCommand::Gather(_)
+                | WeaverCommand::Gather(GatherCommand::Git { .. } | GatherCommand::Update { .. })
+                // The ledger and the workspace's own folders alone.
+                | WeaverCommand::Gather(
+                    GatherCommand::List { .. }
+                    | GatherCommand::Sources { .. }
+                    | GatherCommand::Rename { .. }
+                    | GatherCommand::Remove { .. },
+                )
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1407,6 +1422,15 @@ pub enum Caution {
     /// told `--yes`.
     #[error("writes over, or takes out, a copy changed since it was installed")]
     Forces,
+    /// `mindweaver gather remove --yes`: a gathered source forgotten, what
+    /// it put on the shelf and its clone deleted, and what was installed
+    /// from it left in the projects, orphaned, as `unload` leaves a loaded
+    /// workspace's.
+    #[error(
+        "forgets a gathered source: what it put on the shelf and its clone are deleted, and what \
+         was installed from it is left orphaned"
+    )]
+    Forgets,
 }
 
 impl Caution {
@@ -1471,6 +1495,18 @@ impl Caution {
             Some(WeaverCommand::Export { yes, .. }) => when(*yes, &[Caution::Removes]),
             // What it takes out of the branch is kept in its history.
             Some(WeaverCommand::Backup { .. }) => Vec::new(),
+            Some(WeaverCommand::Gather(GatherCommand::Remove { yes, .. })) => {
+                when(*yes, &[Caution::Forgets])
+            }
+            // An update takes off the shelf only what its source no longer
+            // offers, which no yes could keep there.
+            Some(WeaverCommand::Gather(
+                GatherCommand::Git { .. }
+                | GatherCommand::List { .. }
+                | GatherCommand::Sources { .. }
+                | GatherCommand::Update { .. }
+                | GatherCommand::Rename { .. },
+            )) => Vec::new(),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Vec::new(),
             None
@@ -1494,7 +1530,6 @@ impl Caution {
                 | WeaverCommand::Load { .. }
                 | WeaverCommand::Minds { .. }
                 | WeaverCommand::Scan { .. }
-                | WeaverCommand::Gather(_)
                 | WeaverCommand::Adopt { .. }
                 | WeaverCommand::Agents { .. }
                 | WeaverCommand::Share { .. }

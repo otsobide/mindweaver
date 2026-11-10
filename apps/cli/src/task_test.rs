@@ -1590,6 +1590,8 @@ fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
         "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
         "mind weaver gather git git@example.com:acme/skills.git",
         "mind -C alpha weaver gather git file:///srv/git/skills",
+        "mindweaver gather update acme-skills other-rules",
+        "mind weaver gather update --all --gh",
     ] {
         assert_eq!(followed(&line(said)), Some(Followed::Gather), "{said}");
     }
@@ -1602,6 +1604,9 @@ fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
     }
     for said in [
         "mindweaver gather list",
+        "mindweaver gather sources",
+        "mindweaver gather rename acme-skills team",
+        "mindweaver gather remove --yes acme-skills",
         "mindweaver export ../backup",
         "mindweaver link alpha",
         "mind install deploy",
@@ -1829,6 +1834,7 @@ fn a_caution_says_what_it_takes_in_a_word_and_in_words() {
         Caution::Unlinks,
         Caution::Unloads,
         Caution::Forces,
+        Caution::Forgets,
     ]
     .iter()
     .map(|caution| serde_json::to_value(caution).unwrap())
@@ -1836,7 +1842,14 @@ fn a_caution_says_what_it_takes_in_a_word_and_in_words() {
 
     assert_eq!(
         words,
-        ["removes", "uninstalls", "unlinks", "unloads", "forces"]
+        [
+            "removes",
+            "uninstalls",
+            "unlinks",
+            "unloads",
+            "forces",
+            "forgets"
+        ]
     );
     assert_eq!(
         Caution::Unlinks.to_string(),

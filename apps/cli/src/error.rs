@@ -14,6 +14,7 @@ use mindweaver_core::everywhere::EverywhereError;
 use mindweaver_core::export::ExportError;
 use mindweaver_core::gather::GatherError;
 use mindweaver_core::ledger::LedgerError;
+use mindweaver_core::sources::SourceError;
 use mindweaver_core::{
     codes, ArtifactError, CreateError, Kind, LifecycleError, Reason, ResolveError, TemplateError,
     WorkspaceError,
@@ -88,6 +89,8 @@ pub enum CliError {
     Artifact(#[from] ArtifactError),
     #[error(transparent)]
     Gather(#[from] GatherError),
+    #[error(transparent)]
+    Source(#[from] SourceError),
     #[error(transparent)]
     Ledger(#[from] LedgerError),
     #[error(transparent)]
@@ -324,6 +327,7 @@ codes!(CliError {
     Self::Chosen { source, .. } => source,
     Self::Artifact(error) => error,
     Self::Gather(error) => error,
+    Self::Source(error) => error,
     Self::Ledger(error) => error,
     Self::Install(error) => error,
     Self::Create(error) => error,

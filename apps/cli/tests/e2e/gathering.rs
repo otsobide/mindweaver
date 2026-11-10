@@ -947,6 +947,411 @@ fn the_token_gh_gives_is_handed_to_the_fetch_and_kept_nowhere() {
     assert_eq!(kept, Vec::<String>::new());
 }
 
+// ---------------------------------------------------------------------------
+// Managing the sources (#100): the reference's "Managing the sources"
+// ---------------------------------------------------------------------------
+
+/// `seconds` since the Unix epoch, as `gather sources` says a time: its day
+/// and minute in UTC. Counted a year and a month at a time, rather than by
+/// the reckoning the command uses, so the two are held to each other.
+fn utc(seconds: i64) -> String {
+    let leap = |year: i64| (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let (mut days, into) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
+    let mut year = 1970;
+    while days >= if leap(year) { 366 } else { 365 } {
+        days -= if leap(year) { 366 } else { 365 };
+        year += 1;
+    }
+    let lengths = [
+        31,
+        if leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 0;
+    while days >= lengths[month] {
+        days -= lengths[month];
+        month += 1;
+    }
+    format!(
+        "{year:04}-{:02}-{:02} {:02}:{:02} UTC",
+        month + 1,
+        days + 1,
+        into / 3_600,
+        into % 3_600 / 60
+    )
+}
+
+/// When the source called `name` was last gathered, as `gather sources
+/// --json` says it, in `gather sources`'s words: no run makes it the same.
+fn gathered_when(scenario: &Scenario, name: &str) -> String {
+    let ran = scenario.run("~/Projects", "mindweaver gather sources --json");
+    ran.succeeds();
+    let envelope: serde_json::Value = serde_json::from_str(&ran.stdout).expect("JSON");
+    let source = envelope["data"]
+        .as_array()
+        .expect("a list of sources")
+        .iter()
+        .find(|source| source["name"] == name)
+        .unwrap_or_else(|| panic!("no source {name} in {envelope:#}"));
+    utc(source["gathered_at"]
+        .as_i64()
+        .expect("when it was gathered"))
+}
+
+/// [`acme`], gathered, with `commit-style` installed into `collapse`.
+fn installed_from_acme() -> Scenario {
+    let scenario = acme();
+    scenario
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .given("~/Projects", "mindweaver install -p collapse commit-style");
+    scenario
+}
+
+#[test]
+fn gather_sources_lists_each_source_by_name_with_what_the_shelf_holds_and_when() {
+    let scenario = acme();
+    let pin = scenario.commit(SOURCE);
+    scenario
+        .source(
+            "~/src/other-rules",
+            &[(
+                "agents/commit-style/SKILL.md",
+                &skill("commit-style", "Conventional commits, strictly"),
+            )],
+        )
+        .given(
+            "~/Projects",
+            &format!("mindweaver gather git ../src/acme-skills --pin {pin}"),
+        )
+        .given(
+            "~/Projects",
+            "mindweaver gather git ../src/other-rules --path agents --name other-rules",
+        );
+    let (acme, other) = (
+        gathered_when(&scenario, "src-acme-skills"),
+        gathered_when(&scenario, "other-rules"),
+    );
+
+    scenario
+        .run("~/Projects", "mindweaver gather sources")
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills  ../src/acme-skills               pinned {short}  2 skills  \
+             gathered {acme}\n\
+             other-rules      ../src/other-rules  path agents                  1 skill   \
+             gathered {other}\n",
+            short = &pin[..7]
+        ))
+        .quiet();
+}
+
+#[test]
+fn gather_sources_with_none_says_how_to_gather_one() {
+    let scenario = Scenario::projects(&["collapse"]);
+
+    scenario
+        .run("~/Projects", "mindweaver gather sources")
+        .succeeds()
+        .prints("no sources yet\n  take some with `mindweaver gather git <url>`\n")
+        .quiet();
+}
+
+#[test]
+fn gather_rename_calls_a_source_something_else_and_from_takes_the_new_name() {
+    let scenario = acme();
+    scenario.given("~/Projects", "mindweaver gather git ../src/acme-skills");
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather rename src-acme-skills acme-skills",
+        )
+        .succeeds()
+        .prints("renamed source src-acme-skills to acme-skills, gathered from ../src/acme-skills\n")
+        .quiet();
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "commit-style  acme-skills  MIT      How this repo writes commit messages\n",
+            "ddd-reviewer  acme-skills  unknown  Review a change against the DDD layering rules\n",
+        ));
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver install -p collapse commit-style --from acme-skills",
+        )
+        .succeeds()
+        .prints("installed commit-style into collapse, from ../src/acme-skills\n")
+        .quiet();
+}
+
+#[test]
+fn gather_rename_refuses_a_name_another_source_has_or_none_can() {
+    let scenario = acme();
+    scenario
+        .source(
+            "~/src/other-rules",
+            &[(
+                "skills/commit-style/SKILL.md",
+                &skill("commit-style", "Conventional commits, strictly"),
+            )],
+        )
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .given("~/Projects", "mindweaver gather git ../src/other-rules");
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather rename src-acme-skills src-other-rules",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: `src-other-rules` is the name of the source at ../src/other-rules already: \
+             give this one another\n",
+        );
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather rename src-acme-skills acme/skills",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: `acme/skills` cannot name a source: it has to be letters, digits, `.`, `_` \
+             and `-`, not starting with `-`, and neither `.`, `..` nor `workspace`\n",
+        );
+    scenario
+        .run("~/Projects", "mindweaver gather rename acme team")
+        .exits(1)
+        .prints("")
+        .says(
+            "error: no source is called `acme`: `mindweaver gather sources` lists them by name\n",
+        );
+}
+
+#[test]
+fn gather_update_says_what_each_source_added_updated_and_removed() {
+    let scenario = acme();
+    scenario
+        .source(
+            "~/src/other-rules",
+            &[(
+                "skills/commit-style/SKILL.md",
+                &skill("commit-style", "Conventional commits, strictly"),
+            )],
+        )
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .given("~/Projects", "mindweaver gather git ../src/other-rules")
+        .change(
+            SOURCE,
+            &[
+                (
+                    "skills/commit-style/SKILL.md",
+                    &licensed(
+                        "commit-style",
+                        "How this repo writes commit messages, briefly",
+                        "MIT",
+                    ),
+                ),
+                ("skills/lint/SKILL.md", &skill("lint", "Tidy the code")),
+            ],
+        )
+        .drop_from(SOURCE, &["skills/ddd-reviewer"]);
+
+    scenario
+        .run("~/Projects", "mindweaver gather update --all")
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills: ../src/acme-skills at {acme}\n\
+             \x20 added    lint          Tidy the code\n\
+             \x20 updated  commit-style  How this repo writes commit messages, briefly\n\
+             \x20 removed  ddd-reviewer  Review a change against the DDD layering rules\n\
+             \n\
+             2 skills: 1 added, 1 updated, 0 unchanged, 1 removed\n\
+             \n\
+             src-other-rules: ../src/other-rules at {other}\n\
+             \x20 unchanged  commit-style  Conventional commits, strictly\n\
+             \n\
+             1 skill: 0 added, 0 updated, 1 unchanged\n",
+            acme = scenario.head(SOURCE),
+            other = scenario.head("~/src/other-rules"),
+        ))
+        .quiet();
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills/ddd-reviewer"));
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "commit-style  src-acme-skills  MIT      How this repo writes commit messages, briefly\n",
+            "commit-style  src-other-rules  unknown  Conventional commits, strictly\n",
+            "lint          src-acme-skills  unknown  Tidy the code\n",
+        ));
+}
+
+#[test]
+fn after_gather_update_an_install_from_a_source_that_moved_on_is_outdated() {
+    let scenario = installed_from_acme();
+    scenario.change(
+        SOURCE,
+        &[(
+            "skills/commit-style/SKILL.md",
+            &licensed(
+                "commit-style",
+                "How this repo writes commit messages, briefly",
+                "MIT",
+            ),
+        )],
+    );
+    scenario.given("~/Projects", "mindweaver gather update src-acme-skills");
+
+    scenario
+        .run("~/Projects", "mindweaver status")
+        .succeeds()
+        .prints("commit-style  outdated  claude,codex,opencode  ../src/acme-skills\n")
+        .quiet();
+}
+
+#[test]
+fn gather_update_of_a_name_no_source_has_gathers_nothing() {
+    let scenario = acme();
+    scenario
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .change(
+            SOURCE,
+            &[("skills/lint/SKILL.md", &skill("lint", "Tidy the code"))],
+        );
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather update src-acme-skills acme-skills",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: no source is called `acme-skills`: `mindweaver gather sources` lists them \
+             by name\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills/lint"));
+}
+
+#[test]
+fn gathering_a_source_again_takes_off_the_shelf_what_it_no_longer_has() {
+    let scenario = acme();
+    scenario
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .drop_from(SOURCE, &["skills/ddd-reviewer"]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-skills --dry-run",
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-skills: ../src/acme-skills at {}\n\
+             \x20 would remove  ddd-reviewer  skills/ddd-reviewer  Review a change against the \
+             DDD layering rules\n\
+             \x20 unchanged     commit-style  skills/commit-style  How this repo writes commit \
+             messages\n\
+             \n\
+             1 skill: 0 to add, 0 to update, 1 unchanged, 1 to remove\n\
+             nothing gathered: run it without --dry-run to gather\n",
+            scenario.head(SOURCE)
+        ))
+        .quiet();
+    assert!(scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills/ddd-reviewer"));
+}
+
+#[test]
+fn gather_remove_without_yes_says_what_it_would_take_and_leave_orphaned() {
+    let scenario = installed_from_acme();
+
+    scenario
+        .run("~/Projects", "mindweaver gather remove src-acme-skills")
+        .succeeds()
+        .prints(concat!(
+            "would forget the source src-acme-skills, gathered from ../src/acme-skills\n",
+            "would remove its 2 skills from the shelf, at \
+             /home/you/Projects/.mindweaver/skills/..-src-acme-skills\n",
+            "would remove its clone, at /home/you/Projects/.mindweaver/cache/..-src-acme-skills\n",
+            "would leave commit-style installed in collapse, orphaned\n",
+            "nothing removed: add --yes to go ahead\n",
+        ))
+        .quiet();
+
+    assert!(scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills/commit-style"));
+    assert!(scenario.exists("~/Projects/.mindweaver/cache/..-src-acme-skills"));
+    scenario
+        .run("~/Projects", "mindweaver status")
+        .succeeds()
+        .prints("commit-style  current  claude,codex,opencode  ../src/acme-skills\n");
+}
+
+#[test]
+fn gather_remove_yes_forgets_the_source_and_leaves_what_was_installed_orphaned() {
+    let scenario = installed_from_acme();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather remove src-acme-skills --yes",
+        )
+        .succeeds()
+        .prints(concat!(
+            "forgot the source src-acme-skills, gathered from ../src/acme-skills\n",
+            "removed its 2 skills from the shelf, at \
+             /home/you/Projects/.mindweaver/skills/..-src-acme-skills\n",
+            "removed its clone, at /home/you/Projects/.mindweaver/cache/..-src-acme-skills\n",
+            "left commit-style installed in collapse, orphaned\n",
+        ))
+        .says(
+            "note: nothing offers what was installed from it any more; `mindweaver uninstall \
+             --orphaned --all-projects` takes out what nothing offers\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills"));
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache/..-src-acme-skills"));
+    assert!(scenario.exists("~/Projects/collapse/.claude/skills/commit-style/SKILL.md"));
+    scenario
+        .run("~/Projects", "mindweaver status")
+        .succeeds()
+        .prints("commit-style  orphaned  claude,codex,opencode  ../src/acme-skills\n");
+    scenario
+        .run("~/Projects", "mindweaver gather sources")
+        .succeeds()
+        .prints("no sources yet\n  take some with `mindweaver gather git <url>`\n");
+}
+
+#[test]
+fn gather_remove_of_a_name_no_source_has_removes_nothing() {
+    let scenario = installed_from_acme();
+
+    scenario
+        .run("~/Projects", "mindweaver gather remove acme --yes")
+        .exits(1)
+        .prints("")
+        .says(
+            "error: no source is called `acme`: `mindweaver gather sources` lists them by name\n",
+        );
+
+    assert!(scenario.exists("~/Projects/.mindweaver/skills/..-src-acme-skills/commit-style"));
+}
+
 #[test]
 fn a_token_from_a_variable_and_from_gh_at_once_is_the_grammar_s_to_refuse() {
     let scenario = Scenario::projects(&["collapse"]);

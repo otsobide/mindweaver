@@ -1609,6 +1609,65 @@ pub enum GatherCommand {
         #[arg(long)]
         json: bool,
     },
+
+    /// List every source the shelf is filled from, by the name `--from`
+    /// takes, with its URL, branch and pin, how much of it the shelf holds,
+    /// and when it was last gathered.
+    Sources {
+        /// Print it as JSON, in the envelope every reading command's --json
+        /// shares.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Gather sources again, each as it was gathered, and say what each
+    /// added, updated and removed: one named, several, or every one.
+    //
+    // A name or `--all`, one of them and never both, as a group the usage
+    // says: a bare `update` that gathered everything would fetch every
+    // repository for a line typed half way.
+    #[command(group(ArgGroup::new("which").args(["names", "all"]).required(true)))]
+    Update {
+        /// A source to gather again, by its name, as `gather sources` lists
+        /// it; once for each.
+        #[arg(value_name = "NAME")]
+        names: Vec<String>,
+
+        /// Every source the shelf is filled from.
+        #[arg(long)]
+        all: bool,
+
+        // Handed to every source gathered, each refusing it as `gather git`
+        // does when it is reached over something a token is not sent over.
+        #[command(flatten)]
+        credential: Credential,
+    },
+
+    /// Call a source something else: what `gather sources` and `gather
+    /// list` show, and `--from` takes, from now on.
+    Rename {
+        /// What it is called now.
+        #[arg(value_name = "NAME")]
+        from: String,
+
+        /// What to call it: letters, digits, `.`, `_` and `-`.
+        #[arg(value_name = "NEW")]
+        to: String,
+    },
+
+    /// Forget a source: its skills come off the shelf, its clone out of the
+    /// cache, and what was installed from it stays where it is, orphaned.
+    #[command(alias = "rm")]
+    Remove {
+        /// The source, by its name.
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Remove it. Without this nothing is removed, and the command says
+        /// what would be, and what it would leave orphaned.
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 /// `NAME=VALUE`, split at its first `=`: what `--env`, `--header`,
