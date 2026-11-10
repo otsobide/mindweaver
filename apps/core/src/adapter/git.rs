@@ -15,12 +15,25 @@
 //!
 //! What ssh itself asks on the terminal, a passphrase or a host key, is out
 //! of `git`'s reach as it is out of a gather's, and the same open question.
+//!
+//! Every `git` before the push is run watched ([`SystemGit::watched`]): it
+//! is killed as soon as the backup's watch is cancelled, rather than waited
+//! for, which on the network can be as long as a server takes to answer.
+//! What it started, a remote helper or an `index-pack`, notices it is gone
+//! when it next writes to it, and is given a moment to (`GONE`), so the
+//! check-out it was writing into is taken away after it rather than under
+//! it.
 
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use std::time::{Duration, Instant};
 
-use crate::port::{CheckedOut, Published, Token, Upstream, UpstreamError};
+use crate::backup::Watch;
+use crate::port::{CheckedOut, Commit, Token, Upstream, UpstreamError};
 use crate::url::redacted;
 use crate::value::Revision;
 
@@ -42,6 +55,18 @@ const FIRST_BRANCH: &str = "main";
 /// still made, rather than the backup refused for want of a name.
 const FALLBACK_NAME: &str = "Mindweaver";
 const FALLBACK_EMAIL: &str = "mindweaver@localhost";
+
+/// How often a watched `git` is looked at, to see whether it has finished
+/// or been cancelled: often enough that a cancel reads as immediate, and
+/// seldom enough to cost nothing beside the process itself.
+const LOOK: Duration = Duration::from_millis(20);
+
+/// How long what a cancelled `git` started is given to notice it has gone,
+/// at most: told by its output closing, which happens once nothing it
+/// started holds it any more. Bounded, since a helper waiting on the
+/// network notices only when the network answers, and a cancel is not to
+/// wait for that.
+const GONE: Duration = Duration::from_secs(2);
 
 /// The system's `git`, found on the `PATH` unless another program is named.
 #[derive(Debug, Clone)]
@@ -83,8 +108,69 @@ impl SystemGit {
     }
 
     /// `git` run in `dir` with `args`, never asking anybody anything, the
-    /// token offered when one is given.
+    /// token offered when one is given, and waited for whatever happens:
+    /// the push, which nothing stops once it has started.
     fn run<I, S>(&self, dir: &Path, args: I, token: Option<&Token>) -> Result<Output, UpstreamError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        self.command(dir, args, token)
+            .output()
+            .map_err(|error| self.unavailable(&error))
+    }
+
+    /// [`run`](Self::run), killed as soon as `watch` is cancelled, and
+    /// never started once it is: every `git` a backup runs before it
+    /// pushes ([`UpstreamError::Cancelled`]).
+    ///
+    /// Its output is read on threads of its own while it runs, so a `git`
+    /// that says a lot never stops for want of somebody reading it, and
+    /// the run looks every [`LOOK`] at whether it has finished or been
+    /// cancelled.
+    fn watched<I, S>(
+        &self,
+        dir: &Path,
+        args: I,
+        token: Option<&Token>,
+        watch: &Watch,
+    ) -> Result<Output, UpstreamError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        if watch.is_cancelled() {
+            return Err(UpstreamError::Cancelled);
+        }
+        let mut child = self
+            .command(dir, args, token)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| self.unavailable(&error))?;
+        let stdout = drained(child.stdout.take());
+        let stderr = drained(child.stderr.take());
+        let status = loop {
+            if watch.is_cancelled() {
+                stop(&mut child, [&stdout, &stderr]);
+                return Err(UpstreamError::Cancelled);
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => thread::sleep(LOOK),
+                Err(error) => return Err(self.unavailable(&error)),
+            }
+        };
+        Ok(Output {
+            status,
+            stdout: stdout.recv().unwrap_or_default(),
+            stderr: stderr.recv().unwrap_or_default(),
+        })
+    }
+
+    /// The `git` to run, with every way of asking anybody anything taken
+    /// away, and the token offered through the environment alone.
+    fn command<I, S>(&self, dir: &Path, args: I, token: Option<&Token>) -> Command
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -109,12 +195,15 @@ impl SystemGit {
                 .args(["-c", &format!("credential.helper={TOKEN_HELPER}")])
                 .env(TOKEN_VARIABLE, token.reveal());
         }
+        command.args(args);
         command
-            .args(args)
-            .output()
-            .map_err(|error| UpstreamError::Unavailable {
-                detail: format!("{}: {error}", self.program.display()),
-            })
+    }
+
+    /// Why `git` could not be run, or waited for.
+    fn unavailable(&self, error: &std::io::Error) -> UpstreamError {
+        UpstreamError::Unavailable {
+            detail: format!("{}: {error}", self.program.display()),
+        }
     }
 
     /// Whether the remote holds `branch`.
@@ -124,12 +213,14 @@ impl SystemGit {
         url: &str,
         branch: &str,
         token: Option<&Token>,
+        watch: &Watch,
     ) -> Result<bool, UpstreamError> {
         let reference = format!("refs/heads/{branch}");
-        let output = self.run(
+        let output = self.watched(
             dir,
             ["ls-remote", "--exit-code", "--heads", "--", url, &reference],
             token,
+            watch,
         )?;
         match output.status.code() {
             Some(0) => Ok(true),
@@ -147,10 +238,11 @@ impl Upstream for SystemGit {
         branch: Option<&str>,
         into: &Path,
         token: Option<&Token>,
+        watch: &Watch,
     ) -> Result<CheckedOut, UpstreamError> {
         let parent = into.parent().unwrap_or(into);
         let named = match branch {
-            Some(branch) => Some((branch, self.has_branch(parent, url, branch, token)?)),
+            Some(branch) => Some((branch, self.has_branch(parent, url, branch, token, watch)?)),
             None => None,
         };
         let mut clone: Vec<&OsStr> = vec![
@@ -166,17 +258,17 @@ impl Upstream for SystemGit {
             clone.extend([OsStr::new("--branch"), OsStr::new(branch)]);
         }
         clone.extend([OsStr::new("--"), OsStr::new(url), into.as_os_str()]);
-        let output = self.run(parent, clone, token)?;
+        let output = self.watched(parent, clone, token, watch)?;
         if !output.status.success() {
             return Err(checked_out(url, &output));
         }
         if let Some((branch, false)) = named {
-            let output = self.run(into, ["checkout", "--quiet", "-b", branch], None)?;
+            let output = self.watched(into, ["checkout", "--quiet", "-b", branch], None, watch)?;
             if !output.status.success() {
                 return Err(checked_out(url, &output));
             }
         }
-        let output = self.run(into, ["symbolic-ref", "--short", "HEAD"], None)?;
+        let output = self.watched(into, ["symbolic-ref", "--short", "HEAD"], None, watch)?;
         if !output.status.success() {
             return Err(checked_out(url, &output));
         }
@@ -190,46 +282,47 @@ impl Upstream for SystemGit {
         })
     }
 
-    fn publish(
+    fn commit(
         &self,
         work: &Path,
         paths: &[&str],
         message: &str,
-        token: Option<&Token>,
-    ) -> Result<Published, UpstreamError> {
+        watch: &Watch,
+    ) -> Result<Commit, UpstreamError> {
         let committed = |output: &Output| UpstreamError::Commit {
             detail: said(output),
         };
+        let git = |args: &[&str]| self.watched(work, args, None, watch);
         let mut add = vec!["add", "--all", "--"];
         add.extend(paths);
-        let output = self.run(work, add, None)?;
+        let output = git(&add)?;
         if !output.status.success() {
             return Err(committed(&output));
         }
-        let output = self.run(work, ["diff", "--cached", "--quiet"], None)?;
+        let output = git(&["diff", "--cached", "--quiet"])?;
         let changed = match output.status.code() {
             Some(0) => false,
             Some(1) => true,
             _ => return Err(committed(&output)),
         };
-        let output = self.run(work, ["symbolic-ref", "--short", "HEAD"], None)?;
+        let output = git(&["symbolic-ref", "--short", "HEAD"])?;
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         if !changed {
             // A branch the remote has not got yet is still sent, holding
             // what the one it was started from holds: asked for, it is
             // there afterwards. Nothing to send when there is no commit at
             // all, or the remote has the branch already.
-            let head = self.run(work, ["rev-parse", "--verify", "--quiet", "HEAD"], None)?;
+            let head = git(&["rev-parse", "--verify", "--quiet", "HEAD"])?;
             let tracked = format!("refs/remotes/origin/{branch}");
-            let known = self.run(work, ["rev-parse", "--verify", "--quiet", &tracked], None)?;
+            let known = git(&["rev-parse", "--verify", "--quiet", &tracked])?;
             if !head.status.success() || known.status.success() {
-                return Ok(Published::Unchanged);
+                return Ok(Commit::Nothing);
             }
         }
 
         let mut commit: Vec<String> = Vec::new();
         for (key, fallback) in [("user.name", FALLBACK_NAME), ("user.email", FALLBACK_EMAIL)] {
-            let set = self.run(work, ["config", "--get", key], None)?;
+            let set = git(&["config", "--get", key])?;
             if !set.status.success() || set.stdout.trim_ascii().is_empty() {
                 commit.extend(["-c".to_owned(), format!("{key}={fallback}")]);
             }
@@ -239,17 +332,23 @@ impl Upstream for SystemGit {
         commit
             .extend(["commit", "--quiet", "--no-verify", "--message", message].map(str::to_owned));
         if changed {
-            let output = self.run(work, &commit, None)?;
+            let output = self.watched(work, &commit, None, watch)?;
             if !output.status.success() {
                 return Err(committed(&output));
             }
         }
-        let output = self.run(work, ["rev-parse", "HEAD"], None)?;
+        let output = git(&["rev-parse", "HEAD"])?;
         if !output.status.success() {
             return Err(committed(&output));
         }
-        let revision = Revision::from(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+        Ok(Commit::Ready {
+            revision: Revision::from(String::from_utf8_lossy(&output.stdout).trim().to_owned()),
+        })
+    }
 
+    fn push(&self, work: &Path, token: Option<&Token>) -> Result<(), UpstreamError> {
+        let output = self.run(work, ["symbolic-ref", "--short", "HEAD"], None)?;
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         let url = remote(self, work)?;
         let refspec = format!("HEAD:refs/heads/{branch}");
         let output = self.run(work, ["push", "--quiet", "origin", &refspec], token)?;
@@ -263,7 +362,37 @@ impl Upstream for SystemGit {
                 }
             });
         }
-        Ok(Published::Pushed { revision })
+        Ok(())
+    }
+}
+
+/// What `pipe` says, read to its end on a thread of its own and handed over
+/// once it closes: what a watched `git` says while it runs, so a pipe that
+/// fills never stops it.
+fn drained(pipe: Option<impl Read + Send + 'static>) -> Receiver<Vec<u8>> {
+    let (send, said) = mpsc::channel();
+    thread::spawn(move || {
+        let mut read = Vec::new();
+        if let Some(mut pipe) = pipe {
+            // What it said up to a failure to read is what it said.
+            let _ = pipe.read_to_end(&mut read);
+        }
+        let _ = send.send(read);
+    });
+    said
+}
+
+/// Stop a cancelled `git`: killed, its status reaped so it is no zombie,
+/// and what it started given up to [`GONE`] to go too, as its output
+/// closing tells, which happens once nothing it started holds it.
+fn stop(child: &mut Child, pipes: [&Receiver<Vec<u8>>; 2]) {
+    // Gone already is as good as killed.
+    let _ = child.kill();
+    let _: Option<ExitStatus> = child.wait().ok();
+    let until = Instant::now() + GONE;
+    for pipe in pipes {
+        let left = until.saturating_duration_since(Instant::now());
+        let _ = pipe.recv_timeout(left);
     }
 }
 

@@ -440,3 +440,44 @@ fn a_yes_refused_says_where_it_comes_from_without_the_credential_it_was_typed_wi
         );
     }
 }
+
+#[test]
+fn a_token_is_named_by_a_variable_a_shell_can_set_named_for_a_token() {
+    for given in [
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "TOKEN",
+        "backup_TOKEN",
+        "_TOKEN",
+    ] {
+        assert!(token_variable(given).is_ok(), "{given}");
+    }
+    let word = crate::mother::random::word().to_ascii_uppercase();
+    let mut refused: Vec<String> = crate::mother::VariableNameMother::unportable()
+        .into_iter()
+        .map(|(_, text)| format!("{text}_{TOKEN_SUFFIX}"))
+        .filter(|text| !crate::value::VariableName::from(text.as_str()).is_portable())
+        .collect();
+    refused.extend(
+        [
+            String::from("HOME"),
+            String::from("AWS_SECRET_ACCESS_KEY"),
+            String::from("github_token"),
+            format!("{TOKEN_SUFFIX}_{word}"),
+            format!("-{TOKEN_SUFFIX}"),
+            String::new(),
+        ]
+        .into_iter(),
+    );
+    for given in refused {
+        let said = token_variable(&given);
+
+        assert_eq!(code(said), "token_variable_refused", "{given:?}");
+    }
+    assert_eq!(
+        token_variable("HOME").unwrap_err().to_string(),
+        "`HOME` is not a variable a backup reads a token from: name one holding a token, as a \
+         shell names it (letters, digits and underscores, not starting with a digit), ending in \
+         `TOKEN`, as `GITHUB_TOKEN` does"
+    );
+}
