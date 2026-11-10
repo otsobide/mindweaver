@@ -525,6 +525,49 @@ fn a_git_repository_mother_lays_skills_out_where_it_is_told() {
     assert!(one.path().join("examples/inner/SKILL.md").is_file());
 }
 
+/// Each catalog a marketplace mother writes reads as one, every plugin it
+/// lists read, where it says it keeps its skills, and every one a commit
+/// of its own when it is a repository of its own.
+#[test]
+fn a_marketplace_mother_keeps_a_catalog_that_reads_beside_what_it_lists() {
+    let read = |repository: &tempfile::TempDir| {
+        let text = fs::read_to_string(repository.path().join(crate::marketplace::CATALOG)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        crate::marketplace::Catalog::of(&value, "https://github.com/acme/tools").unwrap()
+    };
+
+    let anthropic = MarketplaceMother::anthropic_skills();
+    assert!(gix::open(anthropic.path()).unwrap().head_id().is_ok());
+    let catalog = read(&anthropic);
+    assert!(catalog.failures.is_empty(), "{:?}", catalog.failures);
+    assert_eq!(
+        catalog.name.as_deref(),
+        Some(MarketplaceMother::ANTHROPIC_SKILLS)
+    );
+    for entry in &catalog.entries {
+        for listed in entry.skills.as_deref().unwrap() {
+            assert!(
+                anthropic.path().join(listed).join("SKILL.md").is_file(),
+                "{listed}"
+            );
+        }
+    }
+
+    let count = random::between(1, 40);
+    let listing = MarketplaceMother::listing(count);
+    let catalog = read(&listing);
+    assert!(catalog.failures.is_empty(), "{:?}", catalog.failures);
+    assert_eq!(catalog.gatherable(), count);
+    assert!(catalog
+        .entries
+        .iter()
+        .all(|entry| entry.source.sha().is_some()));
+
+    for (path, _) in MarketplaceMother::plugin("plugins/deploy", &["ship"]) {
+        assert_eq!(path, "plugins/deploy/skills/ship/SKILL.md");
+    }
+}
+
 #[test]
 fn a_mindflayer_mother_makes_a_workspace_under_the_old_names() {
     let (dir, workspace) = MindflayerMother::empty();
