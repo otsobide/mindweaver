@@ -980,7 +980,14 @@ fn renaming_a_copy_of_a_name_never_installed_carries_nothing(mut store: Store) {
 }
 
 fn renaming_a_copy_the_installation_never_wrote_carries_nothing(mut store: Store) {
-    let name = ArtifactNameMother::random();
+    // Any name but the one the copy is renamed to, which the last assertion
+    // asks after: drawn as `b` once, the installation itself answered it.
+    let name = loop {
+        let drawn = ArtifactNameMother::random();
+        if AsRef::<str>::as_ref(&drawn) != "b" {
+            break drawn;
+        }
+    };
     let skill = InstallRecordMother::skill(&name);
     store.installed("collapse", &skill).unwrap();
 
