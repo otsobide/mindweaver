@@ -12,7 +12,7 @@ use crate::{Cli, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 36] = [
+const TAGS: [&str; 38] = [
     "init_workspace",
     "init_project",
     "link",
@@ -37,6 +37,8 @@ const TAGS: [&str; 36] = [
     "shelf",
     "workspaces",
     "gather",
+    "export",
+    "backup",
     "targets",
     "settings",
     "toggled",
@@ -130,6 +132,30 @@ fn every(value: &str) -> Vec<Task> {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
+        },
+        Task::Export {
+            folder: owned(),
+            kinds: Vec::new(),
+            yes: false,
+        },
+        Task::Export {
+            folder: owned(),
+            kinds: vec![Kind::Skill, Kind::Mcp],
+            yes: true,
+        },
+        Task::Backup {
+            url: owned(),
+            branch: Some(owned()),
+            kinds: vec![Kind::Rule],
+            message: Some(owned()),
+            token_env: Some(owned()),
+        },
+        Task::Backup {
+            url: owned(),
+            branch: None,
+            kinds: Vec::new(),
+            message: None,
+            token_env: None,
         },
         Task::Install {
             projects: vec![owned(), String::from("plain")],
@@ -1406,14 +1432,6 @@ fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_or_shows() {
         ),
         ("mindweaver activate", Refusal::Shell),
         ("mind weaver activate --shell fish work", Refusal::Shell),
-        (
-            "mindweaver backup https://example.com/library.git",
-            Refusal::Sends,
-        ),
-        (
-            "mind weaver backup ../library.git --kind skills --token-env TOKEN",
-            Refusal::Sends,
-        ),
         ("mind show deploy", Refusal::Unheld),
         ("mind -C alpha show --json rule:style", Refusal::Unheld),
         ("mindweaver show -p alpha deploy", Refusal::Unheld),
@@ -1468,6 +1486,11 @@ fn a_front_end_with_no_terminal_runs_everything_else() {
         // never a prompt (#112).
         "mindweaver gather git https://example.com/skills.git",
         "mind weaver gather git --path tools --ref v2 /srv/git/skills",
+        // The network too, followed and stopped until it pushes, and
+        // never a prompt from git: refused until it reported its steps.
+        "mindweaver backup https://example.com/library.git",
+        "mind weaver backup ../library.git --kind skills --token-env TOKEN",
+        "mindweaver export --kind rules --yes ../backup",
         "mindweaver install -p alpha deploy",
         "mindweaver install --all-projects deploy",
         // Half an install, which opens no screen: the command refuses it
@@ -1507,11 +1530,11 @@ fn a_task_is_refused_for_the_first_of_its_lines_that_is() {
     }
 }
 
-/// A gather is followed as it goes and stopped when asked, whichever
-/// binary spells it and whatever it is told; nothing else is, a gather's
-/// list among it.
+/// A gather and a backup are followed as they go and stopped when asked,
+/// whichever binary spells them and whatever they are told; nothing else
+/// is, a gather's list and an export among it.
 #[test]
-fn a_front_end_follows_a_gather_and_nothing_else() {
+fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
     for said in [
         "mindweaver gather git https://example.com/skills.git",
         "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
@@ -1521,7 +1544,15 @@ fn a_front_end_follows_a_gather_and_nothing_else() {
         assert_eq!(followed(&line(said)), Some(Followed::Gather), "{said}");
     }
     for said in [
+        "mindweaver backup https://example.com/library.git",
+        "mindweaver -W /home/you/work backup --branch library --kind skills /srv/git/library.git",
+        "mind weaver backup --token-env GITHUB_TOKEN -m saved git@example.com:you/library.git",
+    ] {
+        assert_eq!(followed(&line(said)), Some(Followed::Backup), "{said}");
+    }
+    for said in [
         "mindweaver gather list",
+        "mindweaver export ../backup",
         "mindweaver link alpha",
         "mind install deploy",
         "mindweaver",
@@ -1539,7 +1570,7 @@ fn a_front_end_follows_a_gather_and_nothing_else() {
 fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
     let values = VALUES.into_iter().filter(|value| !value.is_empty());
     for task in values.flat_map(every) {
-        let expected = matches!(task, Task::Gather { .. });
+        let expected = matches!(task, Task::Gather { .. } | Task::Backup { .. });
 
         assert_eq!(task.runs_apart(), expected, "{task:?}");
     }
@@ -1606,7 +1637,6 @@ fn a_refusal_says_why_by_a_code_of_its_own() {
         Refusal::Shell,
         Refusal::Unheld,
         Refusal::Panel,
-        Refusal::Sends,
     ]
     .iter()
     .map(Refusal::code)
@@ -1723,6 +1753,9 @@ fn a_task_is_asked_about_for_each_of_its_lines_that_takes_something_away() {
                 vec![(0, Caution::Uninstalls)]
             }
             Task::Update { force: true, .. } => vec![(0, Caution::Forces)],
+            // What an earlier export wrote and the library no longer holds
+            // is deleted from the folder.
+            Task::Export { yes: true, .. } => vec![(0, Caution::Removes)],
             Task::Unlink { .. } => vec![(0, Caution::Unlinks)],
             Task::Unload { .. } | Task::UnloadHere { .. } => vec![(0, Caution::Unloads)],
             // `mind -C <path> init`, `mindweaver link` and `mindweaver unlink`.
@@ -1917,10 +1950,18 @@ fn a_line_holding_values_drawn_at_random_is_shown_as_the_words_it_runs() {
     }
 }
 
-/// The tasks that carry a URL to a line: a gather's address, and an
-/// install's origin, which names a source by its address.
+/// The tasks that carry a URL to a line: a gather's address, a backup's
+/// repository, and an install's origin, which names a source by its
+/// address.
 fn carrying(url: &str) -> Vec<Task> {
     vec![
+        Task::Backup {
+            url: url.to_owned(),
+            branch: Some(String::from("library")),
+            kinds: vec![Kind::Skill],
+            message: None,
+            token_env: Some(String::from("GITHUB_TOKEN")),
+        },
         Task::Gather {
             url: url.to_owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
@@ -2122,4 +2163,73 @@ fn a_servers_add_and_edit_are_its_options_words_each_secret_a_variables_name() {
     );
     assert_eq!(added.refusal(), None);
     assert_eq!(edited.refusal(), None);
+}
+
+/// An export names each kind asked for by its folder's word, and none for
+/// every kind, and says `--yes` only when told; the folder is a value
+/// wherever it starts.
+#[test]
+fn an_export_is_the_line_the_cli_takes_and_told_yes_only_when_asked() {
+    for (task, said) in [
+        (
+            Task::Export {
+                folder: String::from("/home/you/backup"),
+                kinds: Vec::new(),
+                yes: false,
+            },
+            "mindweaver export /home/you/backup",
+        ),
+        (
+            Task::Export {
+                folder: String::from("/home/you/backup"),
+                kinds: vec![Kind::Skill, Kind::Mcp],
+                yes: true,
+            },
+            "mindweaver export --kind skills --kind mcp --yes /home/you/backup",
+        ),
+        (
+            Task::Export {
+                folder: String::from("-odd"),
+                kinds: vec![Kind::Rule],
+                yes: false,
+            },
+            "mindweaver export --kind rules -- -odd",
+        ),
+    ] {
+        assert_eq!(task.commands(), [words_of(said)], "{task:?}");
+        assert!(task.writes(), "{task:?}");
+    }
+}
+
+/// A backup says each option only when it has something to say, the
+/// variable a token is read from by its name, and the repository last.
+#[test]
+fn a_backup_is_the_line_the_cli_takes_naming_a_token_by_its_variable() {
+    for (task, said) in [
+        (
+            Task::Backup {
+                url: String::from("https://github.com/you/library.git"),
+                branch: None,
+                kinds: Vec::new(),
+                message: None,
+                token_env: None,
+            },
+            "mindweaver backup https://github.com/you/library.git",
+        ),
+        (
+            Task::Backup {
+                url: String::from("git@github.com:you/library.git"),
+                branch: Some(String::from("library")),
+                kinds: vec![Kind::Skill, Kind::Rule],
+                message: Some(String::from("- weekly")),
+                token_env: Some(String::from("GITHUB_TOKEN")),
+            },
+            "mindweaver backup --branch library --kind skills --kind rules \
+             '--message=- weekly' --token-env GITHUB_TOKEN git@github.com:you/library.git",
+        ),
+    ] {
+        assert_eq!(task.commands(), [words_of(said)], "{task:?}");
+        assert!(task.writes() && task.runs_apart(), "{task:?}");
+        assert!(task.cautions().is_empty(), "{task:?}");
+    }
 }

@@ -38,6 +38,7 @@ pub mod draft;
 pub mod everywhere;
 pub mod exclude;
 pub mod export;
+pub mod follow;
 pub mod frontmatter;
 pub mod gather;
 pub mod hash;

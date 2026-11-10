@@ -16,15 +16,15 @@ use ratatui::Frame;
 
 use super::minds::{self, Minds};
 use super::state::{
-    AddField, AddForm, App, Confirm, Focus, GatherForm, Input, Item, LinkForm, LoadForm, Member,
-    Mode, Reader, RenameForm, Running, Scope, SettingsForm, TargetsForm, Task, Tone, View,
-    Workspace, GATHER_FIELDS,
+    AddField, AddForm, App, BackupForm, Confirm, ExportForm, Focus, GatherForm, Input, Item,
+    LinkForm, LoadForm, Member, Mode, Reader, RenameForm, Running, Scope, SettingsForm,
+    TargetsForm, Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS,
 };
 use crate::commands::project::worth_linking;
 use crate::install::ui::{centred, pane, selected};
 use crate::progress::said;
 use crate::render::{plural, printable};
-use crate::task::MindsChange;
+use crate::task::{followed, Followed, MindsChange};
 
 /// How wide a form's labels are, so the values line up.
 const LABEL: u16 = 13;
@@ -45,6 +45,8 @@ pub fn draw(app: &App, frame: &mut Frame) {
             Mode::Linking(form) => linking(app, form, frame, area),
             Mode::Loading(form) => loading(app, form, frame, area),
             Mode::Gathering(form) => gathering(form, frame, area),
+            Mode::Exporting(form) => exporting(form, frame, area),
+            Mode::Backing(form) => backing(form, frame, area),
             Mode::Confirming(confirm) => confirming(confirm, frame, area),
             Mode::Reading(reader) => reading(reader, frame, area),
             Mode::Minds(screen) => minds_screen(app, screen, frame, area),
@@ -654,7 +656,7 @@ fn footer(app: &App, frame: &mut Frame, area: Rect) {
             "q quit  ? keys  enter show  e edit  r rename  d delete  a add  ← back  v validate"
         }
         (Focus::Projects, Scope::Workspace) => {
-            "q quit  ? keys  → open  a add  u update  m minds  l link  U unlink  v validate  g gather  L load  s shelf  i install  t agents  T targets  w workspaces"
+            "q quit  ? keys  → open  a add  u update  m minds  l link  U unlink  v validate  g gather  L load  s shelf  i install  t agents  T targets  w workspaces  x export  b backup"
         }
         (Focus::Projects, Scope::Project) => {
             "q quit  ? keys  → open  a add  v validate  l link it to the workspace above  L load  t agents  T targets  w workspaces"
@@ -1078,6 +1080,96 @@ fn gathering(form: &GatherForm, frame: &mut Frame, area: Rect) {
     keys(frame, rows[6], "enter gather   tab next   esc cancel");
 }
 
+/// The export form: the folder, a tick for each kind, the yes that lets it
+/// change or remove what an earlier export wrote, and what it would run.
+fn exporting(form: &ExportForm, frame: &mut Frame, area: Rect) {
+    let count = ExportForm::lines();
+    let height = u16::try_from(count).unwrap_or(5) + 6;
+    let inner = popup(frame, area, "Export the library into a folder", 84, height);
+    let rows = lines(inner, count + 4);
+
+    input(frame, rows[0], "folder", &form.folder, form.field == 0);
+    for (at, (kind, ticked)) in form.kinds.iter().enumerate() {
+        kind_line(frame, rows[at + 1], *kind, *ticked, form.field == at + 1);
+    }
+    let yes = ExportForm::yes_field();
+    let line = Line::from(vec![
+        label("replace", form.field == yes),
+        tick(form.yes),
+        Span::styled(
+            "  change or remove what an earlier export wrote there, asked first",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), rows[yes]);
+    runs(frame, rows[count + 1], form.task().ok().as_ref());
+    error(frame, rows[count + 2], form.error.as_deref());
+    keys(
+        frame,
+        rows[count + 3],
+        "enter export   tab next   space tick   esc cancel",
+    );
+}
+
+/// The backup form: the repository, a branch, a message and the variable
+/// a token is read from, a tick for each kind, and what it would run.
+fn backing(form: &BackupForm, frame: &mut Frame, area: Rect) {
+    let count = BackupForm::lines();
+    let height = u16::try_from(count).unwrap_or(7) + 7;
+    let inner = popup(
+        frame,
+        area,
+        "Back the library up to a git repository",
+        84,
+        height,
+    );
+    let rows = lines(inner, count + 5);
+
+    for (index, name) in BACKUP_FIELDS.iter().enumerate() {
+        input(
+            frame,
+            rows[index],
+            name,
+            form.input(index),
+            form.field == index,
+        );
+    }
+    let typed = BACKUP_FIELDS.len();
+    for (at, (kind, ticked)) in form.kinds.iter().enumerate() {
+        kind_line(
+            frame,
+            rows[typed + at],
+            *kind,
+            *ticked,
+            form.field == typed + at,
+        );
+    }
+    // What `token env` takes, under the rest, rather than in a key line too
+    // long to fit: a variable's name, which is all a form is ever given.
+    let hint = Line::from(vec![
+        Span::raw(" ".repeat(usize::from(LABEL))),
+        Span::styled(
+            "token env: a variable's name, never a token; empty logs in as git does",
+            dim(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(hint), rows[count]);
+    runs(frame, rows[count + 1], form.task().ok().as_ref());
+    error(frame, rows[count + 2], form.error.as_deref());
+    keys(
+        frame,
+        rows[count + 4],
+        "enter back up   tab next   space tick   esc cancel",
+    );
+}
+
+/// One kind's line of a form, ticked or not: the kinds an export or a
+/// backup takes.
+fn kind_line(frame: &mut Frame, area: Rect, kind: Kind, ticked: bool, focused: bool) {
+    let line = Line::from(vec![label(kind.folder(), focused), tick(ticked)]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
 fn confirming(confirm: &Confirm, frame: &mut Frame, area: Rect) {
     const WIDTH: u16 = 76;
 
@@ -1420,15 +1512,15 @@ fn watching(running: &Running, frame: &mut Frame, area: Rect) {
     let step = running
         .progress
         .map_or_else(|| String::from("starting"), said);
+    let (late, cancelling) = stops_short_of(&running.task);
     let (stop, style) = match running.progress {
-        // Past the gather's last check, where `esc` changes nothing: said, so
+        // Past the run's last check, where `esc` changes nothing: said, so
         // that neither the key nor a cancel already asked for promises a stop
-        // the gather will not make. Loud only for whoever asked for one.
-        Some(progress) if !progress.cancellable() => (
-            "too late to cancel: placing",
-            if running.cancelling { warn() } else { dim() },
-        ),
-        _ if running.cancelling => ("cancelling, before anything is placed", warn()),
+        // the run will not make. Loud only for whoever asked for one.
+        Some(progress) if !progress.cancellable() => {
+            (late, if running.cancelling { warn() } else { dim() })
+        }
+        _ if running.cancelling => (cancelling, warn()),
         _ => ("esc cancels", dim()),
     };
     let longest = [command.chars().count(), step.chars().count(), stop.len()]
@@ -1450,6 +1542,22 @@ fn watching(running: &Running, frame: &mut Frame, area: Rect) {
         Line::from(Span::styled(stop, style)),
     ];
     frame.render_widget(Paragraph::new(text).block(block), box_);
+}
+
+/// What a run says once a cancel is too late, and while one asked in time
+/// is honoured: a gather stops short of placing, a backup of pushing. By
+/// what the task's lines are, as the one list says ([`followed`]).
+fn stops_short_of(task: &Task) -> (&'static str, &'static str) {
+    match task.commands().iter().find_map(|line| followed(line)) {
+        Some(Followed::Backup) => (
+            "too late to cancel: pushing",
+            "cancelling, before anything is pushed",
+        ),
+        Some(Followed::Gather) | None => (
+            "too late to cancel: placing",
+            "cancelling, before anything is placed",
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------

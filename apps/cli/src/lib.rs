@@ -24,7 +24,7 @@ pub mod install;
 #[cfg(feature = "schema")]
 pub mod openapi;
 pub(crate) mod parse;
-pub(crate) mod progress;
+pub mod progress;
 pub(crate) mod render;
 #[cfg(feature = "ui")]
 pub mod routes;

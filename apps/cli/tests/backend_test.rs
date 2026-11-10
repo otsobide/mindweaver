@@ -3620,3 +3620,198 @@ fn a_task_that_is_no_gather_takes_no_cancel_and_reports_nothing() {
     assert!(steps.lock().unwrap().is_empty());
     assert!(!underway.is_cancelled());
 }
+
+// ---------------------------------------------------------------------------
+// Exporting and backing up the library
+// ---------------------------------------------------------------------------
+
+/// A workspace linking `alpha` and `beta`, its library holding `deploy`.
+fn library_to_send() -> TempDir {
+    let dir = workspace_with_two();
+    weaver(dir.path(), &["add", "skill", "deploy", "Ship it"]).unwrap();
+    dir
+}
+
+fn export(folder: &Path, yes: bool) -> Task {
+    task(json!({"type": "export", "folder": folder.to_str().unwrap(),
+                "kinds": ["skill"], "yes": yes}))
+}
+
+fn backup(url: &str, token_env: Option<&str>) -> Task {
+    task(
+        json!({"type": "backup", "url": url, "branch": null, "kinds": [],
+                "message": null, "token_env": token_env}),
+    )
+}
+
+/// A bare repository with no commit, its `HEAD` naming `main`, as a new
+/// repository on a forge is.
+fn bare_remote() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    gix::init_bare(dir.path()).unwrap();
+    fs::write(dir.path().join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    dir
+}
+
+/// The branches the repository at `remote` holds, by name.
+fn branches(remote: &Path) -> Vec<String> {
+    let repository = gix::open(remote).unwrap();
+    let references = repository.references().unwrap();
+    let mut names: Vec<String> = references
+        .local_branches()
+        .unwrap()
+        .map(|reference| reference.unwrap().name().shorten().to_string())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn an_export_is_previewed_and_run_into_the_folder_named_asked_about_only_when_it_takes_away() {
+    let dir = library_to_send();
+    let root = dir.path();
+    let backend = backend(root);
+    let elsewhere = TempDir::new().unwrap();
+    let folder = elsewhere.path().join("backup");
+
+    let preview = backend.preview(&export(&folder, false)).unwrap();
+    let outcome = backend.run(export(&folder, false)).unwrap();
+
+    assert_eq!(
+        preview.lines,
+        [format!(
+            "mindweaver -W {} export --kind skills {}",
+            root.display(),
+            folder.display()
+        )]
+    );
+    assert!(preview.confirm.is_empty());
+    assert!(!preview.cancellable);
+    assert!(outcome.ok, "{outcome:?}");
+    assert!(outcome.runs[0].stdout.contains("added  skill  deploy"));
+    assert!(folder
+        .join(".mindweaver/library/skills/deploy/SKILL.md")
+        .is_file());
+    let told = backend.preview(&export(&folder, true)).unwrap();
+    assert_eq!(
+        told.confirm,
+        [json!({"line": 0, "caution": "removes",
+                "message": "deletes an artifact: its folder and everything in it, or its file"})]
+    );
+}
+
+#[test]
+fn a_backup_is_previewed_as_a_run_that_takes_a_cancel_and_asks_nothing() {
+    let dir = library_to_send();
+    let root = dir.path();
+    let backend = backend(root);
+    let remote = bare_remote();
+    let url = remote.path().to_str().unwrap();
+
+    let preview = backend.preview(&backup(url, Some("GITHUB_TOKEN"))).unwrap();
+
+    assert_eq!(
+        preview.lines,
+        [format!(
+            "mindweaver -W {} backup --token-env GITHUB_TOKEN {url}",
+            root.display()
+        )]
+    );
+    assert!(preview.confirm.is_empty());
+    assert!(preview.cancellable);
+}
+
+/// A cancel the server hands a backup at its first step stops it before
+/// `git` runs at all, as one at any step before the push stops it before
+/// anything is sent: the repository is as it was, and the check-out gone.
+/// Its later steps, which run `git`, are followed by the API's end to end
+/// suite (`api_e2e::following`), where `ui` runs with a home of its own:
+/// run here, `git` would read the configuration of whoever runs the tests.
+#[cfg(unix)]
+#[test]
+fn a_cancel_at_a_backup_s_first_step_sends_nothing_and_leaves_the_repository_as_it_was() {
+    let dir = library_to_send();
+    let root = dir.path();
+    let backend = backend(root);
+    let remote = bare_remote();
+    let url = remote.path().to_str().unwrap();
+    let (underway, steps) = followed(|step| step["stage"] == "checking_out");
+
+    let outcome = backend.followed(backup(url, None), &underway).unwrap();
+
+    assert!(!outcome.ok, "{outcome:?}");
+    assert_eq!(
+        outcome.runs[0].error.as_ref().map(|error| error.code),
+        Some("backup_cancelled"),
+        "{outcome:?}"
+    );
+    let steps = steps.lock().unwrap();
+    assert_eq!(
+        *steps,
+        [json!({"stage": "checking_out", "done": null, "total": null,
+                "said": "checking the repository out", "cancellable": true})]
+    );
+    contract::contract(|contract| contract.holds("/components/schemas/Step", &steps[0])).unwrap();
+    assert!(branches(remote.path()).is_empty());
+    let scratch = WeaverWorkspace::open(root).unwrap().scratch_dir();
+    assert!(!scratch.exists() || fs::read_dir(&scratch).unwrap().next().is_none());
+}
+
+/// A cancel sent as soon as the run is told started stops a backup at its
+/// first look, before it says any step.
+#[cfg(unix)]
+#[test]
+fn a_cancel_before_the_backup_starts_stops_it_before_anything() {
+    let dir = library_to_send();
+    let backend = backend(dir.path());
+    let remote = bare_remote();
+    let (underway, steps) = followed(|_| false);
+    underway.cancel();
+
+    let outcome = backend
+        .followed(backup(remote.path().to_str().unwrap(), None), &underway)
+        .unwrap();
+
+    assert_eq!(
+        outcome.runs[0].error.as_ref().map(|error| error.code),
+        Some("backup_cancelled"),
+        "{outcome:?}"
+    );
+    assert!(steps.lock().unwrap().is_empty());
+    assert!(branches(remote.path()).is_empty());
+}
+
+#[test]
+fn a_backup_is_refused_a_repository_or_a_token_s_variable_the_policy_does_not_allow() {
+    let dir = library_to_send();
+    let backend = backend(dir.path());
+
+    for (sent, code) in [
+        (backup("../library.git", None), "path_relative"),
+        (
+            backup("https://github.com/you/library.git", Some("HOME")),
+            "token_variable_refused",
+        ),
+        (
+            backup("https://github.com/you/library.git", Some("GITHUB TOKEN")),
+            "token_variable_refused",
+        ),
+    ] {
+        let refused = backend.preview(&sent).unwrap_err();
+
+        assert_eq!(refused.code, code, "{sent:?}");
+        assert_eq!(refused.grounds, Grounds::Unfit, "{sent:?}");
+        let refused = backend.run(sent.clone()).unwrap_err();
+        assert_eq!(refused.code, code, "{sent:?}");
+    }
+    let elsewhere = TempDir::new().unwrap();
+    let inside = dir.path().join(".mindweaver").join("export");
+    for (folder, code) in [
+        (Path::new("backup"), "path_relative"),
+        (inside.as_path(), "path_in_mindflayer"),
+    ] {
+        let refused = backend.preview(&export(folder, false)).unwrap_err();
+        assert_eq!(refused.code, code, "{folder:?}");
+    }
+    drop(elsewhere);
+}
