@@ -2562,6 +2562,13 @@ type derives `Serialize` from the start:
   where a licence was read is a word of core's, and no word a command line
   takes. Names added, which move neither `ENVELOPE_VERSION` nor
   `view::FORMAT`.
+- **Counted by #100**: how much of each source the shelf holds and when it
+  was last gathered, as `shelved` (a `KindCount` a kind it holds any of)
+  and `gathered_at` (`null` while it holds nothing) on each of the
+  snapshot's `sources` (`view::ShelfSource`), which `mindweaver gather
+  sources --json` prints whole; and what a gather took off the shelf, as
+  `removed` on its `Report`. Names added, which move neither
+  `ENVELOPE_VERSION` nor `view::FORMAT`.
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3298,8 +3305,10 @@ installed from it keeps its origin and an update finds its offer. The pin is
 written with the revision once the shelf has changed (`saw_source`), so a
 source is pinned exactly while its shelf holds what a pin took: a gather that
 fails or is cancelled leaves it pinned as it was, and one with no `--pin`
-unpins it, since `gather git` says in full what to take and there is no
-other command that gathers a source again. The report says `, pinned` after
+unpins it, since `gather git` says in full what to take. `gather update`
+(#100), which gathers a source again as the ledger records it, takes its
+pin again, so following the branch is still asked for by `gather git`
+alone. The report says `, pinned` after
 the revision, and `gather list` gives a pinned source's commit a column of
 its own, beside the name `--from` takes rather than in it.
 
@@ -3386,6 +3395,97 @@ is a warning beside the forty that came through, not a reason to be told
 nothing. One that reads but breaks a rule is taken, with a warning for each
 problem ([Strict when writing, lenient when
 reading](#strict-when-writing-lenient-when-reading)).
+
+### What a source offers no more
+
+Until #100 a skill its repository deleted stayed on the shelf for good: its
+folder there and its row, offered by `gather list` and the install screen,
+and what was installed from it never found orphaned. A gather now takes off
+the shelf, once what it offers is placed, what the ledger records of the
+source and the gather did not take (`gather::gone`), and says it as
+`removed` in its report (`Report::removed`), after the rest of the count and
+only when something was, so a gather that removed nothing reads, and logs,
+as it did. A dry run says the same as `would remove`, taking nothing.
+
+Gone is a skill whose folder the source no longer has: the folder on the
+shelf, the last part of the path the ledger recorded, is none of the
+folders of every skill the gather found, taken or not (`Examined::folders`).
+By the folder rather than by the name, since a skill the gather found and
+could not take, a manifest that will not read this time or a name two
+skills share, is still the source's: it is left as it was, its warning
+saying why, rather than taken away for a fault upstream that the next
+commit may mend. A skill at the root that will not read, which is filed
+under the name it would declare, leaves no folder to tell, and then
+nothing is taken for gone. A name the gather took nothing of whose folder
+it placed another skill in, one renamed where it is, has its row forgotten
+and its folder kept, since that is the new name's now.
+
+Only the folder one level down from the source's own folder on the shelf,
+and only where the ledger's path names exactly that, is taken away: a row
+naming anything else is forgotten and its path left, being nothing a gather
+of the source put there. A folder that will not go keeps its row, so the
+shelf and the ledger say one thing of it, and is said
+(`gathered_unremoved`); the next gather tries again. Forgotten through the
+store (`LedgerStore::forget_gathered`), one source's name at a time, so what
+another source offers under the name stays. What was installed from it is
+the project's still, recorded, and `orphaned` now that nothing offers it,
+for `uninstall --orphaned` to take out when somebody asks.
+
+### Managing the sources
+
+What comes after a gather registers a source is `sources` (#100), each by
+the name a source is called (D-13), which `mindweaver gather sources` lists
+and every command here takes.
+
+- **Listed** as the snapshot lists them (`view::ShelfSource::read`): the
+  ledger's row, its origin, how much of it the shelf holds of each kind
+  (`shelved`) and when its last gather put that there (`gathered_at`, the
+  latest of its artifacts' times, a gather recording every artifact it
+  takes, changed or not), counted from the shelf's rows in core, as every
+  count a view shows is. From the rows rather than from the source's
+  `last_seen`, which a source gets at registering too, before any gather of
+  it placed anything; a source whose every gather failed holds nothing and
+  says no time. The text says it in UTC, worked out in the CLI from the
+  days since the epoch (`render::utc`): a crate of dates for one line was
+  the other way, and the machine's own zone would make one listing read
+  two ways.
+- **Renamed** (`sources::rename`) by the rules and the codes `gather git
+  --name` has (`source_name_invalid`, `source_name_taken`), said in words of
+  their own and echoing the gather's codes, so a script reads one condition
+  by one code whichever command it typed. A name is no part of an origin,
+  so what was installed from it is found where it was.
+- **Gathered again** (`sources::update`, `gather::Request::again`): from
+  the URL the ledger stored, at its branch, from its folder, and at its pin
+  while it has one, so a pinned source takes its commit again; following the
+  branch again is `gather git` without `--pin`, which says in full what to
+  take. The sources an update names are chosen first (`sources::chosen`),
+  refused whole for a name no source has before anything is fetched, every
+  one when none is named. Each is a gather of its own, holding the workspace
+  for itself, so another command can write between two of them; one that
+  fails is said beside the rest, and a cancel stops the update there, those
+  after it not tried. A token is handed to each, as `gather git` takes one,
+  read before any fetch: the variable once, `gh` once a host.
+- **Forgotten** (`sources::removal`, the dry run, then `sources::remove`):
+  its clone in the cache and its folder on each kind's shelf, by the folder
+  name the ledger records, then its rows (`forget_source`, which cascades to
+  what it gathered and lets go of each installation from it), and a line in
+  the log (`forget`). Only one folder name, one level down from the cache
+  and from each shelf, which is all a gather puts there, and none that is a
+  link, which a removal would reach through: refused whole otherwise
+  (`source_folder_unrecorded`, `source_folder_linked`), nothing removed.
+  The workspace is held from before the source is read until its rows are
+  gone. The folders go before the rows, so one that will not go leaves the
+  source, said (`source_unremoved`), for the next removal to take what is
+  left; rows gone first would leave a folder no source names. What was
+  installed from it is listed (`LedgerStore::installed_from`) and left
+  where it is, its record kept with its origin, `orphaned`.
+
+The TUI's sources screen (`S`) is the snapshot's list, one picked: `u`
+gathers it again and `U` every one, each the task a gather's line is, run
+apart and stopped as a gather is (`Task::UpdateSources`), and `d` forgets it
+once somebody says yes (`Task::RemoveSource`), which every front end with no
+terminal asks about first (`Caution::Forgets`). The panel's page of them is
+#113's.
 
 ### Following a gather, and stopping it
 
@@ -4294,8 +4394,9 @@ guess between two.
   an edited copy left alone is a warning either way, as an install refused
   over it is, since what was asked for is not all done.
 - **Nothing is gathered.** An update copies what the shelf holds now; a
-  gather is what moves the shelf, and refreshing a source is its own
-  command (#100).
+  gather is what moves the shelf, and gathering a source again is its own
+  command, `mindweaver gather update` (#100, [managing the
+  sources](#managing-the-sources)).
 
 The CLI lays it out (`commands/update.rs`): a line for each installation
 written, `updated`, `put back ... at`, or `updated ..., writing over the
@@ -6011,7 +6112,9 @@ it, given to nothing else, as no code is ever given to another condition.
 Beside it, and read the same way, is what a line takes away
 (`task::Caution`, `task::cautions`): `remove --yes` deletes, `uninstall`
 and `mindweaver remove --everywhere --yes` take copies out, `unlink` and
-`unload` make the workspace forget a project or a load, and `--force` on an
+`unload` make the workspace forget a project or a load, `gather remove
+--yes` forgets a source, its shelf and its clone deleted and what was
+installed from it left orphaned (`Caution::Forgets`), and `--force` on an
 install, an uninstall or an update told `--yes` writes over or takes out an
 edited copy. A front end with no terminal asks somebody before it runs such
 a line, the panel with each preview ([its changes](#its-changes)); a match
@@ -6021,8 +6124,9 @@ questions still, worded for its rows ([open questions](#open-questions)).
 
 And beside both, read the same way again, is what a line does that a front
 end follows while it runs and can stop (`task::Followed`, `task::followed`):
-`gather git` and `backup`, each of which reports each step through core's
-watch and stops on its cancel. The TUI runs a task with such a line apart,
+`gather git`, `gather update`, a gather of each source in turn, and
+`backup`, each of which reports each step through core's watch and stops
+on its cancel. The TUI runs a task with such a line apart,
 drawing its steps with a key that cancels it (`Task::runs_apart`), and the
 panel's backend says with each preview that a run of it takes a cancel, and
 hands it the server's ([a run under
@@ -11651,7 +11755,12 @@ other, and none of them makes a reader wait for the workspace.
   (`relink::new_id`), as a change to the agents does. An adoption holds it
   from the plan it makes again until its record is written
   (`adopt::apply`), so what the ledger says was adopted is what the library
-  holds. Two workspaces
+  holds. A source's rename holds it while it looks for the name and writes
+  it (`sources::rename`), as a gather naming its source holds it, and a
+  source's removal from before it reads the source until its rows are gone
+  (`sources::remove`), since a gather of it beside would be cloning into the
+  folder being taken away; an update of several sources holds it once a
+  gather, each taking it for itself (`sources::update`). Two workspaces
   linking one project are kept apart by neither's lock
   ([open questions](#open-questions)).
 - **Opening the ledger takes no lock**, though it is when a ledger is made or
@@ -12418,6 +12527,12 @@ source](#everything-is-namespaced-by-its-source)), the name and the identity
 among it, and the columns the marketplace's children will use; `--from`
 still takes the origin an install records beside the name, since every
 record and every `origin` the envelope and the snapshot hold spell it.
+#100 carried out refreshing and removing one ([managing the
+sources](#managing-the-sources)), each by its name: `gather sources` lists
+what a command takes, `gather rename` changes it, `gather update` gathers
+again and `gather remove` forgets. A marketplace's children, which #103
+brings, are what a removal of their parent will cascade to through
+`parent_id`; a git source has none.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -13585,6 +13700,46 @@ repository, stays on `gix`.
   projects and the library would make it one change, at the price of a body
   of each uninstall, rules' render included, that runs under a lock it does
   not take, as an update has.
+- **Forgetting a source is not staged either.** `gather remove --yes`
+  deletes the clone and each shelf folder where they are, then the rows, so
+  one stopped halfway leaves the source recorded with some of its folders
+  gone, its listing naming skills whose copies are not there, until a
+  removal is run again and takes the rest. No agent reads the shelf or the
+  cache, so nothing reads the half; renaming the folders into the
+  workspace's scratch folder first would make it all or nothing.
+- **A source gathered by a relative path, gathered again.** A URL is stored
+  as typed, so `gather update` fetches `../src/skills` from wherever the
+  command runs, as `gather git` did, and from somewhere else finds another
+  folder or none. Resolving it against the workspace's root, or storing it
+  absolute, would change the identity a relative path is today ([everything
+  is namespaced by its source](#everything-is-namespaced-by-its-source)),
+  and every origin installed from it.
+- **One token for every source an update gathers.** `--token-env` and
+  `--gh` hand a token to each source named, or to every one with `--all`,
+  and a source no token is sent to, over ssh or by a path, refuses it, said
+  beside the rest. Handing it only to the sources it can go to would make
+  `--all --gh` quiet on a mixed shelf, at the price of a token named and not
+  used without a word, which a gather refuses on purpose.
+- **A skill gone upstream goes at once.** A gather takes off the shelf what
+  its source no longer has, with no question asked, as it writes what
+  changed, the dry run saying it first when asked. A source somebody wants
+  to keep as it was is pinned; a gather that kept what is gone until told
+  was the other way, which would leave the shelf offering what no source
+  has.
+- **What a removal of a parent leaves.** A marketplace's children (#103)
+  are rows whose `parent_id` cascades from their parent's, which
+  `forget_source` would take with it, but `gather remove` takes away only
+  the folders of the source named: a parent's removal has to take each
+  child's clone and shelf folders too, and say each, once children exist.
+- **The TUI renames no source.** Its sources screen gathers again and
+  forgets; `gather rename` is the command line's, and the panel's page of
+  sources (#113) the place a form for it would go first.
+- **An update or a rename with nothing gathered makes the default
+  workspace.** `gather update --all` and `gather rename` open the ledger to
+  write, as `gather git` does, so on a machine with none they make
+  `~/.mindweaver` to say there is nothing there. Reading first and writing
+  only once a source is found would spare it, at the price of a second
+  opening of the ledger.
 - **A batch takes turns line by line.** The install screen's lines run one
   after another, and each install in them takes the workspace's lock for
   itself, project by project, as `mindweaver install` given several projects

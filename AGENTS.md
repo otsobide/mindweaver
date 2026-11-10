@@ -183,7 +183,13 @@ under `apps/` with its own `Makefile`:
   (`gather::dry_run`), a source pinned to a commit (`value::Pin`, fetched
   through `Remote::fetch`) and the licence each artifact gathered says it
   is under (`licence`), kept with where in its source it was and the hash of
-  its shelf copy (`ledger::Taken`), reading a catalog over HTTP (through
+  its shelf copy (`ledger::Taken`), what a source offers no more taken off
+  the shelf when it is gathered again (`gather::gone`, `Report::removed`),
+  each source listed with how much of it the shelf holds and when it was
+  last gathered (`view::ShelfSource::read`), and renamed, gathered again
+  and forgotten by its name, what was installed from it left orphaned
+  (`sources`: `chosen`, `rename`, `update`, `removal`, `remove`, and
+  `gather::Request::again`), reading a catalog over HTTP (through
   `port::Http`), the redirects core follows, a status that is no success,
   JSON read into what is asked and pages that follow one another
   (`http::Client`, `http::with_query`, `http::next_link`), and the answers a
@@ -665,7 +671,18 @@ These are easy to break from a single file without noticing.
   is recorded with its `upstream_path` (the harvest's route), the
   `hash::tree` of its shelf copy, the recipe an install keeps, and its
   licence as it says it (`licence::Licence::of`), all core's to read, and
-  `gather list` only shows them.
+  `gather list` only shows them. A gather takes off the shelf what its
+  source no longer has, by the folder, never one the gather found and
+  could not take (`gather::gone`), forgetting its row one source at a time
+  (`LedgerStore::forget_gathered`). After a gather, a source is listed,
+  renamed, gathered again and forgotten by its name (`sources`, #100),
+  `gather rename` refusing what `--name` refuses, by the same codes;
+  `gather update` gathers each as the ledger records it, its pin
+  included (`Request::again`); and `gather remove` takes away only the
+  folders the ledger records as the source's, one folder name under the
+  cache and under each shelf and never a link, before its rows, leaving
+  every installation from it recorded, orphaned
+  (`LedgerStore::installed_from`).
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -681,8 +698,8 @@ These are easy to break from a single file without noticing.
   by hand for a line built from text.
 - **Reading commands print JSON in one envelope, and its names are a
   contract.** A reading command's `--json` (`list`, `show`, `validate`,
-  `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`
-  and `gather list`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
+  `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`,
+  `gather list` and `gather sources`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
   [...], "coded_warnings": [...]}`, never a shape of its own, with what its
   text says on stderr as `warning:` lines in `warnings`, the same lines
   with their codes in `coded_warnings`, and the exit status its text has;
@@ -795,8 +812,8 @@ These are easy to break from a single file without noticing.
   - Creation uses `create_new` or `create_dir`.
   - `rename` rewrites only the `name:` line (`frontmatter::with_key`).
   - `remove` (`mindweaver remove --everywhere` too), `migrate` at either level,
-    `agents`, `share`, `targets`, `update` and `mindweaver adopt` are dry runs
-    without `--yes`, and so is `mindweaver export` when it would change or
+    `agents`, `share`, `targets`, `update`, `mindweaver adopt` and
+    `mindweaver gather remove` are dry runs without `--yes`, and so is `mindweaver export` when it would change or
     remove what an earlier export wrote (`export::export`, told `yes`); a
     folder it did not make, a workspace in use or one keeping a kind outside
     its library, is refused, never written into.
@@ -1261,7 +1278,9 @@ These are easy to break from a single file without noticing.
   project's settings until their change and every copy it carries along are
   written, `relink::relink`, from its ledger checks until the entry and the
   records it moves are written, `relink::new_id`, `adopt::apply`, from the
-  plan it makes again until its record is written, and `update::apply`, from the plan it makes again until its last
+  plan it makes again until its record is written, `sources::rename`, and
+  `sources::remove`, from before it reads the source until its rows are
+  gone (`sources::update` takes none, leaving it to each gather), and `update::apply`, from the plan it makes again until its last
   installation is written, through `install::install_held` (the body
   `install_with` hands to once it holds the lock) and
   `install::rules::update_held`, which take none of their own. A new
