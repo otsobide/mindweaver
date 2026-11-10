@@ -221,6 +221,23 @@ impl Request {
         self.token = token;
         self
     }
+
+    /// Gather `source` again, as the ledger records it (#100): its URL as
+    /// it was stored, at its branch, from its folder, and at its pin while
+    /// it has one, so a pinned source takes its commit again rather than
+    /// whatever its branch is at, which only `gather git` without `--pin`
+    /// asks for. Its name is the one it has, so none is given.
+    ///
+    /// Found again by the same coordinate ([`known`]), so it gathers into
+    /// the source it is, its folder on the shelf and its name kept.
+    pub fn again(source: &ledger::Source) -> Self {
+        match source.kind {
+            SourceKind::Git => Request::git(source.url.as_str())
+                .at(source.reference.clone())
+                .from_subdirectory(source.subdirectory.clone())
+                .pinned(source.pin.as_ref().map(|pin| pin.as_str().to_owned())),
+        }
+    }
 }
 
 /// The host a token for a gather of `typed` goes to, as a front end asks

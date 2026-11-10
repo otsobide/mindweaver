@@ -18,8 +18,8 @@ use crate::adapter::SystemClock;
 use crate::agent::Agent;
 use crate::kind::Kind;
 use crate::ledger::{
-    Action, Carried, Entry, EntryTarget, Forgotten, Gathered, InstallRecord, LedgerError, Merged,
-    Moved, Outcome, Source, SourceKind, Taken, Target,
+    Action, Carried, Entry, EntryTarget, Forgotten, FromSource, Gathered, InstallRecord,
+    LedgerError, Merged, Moved, Outcome, Source, SourceKind, Taken, Target,
 };
 use crate::licence::Licence;
 use crate::port::{Clock, LedgerStore};
@@ -842,6 +842,43 @@ impl LedgerStore for Sqlite {
             (&a.url, &a.reference, &a.subdirectory).cmp(&(&b.url, &b.reference, &b.subdirectory))
         });
         Ok(sources)
+    }
+
+    fn installed_from(&self, source: &Source) -> Result<Vec<FromSource>, LedgerError> {
+        let failed = |error| self.failed("reading what was installed from a source", error);
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT project, kind, name FROM installations
+                  WHERE source_id = ?1
+                  ORDER BY project, kind, name",
+            )
+            .map_err(failed)?;
+        let rows = statement
+            .query_map([source.id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(failed)?;
+        let mut installed = Vec::new();
+        for row in rows {
+            let (project, kind, name) = row.map_err(failed)?;
+            // A kind this build has never heard of is passed over, as a
+            // listing of the shelf passes one over.
+            if let Ok(kind) = kind.parse::<Kind>() {
+                installed.push(FromSource {
+                    project,
+                    kind,
+                    name: ArtifactName::from(name),
+                });
+            }
+        }
+        // In report order of the kinds rather than by their words.
+        installed.sort_by(|a, b| (&a.project, a.kind, &a.name).cmp(&(&b.project, b.kind, &b.name)));
+        Ok(installed)
     }
 
     fn installed(&self, project: &str, installation: &InstallRecord) -> Result<(), LedgerError> {

@@ -32,9 +32,12 @@ fn every_source_kind() -> Vec<SourceKind> {
 /// Every action, as [`every_source_kind`] lists the kinds.
 fn every_action() -> Vec<Action> {
     let listed = |action: Action| match action {
-        Action::Gather | Action::Install | Action::Uninstall | Action::Relink | Action::Adopt => {
-            action
-        }
+        Action::Gather
+        | Action::Install
+        | Action::Uninstall
+        | Action::Relink
+        | Action::Adopt
+        | Action::Forget => action,
     };
     [
         Action::Gather,
@@ -42,6 +45,7 @@ fn every_action() -> Vec<Action> {
         Action::Uninstall,
         Action::Relink,
         Action::Adopt,
+        Action::Forget,
     ]
     .into_iter()
     .map(listed)
@@ -213,6 +217,7 @@ fn each_action_is_written_as_the_word_the_log_has_always_held() {
             (Action::Uninstall, "uninstall"),
             (Action::Relink, "relink"),
             (Action::Adopt, "adopt"),
+            (Action::Forget, "forget"),
         ]
     );
 }

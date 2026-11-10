@@ -43,8 +43,8 @@ use crate::code::codes;
 use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
-    Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
-    Outcome, Source, SourceKind, Taken, Target,
+    Action, Carried, Entry, Forgotten, FromSource, Gathered, InstallRecord, LedgerError, Merged,
+    Moved, Outcome, Source, SourceKind, Taken, Target,
 };
 use crate::settings::ProjectId;
 use crate::url::carries_credentials;
@@ -904,6 +904,13 @@ pub trait LedgerStore: Debug + Send {
     /// older build stored with a credential is listed where the URL it is
     /// shown as goes.
     fn sources(&self) -> Result<Vec<Source>, LedgerError>;
+
+    /// Every installation of what `source` supplied, in any project, by
+    /// project, then kind, then name: what forgetting the source leaves
+    /// orphaned (`mindweaver gather remove`, #100), each still recorded,
+    /// its `origin` kept, once [`forget_source`](Self::forget_source) has
+    /// let go of it.
+    fn installed_from(&self, source: &Source) -> Result<Vec<FromSource>, LedgerError>;
 
     /// Record that an artifact was put into a project, replacing whatever was
     /// recorded of it before.
