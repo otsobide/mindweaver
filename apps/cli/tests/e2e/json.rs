@@ -265,7 +265,7 @@ fn gather_list_json_says_where_each_offer_comes_from_as_from_takes_it() {
                 "kind": "git",
                 "url": "../src/acme-skills",
                 "reference": null,
-                "subdirectory": "skills",
+                "subdirectory": ".",
                 "revision": revision,
                 "directory": "..-src-acme-skills",
                 "name": "src-acme-skills",

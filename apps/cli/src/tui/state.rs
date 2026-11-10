@@ -2242,7 +2242,7 @@ pub const GATHER_FIELDS: [&str; 3] = ["url", "folder", "ref"];
 #[derive(Debug, Clone)]
 pub struct GatherForm {
     pub url: Input,
-    /// The folder inside it to take skills from.
+    /// The folder inside it to take skills from; empty for all of it.
     pub folder: Input,
     /// A branch or tag; empty for the repository's default.
     pub reference: Input,
@@ -2251,11 +2251,13 @@ pub struct GatherForm {
     pub error: Option<String>,
 }
 
+/// Empty rather than holding the default folder, `.`, which a line names by
+/// saying nothing: the hint under the form says what an empty one means.
 impl Default for GatherForm {
     fn default() -> Self {
         Self {
             url: Input::default(),
-            folder: Input::with(DEFAULT_SUBDIRECTORY),
+            folder: Input::default(),
             reference: Input::default(),
             field: 0,
             error: None,

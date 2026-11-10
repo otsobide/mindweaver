@@ -507,9 +507,9 @@ impl LedgerStore for Sqlite {
             return Ok(existing);
         }
 
-        let directory = self.free_directory(&slug(&url))?;
+        // What a dry run says it would be given, by the same rule.
+        let (name, directory) = self.would_register(&url)?;
         let known_by = canonical(&url);
-        let name = self.free_name(&SourceName::derived(&known_by))?;
         let at = self.now();
         self.connection
             .execute(
@@ -541,6 +541,24 @@ impl LedgerStore for Sqlite {
             directory,
             name,
         })
+    }
+
+    fn would_register(&self, url: &str) -> Result<(SourceName, String), LedgerError> {
+        let url = redacted(url);
+        Ok((
+            self.free_name(&SourceName::derived(&canonical(&url)))?,
+            self.free_directory(&slug(&url))?,
+        ))
+    }
+
+    fn set_source_folder(&self, id: i64, subdirectory: &str) -> Result<(), LedgerError> {
+        self.connection
+            .execute(
+                "UPDATE sources SET subdirectory = ?2 WHERE id = ?1",
+                rusqlite::params![id, subdirectory],
+            )
+            .map(|_| ())
+            .map_err(|source| self.failed("moving a source to another folder", source))
     }
 
     fn source_named(&self, name: &SourceName) -> Result<Option<Source>, LedgerError> {

@@ -299,6 +299,180 @@ fn owner_and_repo_is_fetched_from_github_and_a_path_says_it_is_one() {
     }
 }
 
+/// What `located` reads `typed` as: the URL, the branch and the folder.
+fn at(typed: &str) -> (String, Option<String>, Option<String>) {
+    let found = located(typed);
+    (found.url, found.reference, found.path)
+}
+
+fn some(text: &str) -> Option<String> {
+    Some(text.to_owned())
+}
+
+#[test]
+fn owner_and_repo_at_a_branch_is_that_github_repository_at_that_branch() {
+    for (typed, reference) in [
+        ("acme/skills@v1.2", "v1.2"),
+        ("acme/skills@main", "main"),
+        ("acme/skills@feature/x", "feature/x"),
+        ("Acme/Skills.git@0123abc", "0123abc"),
+    ] {
+        let (url, branch, folder) = at(typed);
+        let repository = typed.split_once('@').unwrap().0;
+        assert_eq!(url, format!("https://github.com/{repository}"), "{typed}");
+        assert_eq!(branch, some(reference), "{typed}");
+        assert_eq!(folder, None, "{typed}");
+    }
+}
+
+#[test]
+fn a_branch_after_what_is_not_owner_and_repo_is_left_as_typed() {
+    for typed in [
+        "acme/skills@",
+        "./acme/skills@v1",
+        "acme/skills/more@v1",
+        "git@github.com:acme/skills.git",
+        "ssh://git@github.com/acme/skills",
+        "https://github.com/acme/skills@v1",
+        "/srv/git/skills@v1",
+    ] {
+        assert_eq!(at(typed), (typed.to_owned(), None, None), "{typed}");
+    }
+}
+
+#[test]
+fn a_folder_s_address_on_github_is_its_repository_branch_and_folder() {
+    for (typed, url, reference, folder) in [
+        (
+            "https://github.com/acme/skills/tree/main/skills/deploy",
+            "https://github.com/acme/skills",
+            "main",
+            some("skills/deploy"),
+        ),
+        (
+            "https://github.com/acme/skills/tree/v2",
+            "https://github.com/acme/skills",
+            "v2",
+            None,
+        ),
+        (
+            "https://github.com/acme/skills/tree/main/",
+            "https://github.com/acme/skills",
+            "main",
+            None,
+        ),
+        (
+            "https://www.github.com/acme/skills/tree/main/plugins/docs?tab=readme#top",
+            "https://github.com/acme/skills",
+            "main",
+            some("plugins/docs"),
+        ),
+        (
+            "HTTP://GitHub.com/acme/skills/tree/main/.claude/skills/",
+            "https://github.com/acme/skills",
+            "main",
+            some(".claude/skills"),
+        ),
+    ] {
+        assert_eq!(
+            at(typed),
+            (url.to_owned(), some(reference), folder),
+            "{typed}"
+        );
+    }
+}
+
+#[test]
+fn a_folder_s_address_on_gitlab_is_its_project_branch_and_folder_subgroups_too() {
+    for (typed, url, reference, folder) in [
+        (
+            "https://gitlab.com/acme/skills/-/tree/main/skills",
+            "https://gitlab.com/acme/skills",
+            "main",
+            some("skills"),
+        ),
+        (
+            "https://gitlab.com/acme/team/skills/-/tree/v1",
+            "https://gitlab.com/acme/team/skills",
+            "v1",
+            None,
+        ),
+        (
+            "https://gitlab.com/acme/skills/tree/main/skills/deploy",
+            "https://gitlab.com/acme/skills",
+            "main",
+            some("skills/deploy"),
+        ),
+    ] {
+        assert_eq!(
+            at(typed),
+            (url.to_owned(), some(reference), folder),
+            "{typed}"
+        );
+    }
+}
+
+/// A branch with a `/` reads as a shorter branch and a folder, as both
+/// tools read it: such a branch is given with `--ref` and `--path`.
+#[test]
+fn the_branch_of_a_folder_s_address_is_the_one_part_after_tree() {
+    assert_eq!(
+        at("https://github.com/acme/skills/tree/feature/x/skills"),
+        (
+            String::from("https://github.com/acme/skills"),
+            some("feature"),
+            some("x/skills")
+        )
+    );
+}
+
+#[test]
+fn an_address_that_names_no_folder_s_tree_is_left_as_typed() {
+    for typed in [
+        "https://github.com/acme/skills",
+        "https://github.com/acme/skills.git",
+        "https://github.com/acme/skills/blob/main/skills/deploy/SKILL.md",
+        "https://github.com/acme/skills/tree",
+        "https://github.com/acme/skills/tree/",
+        "https://github.com/acme/tree/main",
+        "https://gitlab.com/acme/skills/-/blob/main/README.md",
+        "https://gitlab.com/tree/main",
+        "https://example.com/acme/skills/tree/main/skills",
+        "ssh://git@github.com/acme/skills/tree/main",
+        "git@github.com:acme/skills.git",
+        "../src/acme-skills",
+    ] {
+        assert_eq!(at(typed), (typed.to_owned(), None, None), "{typed}");
+    }
+}
+
+/// `owner/repo` alone is what it was before (#98): the GitHub repository,
+/// at no branch and no folder of its own.
+#[test]
+fn owner_and_repo_alone_is_located_as_it_is_fetched() {
+    assert_eq!(
+        at("acme/skills"),
+        (String::from("https://github.com/acme/skills"), None, None)
+    );
+}
+
+/// What `located` hands back is what a gather stores and shows, and holds
+/// no credential: the forms it reads have no room for one, and a URL that
+/// carries one is refused before it is read.
+#[test]
+fn nothing_located_carries_a_credential() {
+    for typed in [
+        "https://github.com/acme/skills/tree/main/skills",
+        "acme/skills@v1",
+        "https://gitlab.com/acme/skills/-/tree/main",
+    ] {
+        let (url, branch, folder) = at(typed);
+        for said in [Some(url), branch, folder].into_iter().flatten() {
+            assert!(!carries_credentials(&said), "{typed} gave {said}");
+        }
+    }
+}
+
 #[test]
 fn a_url_is_over_ssh_by_its_scheme_or_its_scp_like_form() {
     for url in [

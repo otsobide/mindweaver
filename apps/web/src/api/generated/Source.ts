@@ -20,7 +20,9 @@ url: string,
  */
 reference: string | null, 
 /**
- * The folder inside the source that was harvested, `skills` by default.
+ * The folder inside the source that was harvested: `.`, the whole
+ * repository, by default, and `skills` for a source an older build
+ * registered with what was its default then.
  */
 subdirectory: string, 
 /**
