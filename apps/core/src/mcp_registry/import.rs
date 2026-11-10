@@ -33,8 +33,9 @@
 //! wrote there. A value with nothing to supply is written as it is. One
 //! asking for something is written only when the registry says it, or a
 //! variable in it, is required: an agent given a reference to a variable
-//! nobody set starts the server with nothing there, and Claude Code refuses
-//! the whole file, so an optional one is left out and said
+//! nobody set starts the server with nothing there, and Claude Code, by its
+//! docs, fails to parse the whole file (docs-only, not among #18's
+//! checks), so an optional one is left out and said
 //! ([`Note::Optional`]). Where a value somebody would supply has a default
 //! and is no secret, the default is written.
 //!

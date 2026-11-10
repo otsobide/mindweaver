@@ -3938,11 +3938,13 @@ registry calls a secret, whatever it wrote there (a publisher's `Bearer
 <YOUR_API_KEY>` among it), so no definition an import makes holds a
 secret's value. A value with nothing to supply is written as it is. One
 asking for something is written only when the registry says it, or a
-variable in it, is required, and every input written is `required`:
-Claude Code refuses a whole `.mcp.json` one of whose references names a
-variable nobody set, so an optional one is left out and said
-(`mcp_registry_optional_left_out`), as are a header or a variable with no
-name, or named twice (`mcp_registry_value_left_out`). Where a value
+variable in it, is required, and every input written is `required`: an
+agent given a reference to a variable nobody set starts the server with
+nothing there, and Claude Code, by its docs, fails to parse a whole
+`.mcp.json` one of whose references names such a variable with no default
+(docs-only, not among #18's checks), so an optional one is left out and
+said (`mcp_registry_optional_left_out`), as are a header or a variable
+with no name, or named twice (`mcp_registry_value_left_out`). Where a value
 somebody would supply has a default and is no secret, the default is
 written. Each `{name}` is described by the `variables` beside it when they
 name it, a header's own or, as servers write them, the remote's beside its
@@ -4003,10 +4005,10 @@ Rejected: following a package's `runtimeHint`, which publishers write as
 freely as `node >=22.6.0` or a paragraph, where the issue fixes the command
 by registry type; writing its `runtimeArguments`, for the reason above;
 keeping the registry's `server.json` as it is (D-10); writing optional
-inputs, which Claude would refuse the whole file for unless every one is
-set; and a copy of the whole registry kept and refreshed, tens of
-thousands of servers, which a search narrow enough to choose from never
-needs.
+inputs, every one of which somebody would then have to set, or Claude, by
+its docs, reads no server of the file; and a copy of the whole registry
+kept and refreshed, tens of thousands of servers, which a search narrow
+enough to choose from never needs.
 
 ### Why the ledger is SQLite
 
