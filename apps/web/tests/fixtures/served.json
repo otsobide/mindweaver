@@ -1,6 +1,7 @@
 [
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Serving add --command npx --arg=-y --arg @acme/server --secret-env ACME_TOKEN mcp acme 'Acme'\\''s tools'"
@@ -49,6 +50,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Serving edit --command docker --arg run --arg=-i --arg ghcr.io/github/github-mcp-server --secret-env GITHUB_PERSONAL_ACCESS_TOKEN mcp:github"
@@ -95,6 +97,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Serving install -p /home/you/Serving/web --from load:../team mcp:sentry"
@@ -135,6 +138,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Serving install -p /home/you/Serving/web --from load:../team --yes mcp:sentry"

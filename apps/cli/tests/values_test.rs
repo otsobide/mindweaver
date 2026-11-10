@@ -184,7 +184,7 @@ mod panel {
 
     use super::*;
     use mindweaver_cli::backend::PanelBackend;
-    use mindweaver_server::Backend;
+    use mindweaver_server::{Backend, Underway};
     use serde_json::json;
 
     #[test]
@@ -217,7 +217,7 @@ mod panel {
             });
             let task: Task = serde_json::from_value(sent.clone()).unwrap();
 
-            let ran = Backend::run(&backend, task).unwrap();
+            let ran = Backend::run(&backend, task, &Underway::unfollowed()).unwrap();
 
             assert!(ran.ok, "{sent}: {}", serde_json::to_string(&ran).unwrap());
             added.push((kind.slug().to_owned(), name.clone()));
@@ -249,7 +249,7 @@ mod panel {
             });
             let task: Task = serde_json::from_value(sent.clone()).unwrap();
 
-            let ran = Backend::run(&backend, task).unwrap();
+            let ran = Backend::run(&backend, task, &Underway::unfollowed()).unwrap();
 
             assert!(!ran.ok, "{sent}");
             let error = ran.runs[0].error.as_ref().expect("why it did not run");

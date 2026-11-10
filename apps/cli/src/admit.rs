@@ -68,10 +68,13 @@ impl Admission<'_> {
             | Task::Workspaces
             | Task::OpenInstall
             | Task::Refresh => {}
-            // The network, which no front end without a terminal runs
-            // (`Refusal::Unwatched`); what a URL may be is the gather's to
-            // say when #112 brings one to the server.
-            Task::Gather { .. } => {}
+            // An address is the gather's to judge, a credential in it among
+            // what it refuses; a folder is held as a folder to link is. The
+            // folder in the source and the reference are values, which the
+            // gather holds to its own rules.
+            Task::Gather { url, .. } => {
+                policy::source(url)?;
+            }
             Task::Link { path }
             | Task::InitAndLink { path }
             | Task::Load { path }

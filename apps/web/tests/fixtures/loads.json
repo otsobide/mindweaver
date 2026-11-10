@@ -1,6 +1,7 @@
 [
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Assign load /home/you/kit"
@@ -30,6 +31,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [
         {
           "caution": "unloads",
@@ -65,6 +67,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Assign load /home/you/Assign"

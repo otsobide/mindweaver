@@ -918,11 +918,15 @@ impl Task {
     }
 
     /// Whether it runs on a thread of its own while the screen goes on
-    /// drawing what it reports: a gather, which is the network, and can take
-    /// long enough to want watching. Everything else is the local disk, over
-    /// before anybody could read a count.
+    /// drawing what it reports: a task one of whose lines a front end
+    /// follows as it runs and can stop ([`followed`]), a gather, which is
+    /// the network, and can take long enough to want watching. Everything
+    /// else is the local disk, over before anybody could read a count.
+    ///
+    /// Asked of the lines, as [`refusal`](Self::refusal) is, so the TUI
+    /// runs apart what the panel's backend says takes a cancel, by one list.
     pub fn runs_apart(&self) -> bool {
-        matches!(self, Task::Gather { .. })
+        self.commands().iter().any(|line| followed(line).is_some())
     }
 
     /// What to say while it runs.
@@ -970,6 +974,127 @@ impl Task {
     }
 }
 
+/// What a command line does that a front end follows while it runs, and
+/// can ask to stop: what [`followed`] reads off the parsed command, as
+/// [`refused`] reads a refusal, so every front end follows the same lines.
+///
+/// One list, here, as the others are: the TUI runs such a line apart and
+/// draws its steps with a key that cancels it ([`Task::runs_apart`]), and
+/// the panel's backend says with each preview that a run of it takes a
+/// cancel, reports each step to the server and hands the server's cancel to
+/// it. A match over every command with no wildcard (`Followed::of_mind`,
+/// `of_weaver`), so a new command says whether it is followed before it
+/// compiles: one that takes long enough to want watching is said here once
+/// it reports its steps and stops when asked, and every front end follows
+/// it from then on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Followed {
+    /// `mindweaver gather git`: the network, for as long as it takes,
+    /// reported step by step through core's `gather::Watch`, and stopped
+    /// by its cancel until it starts placing what it read on the shelf.
+    Gather,
+}
+
+impl Followed {
+    /// What of `mind <command>` a front end follows, when it follows it.
+    ///
+    /// One arm per command with no wildcard, as `of_weaver`'s.
+    pub fn of_mind(command: Option<&Command>) -> Option<Followed> {
+        match command {
+            Some(Command::Weaver { command }) => Followed::of_weaver(command.as_ref()),
+            #[cfg(feature = "ui")]
+            Some(Command::Ui(_)) => None,
+            None
+            | Some(
+                Command::Tui
+                | Command::Init { .. }
+                | Command::Add { .. }
+                | Command::Edit { .. }
+                | Command::Rename { .. }
+                | Command::Remove { .. }
+                | Command::Templates { .. }
+                | Command::List { .. }
+                | Command::Show { .. }
+                | Command::Validate { .. }
+                | Command::Status { .. }
+                | Command::Doctor { .. }
+                | Command::Link
+                | Command::Unlink
+                | Command::Load { .. }
+                | Command::Unload { .. }
+                | Command::Install { .. }
+                | Command::Uninstall { .. }
+                | Command::Update { .. }
+                | Command::Agents { .. }
+                | Command::Share { .. }
+                | Command::Targets { .. }
+                | Command::Migrate { .. },
+            ) => None,
+        }
+    }
+
+    /// What of `mindweaver <command>` a front end follows, when it follows
+    /// it.
+    pub fn of_weaver(command: Option<&WeaverCommand>) -> Option<Followed> {
+        match command {
+            Some(WeaverCommand::Gather(GatherCommand::Git { .. })) => Some(Followed::Gather),
+            #[cfg(feature = "ui")]
+            Some(WeaverCommand::Ui(_)) => None,
+            None
+            | Some(
+                WeaverCommand::Tui
+                | WeaverCommand::Minds { .. }
+                | WeaverCommand::Init { .. }
+                | WeaverCommand::Activate { .. }
+                | WeaverCommand::Which
+                | WeaverCommand::Workspaces { .. }
+                | WeaverCommand::Add { .. }
+                | WeaverCommand::Edit { .. }
+                | WeaverCommand::Rename { .. }
+                | WeaverCommand::Remove { .. }
+                | WeaverCommand::Templates { .. }
+                | WeaverCommand::List { .. }
+                | WeaverCommand::Show { .. }
+                | WeaverCommand::Validate { .. }
+                | WeaverCommand::Status { .. }
+                | WeaverCommand::Doctor { .. }
+                | WeaverCommand::Link { .. }
+                | WeaverCommand::Unlink { .. }
+                | WeaverCommand::Relink { .. }
+                | WeaverCommand::Load { .. }
+                | WeaverCommand::Unload { .. }
+                | WeaverCommand::Scan { .. }
+                | WeaverCommand::Gather(GatherCommand::List { .. })
+                | WeaverCommand::Install { .. }
+                | WeaverCommand::Uninstall { .. }
+                | WeaverCommand::Update { .. }
+                | WeaverCommand::Adopt { .. }
+                | WeaverCommand::Export { .. }
+                | WeaverCommand::Backup { .. }
+                | WeaverCommand::Agents { .. }
+                | WeaverCommand::Share { .. }
+                | WeaverCommand::Targets { .. }
+                | WeaverCommand::Migrate { .. },
+            ) => None,
+        }
+    }
+}
+
+/// What a front end follows of `words`, a command line, while it runs, when
+/// it follows it ([`Followed`]): read with the parsers that run it, as
+/// [`refused`] reads a line. A line neither takes is followed by nobody.
+pub fn followed(words: &[String]) -> Option<Followed> {
+    match words.first().map(String::as_str) {
+        Some("mind") => Cli::try_parse_from(words)
+            .ok()
+            .and_then(|cli| Followed::of_mind(cli.command.as_ref())),
+        Some("mindweaver") => WeaverCli::try_parse_from(words)
+            .ok()
+            .and_then(|cli| Followed::of_weaver(cli.command.as_ref())),
+        _ => None,
+    }
+}
+
 /// Why a front end with no terminal of its own, the panel's server first
 /// among them, does not run a command line: what [`Task::refusal`] and
 /// [`refused`] answer, from one list every front end shares.
@@ -1001,13 +1126,6 @@ pub enum Refusal {
     /// nothing anywhere else.
     #[error("prints code for a shell to run, which only a shell can")]
     Shell,
-    /// `mindweaver gather git`: the network, for as long as it takes, which only
-    /// a screen that shows how far it got and stops it on a key can watch,
-    /// until #112 brings both to the server.
-    #[error(
-        "fetches over the network for as long as that takes, which only the TUI or a shell shows, and stops"
-    )]
-    Unwatched,
     /// `show`, which prints an artifact whole, read through every link on
     /// the way (a rule shared by a link is still a rule): at a terminal, to
     /// the person whose disk it is, but anywhere else to somebody who may
@@ -1039,7 +1157,6 @@ codes!(Refusal {
     Self::Editor => "opens_editor",
     Self::Input => "reads_stdin",
     Self::Shell => "prints_shell_code",
-    Self::Unwatched => "gather_unwatched",
     Self::Unheld => "show_unheld",
     Self::Panel => "serves_panel",
     Self::Sends => "backup_unwatched",
@@ -1104,7 +1221,6 @@ impl Refusal {
             Some(WeaverCommand::Edit { editing, .. }) => Refusal::of_edit(editing),
             Some(WeaverCommand::Activate { .. }) => Some(Refusal::Shell),
             Some(WeaverCommand::Show { .. }) => Some(Refusal::Unheld),
-            Some(WeaverCommand::Gather(GatherCommand::Git { .. })) => Some(Refusal::Unwatched),
             Some(WeaverCommand::Backup { .. }) => Some(Refusal::Sends),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Some(Refusal::Panel),
@@ -1126,7 +1242,11 @@ impl Refusal {
                 | WeaverCommand::Load { .. }
                 | WeaverCommand::Unload { .. }
                 | WeaverCommand::Scan { .. }
-                | WeaverCommand::Gather(GatherCommand::List { .. })
+                // The network, followed as it goes and stopped when asked
+                // ([`Followed::Gather`]), by the panel as by the TUI, and
+                // never a prompt (#26): what kept it from a front end with
+                // no terminal until #112.
+                | WeaverCommand::Gather(_)
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }

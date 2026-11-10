@@ -12,6 +12,7 @@ import type { Project } from './generated/Project'
 import type { Query } from './generated/Query'
 import type { Scanned } from './generated/Scanned'
 import type { Snapshot } from './generated/Snapshot'
+import type { Step } from './generated/Step'
 import type { Switch } from './generated/Switch'
 import type { Switchable } from './generated/Switchable'
 import type { Task } from './generated/Task'
@@ -53,11 +54,14 @@ export type Answer<Asked extends Query> = Answers[Asked['type']]
  * The command lines a task is, as somebody would type them, and what of
  * them the panel has somebody confirm before it runs them, none for a task
  * it runs once asked; nothing ran. Which lines take something away is the
- * backend's to say, in the generated `Confirm`, never the panel's.
+ * backend's to say, in the generated `Confirm`, never the panel's; and so
+ * is whether a run of it can be asked to stop while it runs
+ * (`cancellable`), a gather's.
  */
 export interface Preview {
   lines: string[]
   confirm: Confirm[]
+  cancellable: boolean
 }
 
 /**
@@ -77,7 +81,14 @@ export interface Ran {
  * - `changed`: something the server watches changed on disk, so what is
  *   shown of each holder in `scopes` may be out of date;
  * - `command_started` and `command_finished`: a task's lines started to
- *   run, and stopped, however that went;
+ *   run, and stopped, however that went, each with the run's number, which
+ *   a cancel names it by, and the first with whether it takes one;
+ * - `progress`: a step a run took, as the backend says it (the generated
+ *   `Step`), its words and whether a cancel still stops it among it;
+ * - `cancelling`: a run was asked to stop, from this tab, another or a
+ *   script;
+ * - `busy`: what was just sent waits behind the run under way, or, on a
+ *   stream just opened, a run is under way, its latest step after it;
  * - `resync`: something may have been missed, as on connecting, so
  *   everything is asked for again;
  * - `switched`: the server acts on another workspace since, from this tab
@@ -94,12 +105,16 @@ export interface Ran {
  * from Rust: the stream is the server's own, and the server is a crate of
  * its own with no part in `make web/types`, as `{lines, confirm}` and
  * `{lines, outcome}` are. What a change is to is the backend's, a holder as
- * a query names it, so that much is the generated `Holder`.
+ * a query names it, so that much is the generated `Holder`; and so is a
+ * step a run reports, the generated `Step`.
  */
 export type LiveEvent
   = | { type: 'changed', scopes: Holder[] }
-    | { type: 'command_started', lines: string[] }
-    | { type: 'command_finished', lines: string[] }
+    | { type: 'command_started', run: number, lines: string[], cancellable: boolean }
+    | { type: 'progress', run: number, progress: Step }
+    | { type: 'cancelling', run: number }
+    | { type: 'busy', run: number, lines: string[], cancellable: boolean, cancelling: boolean }
+    | { type: 'command_finished', run: number, lines: string[] }
     | { type: 'resync', switches: number }
     | { type: 'switched', switches: number }
     | { type: 'watching' }

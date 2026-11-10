@@ -102,12 +102,33 @@ describe('live updates', () => {
     await render('/', transport)
     const before = asked(queries, 'snapshot')
 
-    await tell({ type: 'command_started', lines: ['mindweaver link beta'] })
+    await tell({ type: 'command_started', run: 1, lines: ['mindweaver link beta'], cancellable: false })
     expect(asked(queries, 'snapshot')).toBe(before)
-    await tell({ type: 'command_finished', lines: ['mindweaver link beta'] })
+    await tell({ type: 'command_finished', run: 1, lines: ['mindweaver link beta'] })
     expect(asked(queries, 'snapshot')).toBe(before + 1)
     await tell({ type: 'resync', switches: 0 })
     expect(asked(queries, 'snapshot')).toBe(before + 2)
+  })
+
+  // A run under way says nothing of the disk until it finishes, however
+  // long a gather takes, so none of what it tells as it goes asks again.
+  it('ask for nothing again as a run goes, is asked to stop or keeps the server busy', async () => {
+    const { queries, transport, tell } = streaming()
+    await render('/', transport)
+    const before = asked(queries, 'snapshot')
+    const lines = ['mindweaver gather git https://example.com/skills']
+    const step = { stage: 'connecting', done: null, total: null, said: 'connecting', cancellable: true } as const
+
+    for (const event of [
+      { type: 'command_started', run: 2, lines, cancellable: true },
+      { type: 'progress', run: 2, progress: step },
+      { type: 'busy', run: 2, lines, cancellable: true, cancelling: false },
+      { type: 'cancelling', run: 2 }
+    ] as LiveEvent[]) {
+      await tell(event)
+
+      expect(asked(queries, 'snapshot'), event.type).toBe(before)
+    }
   })
 
   it('ask for what an artifact holds again only when a change reaches its holder', async () => {
@@ -140,7 +161,7 @@ describe('live updates', () => {
 
     for (const event of [
       { type: 'changed', scopes: [workspace] },
-      { type: 'command_finished', lines: ['mindweaver link beta'] },
+      { type: 'command_finished', run: 1, lines: ['mindweaver link beta'] },
       { type: 'resync', switches: 0 }
     ] as LiveEvent[]) {
       for (const key of [['snapshot'], files, scan]) {
@@ -161,8 +182,8 @@ describe('live updates', () => {
 
     for (const [event, expected] of [
       [{ type: 'changed', scopes: [workspace] }, false],
-      [{ type: 'command_started', lines: ['mindweaver link beta'] }, false],
-      [{ type: 'command_finished', lines: ['mindweaver link beta'] }, true],
+      [{ type: 'command_started', run: 1, lines: ['mindweaver link beta'], cancellable: false }, false],
+      [{ type: 'command_finished', run: 1, lines: ['mindweaver link beta'] }, true],
       [{ type: 'resync', switches: 0 }, true]
     ] as [LiveEvent, boolean][]) {
       client.setQueryData(['transcript'], [])
@@ -232,11 +253,11 @@ describe('a run the panel sends', () => {
     })
     await flushPromises()
     expect(over).toBe(false)
-    await tell({ type: 'command_finished', lines: ['mindweaver link /work/other'] })
+    await tell({ type: 'command_finished', run: 1, lines: ['mindweaver link /work/other'] })
     expect(over).toBe(false)
     expect(client.getQueryState(['snapshot'])?.isInvalidated).toBe(true)
     client.setQueryData(['snapshot'], {})
-    await tell({ type: 'command_finished', lines: RAN.lines })
+    await tell({ type: 'command_finished', run: 1, lines: RAN.lines })
 
     expect(await settled).toBe(RAN)
     expect(over).toBe(true)
@@ -250,7 +271,7 @@ describe('a run the panel sends', () => {
     const { settle, stop } = listen(transport, client, document, 60_000)
 
     const settled = settle(async () => {
-      await tell({ type: 'command_finished', lines: RAN.lines })
+      await tell({ type: 'command_finished', run: 1, lines: RAN.lines })
       return RAN
     })
 

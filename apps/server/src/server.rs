@@ -19,7 +19,7 @@ use crate::route::{self, Own, API};
 use crate::token::Token;
 use crate::transcript::Transcript;
 use crate::watcher::Watcher;
-use crate::writer::Writer;
+use crate::writer::{Current, Writer};
 use crate::Backend;
 
 /// A server not yet listening: a backend, and how to serve it.
@@ -110,7 +110,14 @@ impl<B: Backend> Server<B> {
         let token = Token::issue();
         let dev_server = self.dev_server.clone();
         let events = Events::new();
-        let router = route(self, &token, address.port(), events.clone())?;
+        let current = Current::default();
+        let router = route(
+            self,
+            &token,
+            address.port(),
+            events.clone(),
+            current.clone(),
+        )?;
         Ok(Listening {
             listener,
             address,
@@ -118,6 +125,7 @@ impl<B: Backend> Server<B> {
             router,
             dev_server,
             events,
+            current,
         })
     }
 }
@@ -132,6 +140,8 @@ pub struct Listening {
     dev_server: Option<String>,
     /// What `/api/v1/events` streams.
     events: Events,
+    /// The run under way, which a stop asks to stop.
+    current: Current,
 }
 
 impl Listening {
@@ -191,9 +201,13 @@ impl Listening {
     /// Answer requests until `shutdown` completes, then finish those under
     /// way.
     ///
-    /// The event streams are ended first, by closing their bus: each is a
-    /// request under way that would otherwise last as long as the browser
-    /// keeps the page open, and a graceful stop would wait for it.
+    /// The run under way is asked to stop first, when it takes a cancel, as
+    /// leaving the TUI stops its gather: a run waiting on the network would
+    /// otherwise hold the stop for as long as the network takes, and one
+    /// that takes no cancel runs to its end, as before. Then the event
+    /// streams are ended, by closing their bus: each is a request under way
+    /// that would otherwise last as long as the browser keeps the page
+    /// open, and a graceful stop would wait for it.
     pub async fn serve(
         self,
         shutdown: impl Future<Output = ()> + Send + 'static,
@@ -201,9 +215,13 @@ impl Listening {
         self.listener.set_nonblocking(true)?;
         let listener = tokio::net::TcpListener::from_std(self.listener)?;
         let events = self.events;
+        let current = self.current;
         axum::serve(listener, self.router)
             .with_graceful_shutdown(async move {
                 shutdown.await;
+                // Off the runtime, as every call of the backend's is.
+                let asked = events.clone();
+                let _ = tokio::task::spawn_blocking(move || current.cancel_any(&asked)).await;
                 events.close();
             })
             .await
@@ -216,6 +234,7 @@ fn route<B: Backend>(
     token: &Token,
     port: u16,
     events: Events,
+    current: Current,
 ) -> io::Result<Router> {
     let routes = B::routes();
     route::check(&routes)?;
@@ -235,6 +254,7 @@ fn route<B: Backend>(
             Arc::clone(&backend),
             transcript.clone(),
             events.clone(),
+            current,
             Arc::clone(&watcher),
             log.clone(),
         )?,

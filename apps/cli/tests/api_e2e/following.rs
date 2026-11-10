@@ -54,10 +54,76 @@ fn a_run_is_told_as_it_starts_and_once_it_finishes_whoever_sent_it() {
     assert_eq!(
         told,
         [
-            json!({"type": "command_started", "lines": lines}),
-            json!({"type": "command_finished", "lines": lines}),
+            json!({"type": "command_started", "run": 1, "lines": lines, "cancellable": false}),
+            json!({"type": "command_finished", "run": 1, "lines": lines}),
         ]
     );
+}
+
+/// A gather from the API is previewed as a run that takes a cancel, and
+/// told step by step as it goes, each step in the words a terminal draws
+/// it in, until it has put what it found on the shelf.
+#[test]
+fn a_gather_is_told_step_by_step_until_what_it_found_is_on_the_shelf() {
+    let scenario = Scenario::projects(&["api"]);
+    scenario.source(
+        "~/src/acme-skills",
+        &[(
+            "skills/pdf/SKILL.md",
+            "---\nname: pdf\ndescription: Read PDFs\n---\n",
+        )],
+    );
+    let served = scenario.serve("~/Projects");
+    let mut stream = served.events();
+    stream.opened();
+    let gather = json!({"type": "gather", "url": "/home/you/src/acme-skills",
+                        "folder": "skills", "reference": null});
+    let lines = json!(["mindweaver -W /home/you/Projects gather git /home/you/src/acme-skills"]);
+
+    served
+        .post("/tasks/preview", gather.clone())
+        .answers(json!({"lines": lines, "confirm": [], "cancellable": true}));
+    served
+        .post("/tasks", gather)
+        .is(200)
+        .answers_at("/outcome/ok", json!(true));
+
+    let told: Vec<Value> = stream
+        .until(is("command_finished"))
+        .into_iter()
+        .filter(|event| event["type"] != "changed")
+        .collect();
+    assert_eq!(
+        told.first(),
+        Some(&json!({"type": "command_started", "run": 1, "lines": lines, "cancellable": true}))
+    );
+    assert_eq!(
+        told.get(1),
+        Some(&json!({"type": "progress", "run": 1, "progress": {
+            "stage": "connecting", "done": null, "total": null,
+            "said": "connecting", "cancellable": true,
+        }}))
+    );
+    assert_eq!(
+        told[told.len() - 2..],
+        [
+            json!({"type": "progress", "run": 1, "progress": {
+                "stage": "placing", "done": 1, "total": 1,
+                "said": "placing on the shelf 1/1", "cancellable": false,
+            }}),
+            json!({"type": "command_finished", "run": 1, "lines": lines}),
+        ]
+    );
+    assert!(
+        told[1..told.len() - 1]
+            .iter()
+            .all(|event| event["type"] == "progress" && event["run"] == 1),
+        "{told:?}"
+    );
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints("pdf  src-acme-skills  Read PDFs\n");
 }
 
 #[test]

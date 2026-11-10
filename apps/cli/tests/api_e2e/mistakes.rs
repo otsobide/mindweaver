@@ -206,8 +206,10 @@ fn showing_an_artifact_whole_is_refused_for_reading_its_files_one_at_a_time() {
         );
 }
 
+/// A folder to gather from is named by a path that reads the same from
+/// anywhere, as a folder to link is, and nothing is gathered.
 #[test]
-fn a_gather_is_refused_since_only_a_terminal_shows_a_fetch_as_it_goes() {
+fn a_gather_from_a_folder_named_from_here_is_refused_and_nothing_is_gathered() {
     let scenario = Scenario::projects(&["api"]);
     scenario.source(
         "~/src/acme-skills",
@@ -221,13 +223,13 @@ fn a_gather_is_refused_since_only_a_terminal_shows_a_fetch_as_it_goes() {
     served
         .post(
             "/tasks",
-            json!({"type": "gather", "url": "/home/you/src/acme-skills", "folder": "", "reference": null}),
+            json!({"type": "gather", "url": "../src/acme-skills", "folder": "", "reference": null}),
         )
         .refused(
             422,
-            "gather_unwatched",
-            "`mindweaver gather git --path '' /home/you/src/acme-skills` fetches over the network \
-             for as long as that takes, which only the TUI or a shell shows, and stops",
+            "path_relative",
+            "`../src/acme-skills` is not an absolute path: name a folder by its absolute path, \
+             which reads the same from anywhere",
         );
     scenario
         .run("~/Projects", "mindweaver gather list")
@@ -237,6 +239,26 @@ fn a_gather_is_refused_since_only_a_terminal_shows_a_fetch_as_it_goes() {
             "  take some with `mindweaver gather git <url>`, or offer a workspace's own with \
              `mindweaver load <path>`\n",
         ));
+}
+
+/// A cancel names a run while it runs: one long over is not stopped, and
+/// one that takes no cancel is not asked to.
+#[test]
+fn a_cancel_of_a_run_that_is_over_is_refused_as_not_running() {
+    let scenario = guide_workspace();
+    let served = scenario.serve("~/Projects");
+    served
+        .post(
+            "/tasks",
+            json!({"type": "link", "path": "/home/you/Projects/web"}),
+        )
+        .is(200);
+
+    served.post("/tasks/cancel", json!({"run": 1})).refused(
+        409,
+        "not_running",
+        "run 1 is not under way, and nothing is: a run is stopped only while it runs",
+    );
 }
 
 #[test]

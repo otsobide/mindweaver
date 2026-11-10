@@ -384,8 +384,8 @@ pub fn execute(words: &[String], base: &Path, lookup: &Lookup, watch: &Watch) ->
 /// Why a command that draws is not run from here: what the TUI refuses of
 /// the list every front end shares ([`Refusal`]), one of the three refusals
 /// a front end with a terminal has. The rest it runs: an editor, given the
-/// terminal ([`Task::takes_terminal`]), a gather, watched, and `show`,
-/// printed for whoever sits at it.
+/// terminal ([`Task::takes_terminal`]), and `show`, printed for whoever
+/// sits at it.
 const SCREEN_IN_A_SCREEN: &str = "opens a screen of its own, so it is not run from inside this one";
 
 /// Why `ui` is not run from here, the second: it serves until Ctrl-C, and the

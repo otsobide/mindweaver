@@ -40,6 +40,7 @@ fn unlinking_a_project_says_first_that_the_workspace_forgets_it() {
                 "line": 0,
                 "message": "makes the workspace forget a project, though nothing on disk is deleted",
             }],
+            "cancellable": false,
         }));
     assert_eq!(entries(&served.get("/projects")), ["api", "web"]);
 }

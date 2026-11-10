@@ -18,7 +18,6 @@ const ICONS: Partial<Record<Code, string>> = {
   opens_screen: 'i-lucide-app-window',
   opens_editor: 'i-lucide-square-pen',
   prints_shell_code: 'i-lucide-terminal',
-  gather_unwatched: 'i-lucide-cloud-off',
   show_unheld: 'i-lucide-eye-off',
   serves_panel: 'i-lucide-monitor',
   line_unparsed: 'i-lucide-text-cursor-input',

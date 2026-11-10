@@ -157,8 +157,10 @@ fn state(stand: Stand, list: &Arc<Mutex<Vec<Watched>>>, events: &Events) -> Stat
 /// Everything told since `subscription` last read, but its first word to
 /// ask for everything.
 async fn told(events: &Events, subscription: &mut Subscription) -> Vec<Event> {
-    let end = Event::CommandStarted {
-        lines: vec![String::from("the end")],
+    // A step of no run under way: told as it is, and kept by nothing.
+    let end = Event::Progress {
+        run: 0,
+        progress: json!("the end"),
     };
     events.publish(end.clone());
     let mut seen = Vec::new();

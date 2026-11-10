@@ -2243,10 +2243,13 @@ TUI does. It sends a task; the server turns it into the command lines you
 could have typed, shows them before they run, and runs them through the same
 parser, one at a time. A command that would open a screen, an editor or a
 shell, or read standard input, is refused, and so is a path outside what
-the workspace allows, each with a reason and a code. The first Ctrl-C (or,
-on Unix, the `SIGTERM` `kill` sends) lets whatever is running finish, a
-second stops at once, and on the way out it prints every command that
-changed something, with what each said, as the TUI does when it closes:
+the workspace allows, each with a reason and a code. A gather runs as any
+change does, showing how far it has got as it goes, and stops when asked,
+until it starts placing what it read on the shelf, as in the TUI. The
+first Ctrl-C (or, on Unix, the `SIGTERM` `kill` sends) stops a gather
+under way as a cancel does, lets whatever else is running finish, a second
+stops at once, and on the way out it prints every command that changed
+something, with what each said, as the TUI does when it closes:
 
 ```
 $ mindweaver -W /home/you/Projects install -p /home/you/Projects/collapse skill:commit-style
@@ -2787,10 +2790,13 @@ takes a structure is a POST that changes nothing:
   about to be written, with nothing written.
 
 Every change is a task, the command lines it is, as the panel's are: `POST
-/api/v1/tasks/preview` for the lines a task is and what of them the panel
-asks you to confirm (`{"lines": [...], "confirm": [...]}`), `POST
+/api/v1/tasks/preview` for the lines a task is, what of them the panel
+asks you to confirm and whether a run of it can be stopped
+(`{"lines": [...], "confirm": [...], "cancellable": false}`), `POST
 /api/v1/tasks` to run them, which asks nobody, answered with what each line
-said, `POST /api/v1/switch` with `{"path": "/home/you/Notes"}` to switch to
+said, `POST /api/v1/tasks/cancel` with `{"run": 3}` to stop the run under
+way, a gather, which stops before it puts anything on the shelf, `POST
+/api/v1/switch` with `{"path": "/home/you/Notes"}` to switch to
 a workspace `/api/v1/workspaces` lists, answered with its row, `GET
 /api/v1/transcript` for everything the session ran, and `GET
 /api/v1/events` for what happens as it happens, as server-sent events:
@@ -2798,8 +2804,11 @@ a workspace `/api/v1/workspaces` lists, answered with its row, `GET
 behind; right after it `watching`, or `unwatched` with a `reason` when the
 server cannot watch everything, and either again whenever that changes;
 `changed` when something watched changed; `command_started` and
-`command_finished` around each run; and `switched` once the panel acts on
-another workspace, to read everything again.
+`command_finished` around each run, with its number, `run`, which a cancel
+names; `progress` with each step a gather takes, in the words `mindweaver
+gather` draws it in, `cancelling` once one is asked to stop, and `busy`
+when a change you send waits behind one; and `switched` once the panel
+acts on another workspace, to read everything again.
 
 A POST sends its body as JSON, and says so in `Content-Type`, which curl's
 `-d` alone does not (it says a form):
@@ -2840,6 +2849,8 @@ Its status says which kind of thing went wrong, and the code which one:
 | 404 | `unknown_route` | a path no route names, `/api` without its version among them |
 | 404 | Mindweaver's | a read naming what is not there: `not_registered` for an entry, `not_found` for an artifact, `contents_missing` for a file, `browse_missing` for a folder |
 | 405 | `method_not_allowed` | a method the route does not take (with `Allow`) |
+| 409 | `not_running` | a cancel of a run that is not the one under way |
+| 409 | `uncancellable` | a cancel of the run under way, which takes none |
 | 413 | `body_too_large` | a body larger than the server reads |
 | 415 | `json_required` | a body not sent as `application/json` |
 | 422 | `invalid_body` | JSON that is not what the route reads |

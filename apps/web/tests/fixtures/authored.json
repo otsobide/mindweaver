@@ -1,6 +1,7 @@
 [
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Projects edit --contents .mindweaver/tmp/edit-f67e051f60a9675b.md --if-unchanged 8b7db6a4fb1255506c9f5ec0fa7e343f5a9cb6b047a69f44b7aae72f4317439d skill:review"
@@ -36,6 +37,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Projects edit --contents .mindweaver/tmp/edit-f67e051f60a9675b.md --if-unchanged 8b7db6a4fb1255506c9f5ec0fa7e343f5a9cb6b047a69f44b7aae72f4317439d skill:review"
@@ -74,6 +76,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Projects add --template full skill deploy-docs 'Publish the docs'"
@@ -110,6 +113,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Projects rename skill:lint tidy"
@@ -144,6 +148,7 @@
   },
   {
     "preview": {
+      "cancellable": false,
       "confirm": [],
       "lines": [
         "mindweaver -W /home/you/Projects adopt -p /home/you/Projects/web --yes skill:legacy"
