@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Arc;
 
+use crate::progress::{Progress, Watch};
 use mindweaver_core::create;
-use mindweaver_core::gather::{Progress, Watch};
 use mindweaver_core::scan;
 use mindweaver_core::{
     paths, Agent, Kind, Layout, MarkerFile, Reason, Share, State, DEFAULT_SUBDIRECTORY,
@@ -424,7 +424,8 @@ impl Running {
     }
 
     /// Ask it to stop. A gather stops before it places anything, and one
-    /// already placing finishes, as it would from the command line.
+    /// already placing finishes, as it would from the command line; a
+    /// backup stops before it pushes, and one already pushing finishes.
     pub fn cancel(&mut self) {
         self.watch.cancel();
         self.cancelling = true;
@@ -537,6 +538,10 @@ pub enum Mode {
     Linking(LinkForm),
     Loading(LoadForm),
     Gathering(GatherForm),
+    /// The library about to be exported into a folder: `x`.
+    Exporting(ExportForm),
+    /// The library about to be backed up to a git repository: `b`.
+    Backing(BackupForm),
     /// A yes or no before something that writes.
     Confirming(Confirm),
     /// A page of output: validate, show, the shelf, a report.
@@ -780,6 +785,8 @@ impl App {
             Mode::Linking(form) => self.linking(form, key),
             Mode::Loading(form) => self.loading(form, key),
             Mode::Gathering(form) => gathering(form, key),
+            Mode::Exporting(form) => exporting(form, key),
+            Mode::Backing(form) => backing(form, key),
             Mode::Confirming(confirm) => confirming(confirm, key),
             Mode::Reading(reader) => reading(reader, key),
             Mode::Installing(screen) => self.installing(screen, key),
@@ -828,8 +835,9 @@ impl App {
             _ => {}
         }
         // What only a workspace has: its registry, its shelf, its installs.
-        if let KeyCode::Char(key @ ('l' | 'u' | 'U' | 'M' | 'A' | 'g' | 's' | 'i' | 'm' | 'L')) =
-            key.code
+        if let KeyCode::Char(
+            key @ ('l' | 'u' | 'U' | 'M' | 'A' | 'g' | 's' | 'i' | 'm' | 'L' | 'x' | 'b'),
+        ) = key.code
         {
             return match self.scope() {
                 Scope::Workspace => self.in_workspace(key),
@@ -851,6 +859,10 @@ impl App {
             'M' => self.start_relinking(),
             'A' => self.start_adopting(),
             'g' => (Mode::Gathering(GatherForm::default()), Step::Stay),
+            // The workspace's own, wherever the cursor is: what is exported
+            // and backed up is the library, whichever row is lit.
+            'x' => (Mode::Exporting(ExportForm::default()), Step::Stay),
+            'b' => (Mode::Backing(BackupForm::default()), Step::Stay),
             's' => (Mode::Browse, Step::Run(Task::Shelf)),
             'm' => match self.workspace() {
                 Some(workspace) => (Mode::Minds(Minds::of(workspace)), Step::Stay),
@@ -1707,7 +1719,14 @@ impl App {
                 | Task::Minds { .. },
                 _,
             )
-            | (Task::Gather { .. } | Task::Settings { .. } | Task::Targets { .. }, None) => {
+            | (
+                Task::Gather { .. }
+                | Task::Export { .. }
+                | Task::Backup { .. }
+                | Task::Settings { .. }
+                | Task::Targets { .. },
+                None,
+            ) => {
                 self.mode = Mode::Reading(Reader::of(&dones));
             }
             (_, Some(error)) => {
@@ -1777,6 +1796,8 @@ impl App {
             Mode::Linking(form) => &mut form.error,
             Mode::Loading(form) => &mut form.error,
             Mode::Gathering(form) => &mut form.error,
+            Mode::Exporting(form) => &mut form.error,
+            Mode::Backing(form) => &mut form.error,
             Mode::Settings(form) => &mut form.error,
             Mode::Targets(form) => &mut form.error,
             _ => return false,
@@ -1917,6 +1938,85 @@ fn gathering(mut form: GatherForm, key: KeyEvent) -> (Mode, Step) {
         }
     }
     (Mode::Gathering(form), Step::Stay)
+}
+
+/// The export form's keys: typing on the folder's line, a space on a kind's
+/// or on the yes ticks it, and enter runs what it says, once asked about
+/// when it may take something away.
+fn exporting(mut form: ExportForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    let last = ExportForm::lines() - 1;
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            let task = match form.task() {
+                Ok(task) => task,
+                Err(missing) => {
+                    form.error = Some(missing.to_owned());
+                    return (Mode::Exporting(form), Step::Stay);
+                }
+            };
+            if !form.yes {
+                return (Mode::Exporting(form), Step::Run(task));
+            }
+            // Asked here, worded for what it is about, as a deletion is:
+            // `--yes` is what lets it delete.
+            let confirm = Confirm {
+                question: vec![
+                    format!(
+                        "Export into {}, changing or removing what an earlier export wrote there?",
+                        form.folder.text().trim()
+                    ),
+                    String::new(),
+                    String::from(
+                        "What the library no longer holds is deleted from the folder, and what \
+                         changed is written over, edits made there since included.",
+                    ),
+                ],
+                task,
+                also: None,
+                back: Box::new(Mode::Exporting(form)),
+            };
+            return (Mode::Confirming(confirm), Step::Stay);
+        }
+        KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % (last + 1),
+        KeyCode::BackTab | KeyCode::Up => form.field = (form.field + last) % (last + 1),
+        KeyCode::Char(' ') if form.field > 0 => form.tick(),
+        _ if form.field == 0 => {
+            form.folder.press(key);
+        }
+        _ => {}
+    }
+    (Mode::Exporting(form), Step::Stay)
+}
+
+/// The backup form's keys: typing on its four lines of text, a space on a
+/// kind's line ticks it, and enter runs it, apart, as a gather runs.
+fn backing(mut form: BackupForm, key: KeyEvent) -> (Mode, Step) {
+    form.error = None;
+    let count = BackupForm::lines();
+    match key.code {
+        KeyCode::Esc => return (Mode::Browse, Step::Stay),
+        KeyCode::Enter => {
+            return match form.task() {
+                Ok(task) => (Mode::Backing(form), Step::Run(task)),
+                Err(missing) => {
+                    form.error = Some(missing.to_owned());
+                    (Mode::Backing(form), Step::Stay)
+                }
+            };
+        }
+        KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % count,
+        KeyCode::BackTab | KeyCode::Up => form.field = (form.field + count - 1) % count,
+        _ => match form.input_mut() {
+            Some(input) => {
+                input.press(key);
+            }
+            None if key.code == KeyCode::Char(' ') => form.tick(),
+            None => {}
+        },
+    }
+    (Mode::Backing(form), Step::Stay)
 }
 
 fn confirming(confirm: Confirm, key: KeyEvent) -> (Mode, Step) {
@@ -2202,6 +2302,196 @@ impl GatherForm {
     }
 }
 
+/// Every kind, in core's order, ticked: what the export and backup forms
+/// start from, which names no kind on the line, every kind being what
+/// naming none asks.
+fn every_kind() -> Vec<(Kind, bool)> {
+    Kind::ALL.into_iter().map(|kind| (kind, true)).collect()
+}
+
+/// The kinds a form's ticks ask for: none named when every one is ticked,
+/// which asks for every kind, and those ticked otherwise; refused with no
+/// kind ticked, which would be no export at all.
+fn kinds_ticked(kinds: &[(Kind, bool)]) -> Result<Vec<Kind>, &'static str> {
+    let ticked: Vec<Kind> = kinds
+        .iter()
+        .filter(|(_, ticked)| *ticked)
+        .map(|(kind, _)| *kind)
+        .collect();
+    match ticked.len() {
+        0 => Err("tick at least one kind"),
+        all if all == kinds.len() => Ok(Vec::new()),
+        _ => Ok(ticked),
+    }
+}
+
+/// The workspace's own about to be exported into a folder: what `x` opens.
+#[derive(Debug, Clone)]
+pub struct ExportForm {
+    /// The folder to write into, as `mindweaver export` takes it, from the
+    /// workspace's root.
+    pub folder: Input,
+    /// Every kind, in core's order, and whether it is ticked.
+    pub kinds: Vec<(Kind, bool)>,
+    /// Whether what an earlier export wrote there may be changed or
+    /// removed: `--yes`, asked about before it runs.
+    pub yes: bool,
+    /// Which line the keyboard is on: the folder, each kind, then the yes.
+    pub field: usize,
+    pub error: Option<String>,
+}
+
+impl Default for ExportForm {
+    fn default() -> Self {
+        Self {
+            folder: Input::default(),
+            kinds: every_kind(),
+            yes: false,
+            field: 0,
+            error: None,
+        }
+    }
+}
+
+impl ExportForm {
+    /// How many lines the keyboard moves over: the folder, a kind each,
+    /// and the yes.
+    pub fn lines() -> usize {
+        Kind::ALL.len() + 2
+    }
+
+    /// The line of the yes.
+    pub fn yes_field() -> usize {
+        Self::lines() - 1
+    }
+
+    /// Tick the kind, or the yes, the keyboard is on.
+    fn tick(&mut self) {
+        match self.field {
+            0 => {}
+            at if at == Self::yes_field() => self.yes = !self.yes,
+            at => {
+                if let Some((_, ticked)) = self.kinds.get_mut(at - 1) {
+                    *ticked = !*ticked;
+                }
+            }
+        }
+    }
+
+    /// What it would run, if it were submitted now, or what it still
+    /// lacks: a folder, and a kind.
+    pub fn task(&self) -> Result<Task, &'static str> {
+        let folder = self.folder.text().trim();
+        if folder.is_empty() {
+            return Err("a folder to export into is needed");
+        }
+        Ok(Task::Export {
+            folder: folder.to_owned(),
+            kinds: kinds_ticked(&self.kinds)?,
+            yes: self.yes,
+        })
+    }
+}
+
+/// The lines of the backup form that are typed, in order.
+pub const BACKUP_FIELDS: [&str; 4] = ["url", "branch", "message", "token env"];
+
+/// The workspace's own about to be backed up to a git repository: what `b`
+/// opens.
+#[derive(Debug, Clone)]
+pub struct BackupForm {
+    /// The repository, as `git` takes it: an https or ssh URL, or a path
+    /// from the workspace's root.
+    pub url: Input,
+    /// The branch to commit to; empty for the repository's own.
+    pub branch: Input,
+    /// What the commit says; empty for the command's own words.
+    pub message: Input,
+    /// The name of an environment variable holding a token, never a token;
+    /// empty to log in as `git` is configured to.
+    pub token_env: Input,
+    /// Every kind, in core's order, and whether it is ticked.
+    pub kinds: Vec<(Kind, bool)>,
+    /// Which line the keyboard is on: one of [`BACKUP_FIELDS`], then each
+    /// kind.
+    pub field: usize,
+    pub error: Option<String>,
+}
+
+impl Default for BackupForm {
+    fn default() -> Self {
+        Self {
+            url: Input::default(),
+            branch: Input::default(),
+            message: Input::default(),
+            token_env: Input::default(),
+            kinds: every_kind(),
+            field: 0,
+            error: None,
+        }
+    }
+}
+
+impl BackupForm {
+    /// How many lines the keyboard moves over.
+    pub fn lines() -> usize {
+        BACKUP_FIELDS.len() + Kind::ALL.len()
+    }
+
+    /// The line of [`BACKUP_FIELDS`] at `field`.
+    pub fn input(&self, field: usize) -> &Input {
+        match field {
+            0 => &self.url,
+            1 => &self.branch,
+            2 => &self.message,
+            _ => &self.token_env,
+        }
+    }
+
+    /// The line being typed on, when the keyboard is on one.
+    fn input_mut(&mut self) -> Option<&mut Input> {
+        match self.field {
+            0 => Some(&mut self.url),
+            1 => Some(&mut self.branch),
+            2 => Some(&mut self.message),
+            3 => Some(&mut self.token_env),
+            _ => None,
+        }
+    }
+
+    /// Tick the kind the keyboard is on.
+    fn tick(&mut self) {
+        if let Some((_, ticked)) = self
+            .field
+            .checked_sub(BACKUP_FIELDS.len())
+            .and_then(|at| self.kinds.get_mut(at))
+        {
+            *ticked = !*ticked;
+        }
+    }
+
+    /// What it would run, if it were submitted now, or what it still
+    /// lacks: a repository, and a kind.
+    pub fn task(&self) -> Result<Task, &'static str> {
+        let url = self.url.text().trim();
+        if url.is_empty() {
+            return Err("a repository URL is needed");
+        }
+        let given = |input: &Input| {
+            Some(input.text().trim())
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned)
+        };
+        Ok(Task::Backup {
+            url: url.to_owned(),
+            branch: given(&self.branch),
+            kinds: kinds_ticked(&self.kinds)?,
+            message: given(&self.message),
+            token_env: given(&self.token_env),
+        })
+    }
+}
+
 /// A project's agents and share mode, toggled: what `t` opens.
 #[derive(Debug, Clone)]
 pub struct SettingsForm {
@@ -2432,7 +2722,7 @@ impl Reader {
 
     /// Every key, and the command it runs.
     pub fn help() -> Self {
-        let rows: [(&str, &str, &[&str]); 22] = [
+        let rows: [(&str, &str, &[&str]); 24] = [
             (
                 "a",
                 "add a skill or a rule",
@@ -2520,8 +2810,18 @@ impl Reader {
                 &["mindweaver gather git <url>"],
             ),
             (
+                "x",
+                "export the library into a folder, a workspace of its own",
+                &["mindweaver export [--kind <kind>]... [--yes] <folder>"],
+            ),
+            (
+                "b",
+                "back the library up to a git repository",
+                &["mindweaver backup [--branch <branch>] [--kind <kind>]... [--token-env <variable>] <url>"],
+            ),
+            (
                 "esc",
-                "while a gather runs: stop it, until it starts placing",
+                "while a gather or a backup runs: stop it, until it places or pushes",
                 &[],
             ),
             ("s", "what is on the shelf", &["mindweaver gather list"]),

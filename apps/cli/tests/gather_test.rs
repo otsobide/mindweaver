@@ -352,8 +352,8 @@ fn a_watched_gather_reports_its_steps_and_prints_what_an_unwatched_one_does() {
     .unwrap();
 
     let seen = seen.lock().unwrap();
-    assert_eq!(seen.first(), Some(&Progress::Connecting), "{seen:?}");
-    assert_eq!(seen.last(), Some(&Progress::Placing { done: 1, total: 1 }));
+    assert_eq!(seen.first(), Some(&Progress::Gather(Gather::Connecting)), "{seen:?}");
+    assert_eq!(seen.last(), Some(&Progress::Gather(Gather::Placing { done: 1, total: 1 })));
     // The progress is the front end's to show; the report is the command's.
     assert_eq!(
         outcome,

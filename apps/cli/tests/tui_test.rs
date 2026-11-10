@@ -1194,7 +1194,7 @@ fn a_gather_runs_apart_with_its_progress_drawn_until_it_is_over() {
     // Back at once, with the gather still going and the screen drawing it.
     assert!(app.running.is_some());
     settle_until(&mut app, |app| {
-        reported(app) == Some(Progress::Harvesting { done: 0, total: 3 })
+        reported(app) == Some(Progress::Gather(Gather::Harvesting { done: 0, total: 3 }))
     });
     let drawn = tui_drawn(&app);
     assert!(
@@ -1207,7 +1207,7 @@ fn a_gather_runs_apart_with_its_progress_drawn_until_it_is_over() {
 
     go.send(()).unwrap();
     settle_until(&mut app, |app| {
-        reported(app) == Some(Progress::Harvesting { done: 1, total: 3 })
+        reported(app) == Some(Progress::Gather(Gather::Harvesting { done: 1, total: 3 }))
     });
     assert!(tui_drawn(&app).contains("reading folders 1/3"));
 
@@ -1262,7 +1262,7 @@ fn a_gather_already_placing_says_a_cancel_is_too_late_and_finishes() {
     let mut app = tui_in(dir.path());
     let (go, gate) = mpsc::channel();
     app.runner = Some(placing_gather(gate));
-    start_gather(&mut app, Progress::Placing { done: 0, total: 3 });
+    start_gather(&mut app, Progress::Gather(Gather::Placing { done: 0, total: 3 }));
     let drawn = tui_drawn(&app);
     assert!(drawn.contains("placing on the shelf 0/3"), "{drawn}");
     // No key offered that would change nothing.
@@ -3030,7 +3030,7 @@ fn slow_gather(go: mpsc::Receiver<()>) -> Runner {
         let go = go.lock().unwrap();
         let command = tui::state::shell(words);
         for done in 0..=3 {
-            watch.report(Progress::Harvesting { done, total: 3 });
+            watch.report(Progress::Gather(Gather::Harvesting { done, total: 3 }));
             loop {
                 if watch.is_cancelled() {
                     return Done::failed(command, "cancelled, with nothing put on the shelf");
@@ -3059,10 +3059,10 @@ fn placing_gather(go: mpsc::Receiver<()>) -> Runner {
     let go = Mutex::new(go);
     Runner::new(move |words, _, _, watch| {
         let go = go.lock().unwrap();
-        watch.report(Progress::Placing { done: 0, total: 3 });
+        watch.report(Progress::Gather(Gather::Placing { done: 0, total: 3 }));
         // A test that has gone is not waited for.
         let _ = go.recv();
-        watch.report(Progress::Placing { done: 3, total: 3 });
+        watch.report(Progress::Gather(Gather::Placing { done: 3, total: 3 }));
         Done {
             command: tui::state::shell(words),
             stdout: String::from("3 skills: 3 added\n"),
@@ -3076,7 +3076,7 @@ fn placing_gather(go: mpsc::Receiver<()>) -> Runner {
 /// Ask for the slow gather from the gather form, and let it get as far as
 /// reading its first folder.
 fn start_slow_gather(app: &mut App) {
-    start_gather(app, Progress::Harvesting { done: 0, total: 3 });
+    start_gather(app, Progress::Gather(Gather::Harvesting { done: 0, total: 3 }));
 }
 
 /// Ask for a gather from the gather form, and let it get as far as `step`.

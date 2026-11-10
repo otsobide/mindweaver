@@ -13,6 +13,7 @@ use mindweaver_core::port::{Published, Token};
 use mindweaver_core::{Kind, WeaverWorkspace};
 
 use crate::commands::export::listed;
+use crate::progress::{Progress, Watch};
 use crate::{CliError, Failure, Outcome};
 
 /// What `mindweaver backup <url>` was told, beside the workspace.
@@ -28,14 +29,25 @@ pub(crate) struct Backing<'a> {
 /// `asked.token_env` names holds, read here, for this run, and handed to
 /// core: a front end decides where a credential comes from (D-16), and core
 /// never reads the environment.
-pub(crate) fn backup_to(workspace: &WeaverWorkspace, asked: &Backing) -> Result<Outcome, Failure> {
+///
+/// Each step it takes is told to `watch`, and a cancel of it stops the
+/// backup until it pushes, as a gather's stops it until it places: what it
+/// then says is the same either way, so a front end that draws the steps
+/// shows the same report afterwards as one that does not.
+pub(crate) fn backup_to(
+    workspace: &WeaverWorkspace,
+    asked: &Backing,
+    watch: &Watch,
+) -> Result<Outcome, Failure> {
     let token = asked.token_env.map(token_from).transpose()?;
+    let watch = watch.relaying(Progress::Backup);
     let request = Request {
         url: asked.url,
         branch: asked.branch,
         kinds: asked.kinds,
         message: asked.message,
         token: token.as_ref(),
+        watch: &watch,
     };
     let backed =
         backup::backup(workspace, &request, &SystemGit::default()).map_err(CliError::from)?;

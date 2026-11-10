@@ -13,7 +13,7 @@ pub mod ui;
 use std::io;
 use std::time::Duration;
 
-use mindweaver_core::gather::Watch;
+use crate::progress::Watch;
 use mindweaver_core::install::{self, Edits};
 use mindweaver_core::ledger::Ledger;
 use mindweaver_core::{AgentHomes, Kind, MindProject, WeaverWorkspace};
