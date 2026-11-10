@@ -6,8 +6,8 @@ Mindweaver manages the skills and rules coding agents read, the way git manages
 code. A **mind project** (`.mind/settings.toml`) holds artifacts beside its
 code; a **weaver workspace** (`.mindweaver/weaver.toml`, or the
 `.mindflayer/flayer.toml` a Mindflayer build made) links mind projects,
-holds artifacts of its own, gathers skills from git onto a shelf and installs
-them into projects. `README.md` is the first page a newcomer reads: short,
+holds artifacts of its own, gathers skills and rules from git onto a shelf
+and installs them into projects. `README.md` is the first page a newcomer reads: short,
 friendly and centred on the control panel (`mindweaver ui`), with screenshots
 `make docs/screenshots` takes and no command's output but one, what an MCP
 server's install prints (#95). `docs/reference.md`
@@ -177,7 +177,10 @@ under `apps/` with its own `Makefile`:
   `edit` told the options does), the
   agents and where each kind goes for them (`agent`), the catalog, gathering
   (through `port::Remote`), from wherever a repository keeps its skills
-  (`gather::LAYOUTS`), a source typed as `owner/repo@ref` or a folder's
+  (`gather::LAYOUTS`), or the rules in the folder a gather names, each
+  markdown file there one by its route but its README and its licence
+  (`gather::Finding`, `gather::default_folder`, none for rules), a source
+  typed as `owner/repo@ref` or a folder's
   address on a forge read as the repository, branch and folder it names
   (`url::located`), and what a gather would take, with nothing written
   (`gather::dry_run`), a source pinned to a commit (`value::Pin`, fetched
@@ -487,7 +490,10 @@ These are easy to break from a single file without noticing.
   (`install::targets`) do. Where in a repository a gather finds its skills
   is core's (`gather::LAYOUTS`), and so is what a typed source names
   (`url::located`), so no front end spells a layout or reads a URL's
-  branch. Which agents read none of a project's targets is
+  branch, and so are the kind a gather takes unsaid and the folder a
+  gather of a kind looks in unsaid (`gather::DEFAULT_KIND`,
+  `gather::default_folder`), which a task asks before it leaves either
+  off its line. Which agents read none of a project's targets is
   core's too (`ProjectStatus::unreached`), and so is which read a rule it
   received nowhere (`ProjectStatus::missed`). Which kind a name typed bare
   is, to install or take out, is core's (`install::offered_typed`,
@@ -614,7 +620,9 @@ These are easy to break from a single file without noticing.
   `of_weaver`), so a new command says whether it is refused before it
   compiles; a task is refused for its lines (`Task::refusal`). A gather's
   task carries no token, no variable's name and no `--gh`, so its lines
-  hand none over: a gather's token comes from a shell alone. `edit` is
+  hand none over: a gather's token comes from a shell alone. It carries
+  its kind (`kind`, skills when a task leaves it out), which the TUI's
+  form never sets otherwise. `edit` is
   refused in an editor and with `--contents -`, standard input, and run
   with `--contents FILE` (`Refusal::of_edit`); the one task that builds
   that line, the panel's save (`Task::Save`, its text and the hash it was
@@ -665,7 +673,11 @@ These are easy to break from a single file without noticing.
   is recorded with its `upstream_path` (the harvest's route), the
   `hash::tree` of its shelf copy, the recipe an install keeps, and its
   licence as it says it (`licence::Licence::of`), all core's to read, and
-  `gather list` only shows them.
+  `gather list` only shows them. A source of rules keeps the folder a
+  source of skills does, in the rules shelf, each rule filed by its route
+  and recorded with `hash::bytes` of its file, a rule's install's recipe,
+  and the licence of the folder it came from; the ledger lists what was
+  gathered by kind in report order.
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -1085,7 +1097,9 @@ These are easy to break from a single file without noticing.
   `artifact::strict_issues`
   (what `ValidationIssue::is_strict` picks out), so change the rules there and
   nowhere else; gathering
-  takes such a skill with a `warning:` per problem, and `validate` reports
+  takes such a skill with a `warning:` per problem, and a rule whose route
+  is no rule's name it takes not at all, said (`gathered_route_unusable`),
+  since its route is where the shelf files it, and `validate` reports
   everything (`mindweaver validate` without `-p` reads the shelf too) but calls
   an artifact invalid only for what is not `ValidationIssue::is_warning`. Keys the format does not define pass through
   untouched. A rule's front matter is optional (`rule::RuleManifest`): read
@@ -1199,8 +1213,11 @@ These are easy to break from a single file without noticing.
     where `gather::LAYOUTS` says, following a link only to a folder inside
     the one it looks in, reads no manifest linked out of the clone
     (`gathered_link_outside`), and looks in a folder `--path` or a URL names
-    only when it is inside the repository (`gather_path_outside`). Two of a
-    source's skills called the same are a failure each, never a pick
+    only when it is inside the repository (`gather_path_outside`). A
+    gather of rules reads the folder named and no other
+    (`gather_folder_unnamed` when none is), goes into no linked folder and
+    reads a linked file only inside the clone. Two of a source's skills,
+    or rules, called the same are a failure each, never a pick
     (`gathered_name_clash`).
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
@@ -1762,8 +1779,10 @@ These are easy to break from a single file without noticing.
   build made, `version_1` and `older`, one a `settings.json` marks as a
   version 3 build wrote it, `json`, and one that names a folder for MCP
   servers, `with_mcp`, `GitRepositoryMother`, among it one keeping its
-  skills in each layout a gather reads, `layouts` and `with_skills_in`, and
-  one that is one skill, `one_skill`, `ShelfMother`),
+  skills in each layout a gather reads, `layouts` and `with_skills_in`,
+  one that is one skill, `one_skill`, and one keeping rules by their routes
+  in a folder beside its README and its licence, `with_rules_in`,
+  `ShelfMother`, among it a shelf of rules, `rules_into`),
   and what a Mindflayer build left under its names (`MindflayerMother`:
   a workspace in a `.mindflayer`, and a project's blocks, exclude lines and
   rule files for Claude as that build wrote them, records included).

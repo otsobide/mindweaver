@@ -520,13 +520,14 @@ mindweaver load <path>...  # offer another workspace's own skills and rules,
                            # read live
 mindweaver unload <path>...  # stop offering them
 
-mindweaver gather git <URL> [--path DIR] [--ref REF] [--pin COMMIT] [--name NAME] [--dry-run] [--token-env VAR|--gh]
+mindweaver gather git <URL> [--kind KIND] [--path DIR] [--ref REF] [--pin COMMIT] [--name NAME] [--dry-run] [--token-env VAR|--gh]
                            # collect skills from a repository onto the shelf,
-                           # wherever it keeps them, under a name --from
-                           # takes; --pin takes one commit, whatever the
-                           # branch is at; with --dry-run, say what it would
-                           # take; with --token-env or --gh, log in over
-                           # https with a token for this run
+                           # wherever it keeps them, or with --kind rules the
+                           # rules in the folder --path names, under a name
+                           # --from takes; --pin takes one commit, whatever
+                           # the branch is at; with --dry-run, say what it
+                           # would take; with --token-env or --gh, log in
+                           # over https with a token for this run
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver install         # a screen for putting skills, rules and MCP
@@ -780,7 +781,8 @@ folder outright.
 ## Gathering skills from elsewhere
 
 A workspace has a **shelf**: skills collected from somewhere else, held by the
-workspace and belonging to no project yet.
+workspace and belonging to no project yet, and [rules](#gathering-rules)
+too.
 
 ```
 $ mindweaver gather git https://github.com/acme/skills
@@ -1238,6 +1240,97 @@ skill's is what it says of itself. A skill gathered by a Mindweaver from
 before these were kept has none of them, and shows no licence, until its
 source is gathered again.
 
+### Gathering rules
+
+`--kind rules` gathers rules instead of skills. Every markdown file (`.md`)
+in the folder `--path` names, at any depth, is a rule, named by its route
+from that folder without its extension, as a project's own rules are
+named:
+
+```
+$ mindweaver gather git https://github.com/acme/rules --kind rules --path rules
+acme-rules: https://github.com/acme/rules at 6e7f8a9
+  added  git/commits  Commit one coherent step at a time
+  added  review/tone  Say what a change does before what is wrong with it
+
+2 rules: 2 added, 0 updated, 0 unchanged
+```
+
+Rules are gathered only from a folder named, by `--path` or by a folder's
+address on GitHub or GitLab (`.../tree/main/rules`). Every markdown file
+in it is one, so a whole repository read as rules would take its changelog
+and its contributing guide too, and name every rule after the folder they
+are kept in: a gather of rules naming no folder is refused before anything
+is fetched, and `--path .` takes the whole repository, for one that holds
+nothing but its rules.
+
+```
+$ mindweaver gather git https://github.com/acme/rules --kind rules
+error: rules are gathered from the folder `--path` names, every markdown file in it one: name the folder that holds them, or `--path .` for the whole repository
+```
+
+A README and a licence at the top of that folder (`README.md`,
+`LICENSE.md`, `LICENCE.md`, in any case) say what the folder is rather
+than being rules, and are left out; the licence is what `gather list`
+says every rule there is under, since a rule says nothing of its own. A
+file or a folder whose name starts with `.` is passed over, and so is
+`node_modules`; a link to a folder is not followed, and a link to a file
+only to one inside the repository. Each source of rules keeps a folder of
+its own under `.mindweaver/rules/`, as a source of skills does under
+`.mindweaver/skills/`, and `--ref`, `--pin`, `--name`, `--token-env` and
+`--gh` work as they do for skills.
+
+A rule is named by its route, so a file whose route is no name a rule can
+have (lowercase letters and digits, in words joined by single hyphens,
+folders joined by `/`) is not gathered, and is said where it is; the rules
+beside it are:
+
+```
+$ mindweaver gather git https://github.com/acme/rules --kind rules --path rules
+acme-rules: https://github.com/acme/rules at 6e7f8a9
+  added  git/commits  Commit one coherent step at a time
+  added  review/tone  Say what a change does before what is wrong with it
+
+2 rules: 2 added, 0 updated, 0 unchanged
+warning: rules/Python_Style.md: not taken, since a rule is named by its route, and `Python_Style` is not usable as a name: it has to be lowercase letters and digits, joined by single hyphens
+```
+
+`--dry-run` says where each rule is in the repository, as it does for a
+skill:
+
+```
+$ mindweaver gather git https://github.com/acme/rules --kind rules --path rules --dry-run
+acme-rules: https://github.com/acme/rules at 6e7f8a9
+  would add  git/commits  rules/git/commits.md  Commit one coherent step at a time
+  would add  review/tone  rules/review/tone.md  Say what a change does before what is wrong with it
+
+2 rules: 2 to add, 0 to update, 0 unchanged
+nothing gathered: run it without --dry-run to gather
+```
+
+A rule from the shelf installs as the workspace's own rules do, into the
+block of the project's `AGENTS.md` ([installing into a
+project](#installing-into-a-project)), and `--from acme-rules` names it
+when another place offers its route too:
+
+```
+$ mindweaver install -p collapse git/commits
+installed rule git/commits into collapse, from https://github.com/acme/rules
+```
+
+Once both kinds are on the shelf, `gather list` says which each is:
+
+```
+$ mindweaver gather list
+skill  commit-style  acme-skills  MIT          How this repo writes commit messages
+rule   git/commits   acme-rules   MIT License  Commit one coherent step at a time
+rule   review/tone   acme-rules   MIT License  Say what a change does before what is wrong with it
+```
+
+A gather of rules from the TUI is not offered yet: its gather form takes
+skills. The control panel's server runs one sent as a task with `"kind":
+"rule"` ([the API's guide](api.md)).
+
 ### What a workspace keeps
 
 ```
@@ -1259,6 +1352,8 @@ source is gathered again.
   lock            held by a command while it changes the workspace
   cache/<source>/ the clone, kept so a gather can be looked at afterwards
   skills/<source>/<name>/SKILL.md
+  rules/<source>/<route>.md
+                  what was gathered, by the source it came from
   templates/      templates for every project it manages, if you add any
   tmp/            a gather's --dry-run clone while it runs, and the text the
                   control panel saves while its line runs
