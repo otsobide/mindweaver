@@ -123,7 +123,7 @@ fn a_gather_is_told_step_by_step_until_what_it_found_is_on_the_shelf() {
     scenario
         .run("~/Projects", "mindweaver gather list")
         .succeeds()
-        .prints("pdf  /home/you/src/acme-skills  Read PDFs\n");
+        .prints("pdf  src-acme-skills  Read PDFs\n");
 }
 
 #[test]
