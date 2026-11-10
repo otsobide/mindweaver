@@ -144,6 +144,51 @@ pub(crate) fn replace_leaving(
     Ok(change)
 }
 
+/// [`replace`] for one file: `to` made to hold what `from` holds, read
+/// through a link at `from`, which its caller has held to where it may lead,
+/// and written at `to` as it is spelled, never through a link there: what a
+/// gather puts on the shelf of a rule ([`crate::gather`]).
+///
+/// Written whole through a temporary beside `to` and a rename, so a write
+/// that fails leaves `to` as it was; left alone, down to its modification
+/// time, when it holds the same bytes already, so a second gather says
+/// what moved.
+pub(crate) fn replace_file(from: &Path, to: &Path) -> Result<Change, io::Error> {
+    let bytes = fs::read(from)?;
+    let change = file_change(&bytes, to)?;
+    if change == Change::Unchanged {
+        return Ok(change);
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    crate::workspace::replace_bytes_unresolved(to, &bytes).map_err(|(path, error)| {
+        io::Error::new(
+            error.kind(),
+            format!("cannot write {}: {error}", path.display()),
+        )
+    })?;
+    Ok(change)
+}
+
+/// What [`replace_file`] would do of `from` at `to`, writing nothing: what a
+/// gather's dry run says it would do with a rule ([`crate::gather::dry_run`]).
+pub(crate) fn compared_file(from: &Path, to: &Path) -> Result<Change, io::Error> {
+    file_change(&fs::read(from)?, to)
+}
+
+/// What putting `bytes` at `to` is: an addition where nothing is, nothing
+/// where a file holds them already, and an update over anything else, a
+/// link or a folder included, which the write then refuses or replaces.
+fn file_change(bytes: &[u8], to: &Path) -> Result<Change, io::Error> {
+    Ok(match fs::symlink_metadata(to) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Change::Added,
+        Err(error) => return Err(error),
+        Ok(metadata) if metadata.is_file() && fs::read(to)? == bytes => Change::Unchanged,
+        Ok(_) => Change::Updated,
+    })
+}
+
 /// What replacing `to` with `copy`, a whole copy already made, would be,
 /// replacing nothing: what a gather's dry run says it would do with a skill
 /// it copied somewhere of its own ([`crate::gather::dry_run`]).

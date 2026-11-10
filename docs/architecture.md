@@ -1532,9 +1532,10 @@ refused by `mindweaver init` before anything is made
 there by names of its own, so an artifact somebody wrote among them could go
 with the next gather; and a rules folder holding the cache would read every
 markdown file in every clone as one of the workspace's rules. The rules shelf
-is reserved too, though nothing gathers rules yet, rather than matched on the
-kind as `gather` is: scrubbing a source already deletes its folder from every
-kind's shelf, and a kind made gatherable later has to find its shelf free. The
+is reserved as the skills shelf is, which a gather of rules fills (#111),
+and so is every kind's, rather than matched on whether a gather takes the
+kind: scrubbing a source deletes its folder from every kind's shelf, and a
+kind made gatherable later has to find its shelf free. The
 comparison ignores ASCII case, since on macOS and Windows `.Mindweaver/Skills`
 is the shelf.
 
@@ -3087,6 +3088,7 @@ the workspace and belonging to no project yet.
   cache/<source>/            the clone
   cache/http/                what catalogs answered over HTTP
   skills/<source>/<name>/    what was taken out of it
+  rules/<source>/<route>.md  what was taken out of it, of rules (#111)
   tmp/gather-<run>/          a dry run's clone and copies, while it runs
 ```
 
@@ -3233,7 +3235,108 @@ was registered from it. Gathered again naming no folder, it is the same source
 (`gather::known`, `OLDER_DEFAULT_SUBDIRECTORY`), moved to `.`
 (`LedgerStore::set_source_folder`), and moved back if the gather is cancelled:
 a second source of one repository would offer every skill under one origin,
-which `--from` cannot tell apart ([open questions](#open-questions)).
+which `--from` cannot tell apart ([open questions](#open-questions)). Only a
+gather of skills is taken for such a one, which is all an older build
+gathered.
+
+### Where a repository keeps its rules
+
+A rule is a loose markdown file at any depth, so a gather of rules (#111,
+`gather git --kind rules`, `Request::taking`) had to decide what a rule's
+name is relative to, which was the open question "Gathering rules". It is
+the folder the gather looks in, by the rule `Catalog`'s walk names a
+project's rules by (`catalog::route`): every file ending in `.md`, in any
+case, under that folder is a rule named by its route from there without
+its extension, `rules/git/commits.md` gathered from `rules` being
+`git/commits`. The same rule rather than one of the gather's own, so a
+rule on the shelf is called what it would be in a project's own `rules`
+folder, and discovery reads the shelf's rules back under the names the
+gather gave them (`Catalog::discover_gathered`), as `validate` reads them.
+What a gather finds of a kind is one of two ways (`gather::Finding`): the
+folders holding a manifest where a layout looks, for skills, and the files
+of an extension at any depth, for rules.
+
+That folder is named. `gather::default_folder` gives the one a gather of a
+kind looks in when nothing names one, the root for skills and none for
+rules, and a gather of rules naming none, by `--path` or in a folder's
+address on a forge, is refused before anything is registered or fetched
+(`gather_folder_unnamed`). Every markdown file under the folder is a rule,
+so a whole repository read as rules would take whatever documents it, a
+changelog and a guide for contributors among them, and name each rule
+after the folder its collection is kept in (`rules/git/commits`). Looking
+where repositories of rules keep them, as `LAYOUTS` does for skills, was
+the other way, and is rejected: rule collections agree on no layout,
+where the tools skills are written for agree on one, and a walk guessing
+one would take the wrong folder's files as quietly as the whole
+repository's. `--path .`
+names the root, for a repository whose rules are all it holds. A task
+spells the line the same way: it leaves out a folder only when it is the
+kind's `default_folder`, so a task of rules from the root says `--path .`.
+
+A `README` and a licence (`LICENSE` or `LICENCE`, as `licence::Licence`
+reads one) directly in that folder document it rather than being rules,
+with any extension and in any case, and are passed over without a word,
+as `node_modules` is: passing them over is what a gather of rules does,
+and nothing for whoever gathered to fix. Only there: one further down is a
+rule like the rest, as it would be in a project's own folder. The licence
+is what every rule there says it is under (`Licence::of`, handed the folder
+looked in rather than the rule's shelf copy), since a rule's front matter
+declares none and a rule has no folder of its own to bundle one in, as a
+skill has; a licence elsewhere in the repository is not read, as it is not
+for a skill. Hidden files and folders are passed over and so is
+`node_modules`, which a project's walk need not pass over and a repository
+can hold; a link to a folder is not gone into, as discovery goes into none,
+since a loop of them would never end and no rule needs one; a link to a
+file is read only when it leads inside the clone (`gathered_link_outside`),
+as a skill's manifest is, since the report quotes what it holds.
+
+A route that is no name a rule can have (`install::is_installable_name`,
+`artifact::name_issues`: lowercase words joined by single hyphens, a
+segment at a time) is not taken, and is said by where it is in the source,
+with what is wrong with it in `validate`'s words (`gathered_route_unusable`).
+Not taken where a skill declaring a name that breaks the rules is taken and
+said: a skill's folder keeps the name its source gave it whatever it
+declares, and fixing what it declares is somebody's edit, while a rule's
+name is its file's route, which is where the shelf files it, the marker of
+its section in a project's `AGENTS.md` and the file Claude reads it from.
+One that is no name is a rule no install could ever file, as `gather list`
+would then say every time it listed it. What else is wrong with a rule it
+takes, nothing to say or front matter that does not read, is a warning, as
+it is for a skill.
+
+The shelf files each rule by its route from the folder looked in, as the
+source spells its file (`.mindweaver/rules/<source>/git/commits.md`), the
+same per-source folder a source of skills has in the skills shelf, so a
+source of either kind is scrubbed, refreshed and removed alike. A file is
+put there whole through a temporary beside it and a rename, never written
+through a link at its place, and left alone, down to its time, when it
+holds the same bytes already (`copy::replace_file`), so a second gather
+says what moved; a dry run compares the clone's bytes with the shelf's
+(`copy::compared_file`). Each is recorded as a skill is ([what is kept of
+each artifact gathered](#what-is-kept-of-each-artifact-gathered)): its
+route in the repository, `rules/git/commits.md`, a hash by the recipe a
+rule's install keeps of its copy, `hash::bytes` of the file rather than
+`hash::tree`, and its licence. Two rules of one source called the same
+would be one row of the ledger's, and are a failure each
+(`gathered_name_clash`), which only the case of an extension can make,
+`style.md` beside `style.MD`, since a name in capitals is no rule's.
+
+A gather of rules is a source like any other, found by its URL, branch
+and folder, so `rules` and the root of one repository, gathered for rules
+and for skills, are two sources, each called by a name of its own; one
+folder gathered for both is one source, offering both kinds, which the
+ledger keeps apart by kind. The ledger lists what was gathered by kind in
+report order (`LedgerStore::gathered`), skills before rules, where its
+query sorts the column by the alphabet's. A rule on the shelf installs as
+the library's do ([installing rules](#installing-rules)), named by `--from`
+when another place offers its route.
+
+A gather task carries the kind (`Task::Gather`'s `kind`, skills when a task
+leaves it out, as one sent before it could), so a script driving the API
+gathers rules as `--kind rules` does, followed and stopped as any gather
+is. The TUI's gather form has no field for it and gathers skills, and the
+panel sends no gather of its own: a kind a form offers is the form's
+change to make, and the command and the task already take it.
 
 ### What was typed for a source
 
@@ -10410,10 +10513,13 @@ and `install::uninstall` a skill is (`install::rules`), offered from the
 workspace's own rules and from a load's, by the route it is filed under:
 held to the rules every name is, as the block holds it (`name_issues`),
 rather than to one folder name, and two places offering one route are
-refused as for a skill (`OfferedTwice`), `--from` saying which. A rule is
-never gathered (#111), so the shelf offers none. The command line, the
-install screen and what a load is said to offer take rules as they take
-skills ([which kind a name is](#which-kind-a-name-is)).
+refused as for a skill (`OfferedTwice`), `--from` saying which. The shelf
+offers the rules a gather took from a repository's folder (#111, [where a
+repository keeps its rules](#where-a-repository-keeps-its-rules)), each
+by the same route, installed as the workspace's own are, its origin its
+source's. The command line, the install screen and what a load is said
+to offer take rules as they take skills ([which kind a name
+is](#which-kind-a-name-is)).
 
 - **One render for every rule.** The block is one file, written whole, so
   a project marked by its settings is given its rules together: installing
@@ -13965,10 +14071,6 @@ repository, stays on `gix`.
   can leave the shelf between two revisions, and the ledger behind it. A
   handler that cancels the watch would make the command line stop where the
   TUI's `esc` does.
-- **Gathering rules.** Only skills are gatherable. A rule is a loose file at any
-  depth, so harvesting one means deciding what its name is relative to: the
-  same question `Catalog::take_files` answers inside a project, asked of a
-  folder that is not one.
 - **What ssh asks, and the one connection `gix` opens alone.** How a private
   repository is logged into is settled, which was the open question "Private
   repositories": a helper git config names, ssh's own keys, or a token the

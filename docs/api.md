@@ -638,7 +638,10 @@ preview are no runs, and are not there.
 A gather is the network, and takes as long as that does. A `gather` task,
 `{"type": "gather", "url": ..., "folder": ".", "reference": null}`,
 is previewed as `cancellable`, and while it runs `/events` tells each step
-it takes ([following what happens](#following-what-happens)). Its source
+it takes ([following what happens](#following-what-happens)). It gathers
+skills; with `"kind": "rule"` it gathers the rules in the folder it names,
+as `mindweaver gather git --kind rules --path <folder>` does, a folder of
+`"."` then being the whole repository, said as `--path .`. Its source
 is an address, which the gather refuses when it carries a credential, or a
 folder on this machine named by its absolute path, or a `file://` URL of
 one, as a folder to link is. It carries no token either, nor the name of a
