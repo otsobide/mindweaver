@@ -88,6 +88,14 @@ pub(crate) fn install_named(
     // same.
     let said = scrubbed(&assigned.scrub);
     let mut parts = assigned.parts;
+    // Said once, before what any part says, of the `--from` they were all
+    // asked with: another spelling of a source's URL, which still works.
+    let respelled = from.and_then(|from| {
+        parts.iter().find_map(|part| match &part.done {
+            Ok(offered) => mindweaver_core::install::respelled(&offered.candidate, from),
+            Err(_) => None,
+        })
+    });
     // Said once, after every part: nothing of it was written anywhere.
     let unconfirmed = parts.iter().any(|part| {
         matches!(
@@ -99,12 +107,25 @@ pub(crate) fn install_named(
         )
     });
     let asked = |outcome: Result<Outcome, Failure>| {
-        outcome.map(|mut outcome| {
-            if unconfirmed {
-                outcome.stdout.push_str(UNINSTALLED);
+        // A warning that fails nothing: the install went ahead as asked,
+        // and a script still naming a source the old way is the one the
+        // warning is for, which a failure would break.
+        let deprecated = respelled
+            .as_ref()
+            .map(|respelled| Warning::coded(respelled.code(), format!("warning: {respelled}")));
+        match outcome {
+            Ok(mut outcome) => {
+                if unconfirmed {
+                    outcome.stdout.push_str(UNINSTALLED);
+                }
+                outcome.stderr.splice(0..0, deprecated);
+                Ok(outcome)
             }
-            outcome
-        })
+            Err(mut failure) => {
+                failure.warnings.splice(0..0, deprecated);
+                Err(failure)
+            }
+        }
     };
     if parts.len() == 1 {
         let part = parts.remove(0);

@@ -18,20 +18,21 @@ use crate::adapter::SystemClock;
 use crate::agent::Agent;
 use crate::kind::Kind;
 use crate::ledger::{
-    Action, Carried, Entry, EntryTarget, Forgotten, Gathered, InstallRecord, LedgerError, Moved,
-    Outcome, Source, SourceKind, Target,
+    Action, Carried, Entry, EntryTarget, Forgotten, Gathered, InstallRecord, LedgerError, Merged,
+    Moved, Outcome, Source, SourceKind, Target,
 };
 use crate::port::{Clock, LedgerStore};
 use crate::settings::ProjectId;
-use crate::url::{carries_credentials, redacted};
-use crate::value::{ArtifactName, ContentHash, Origin, Redacted, Revision};
+use crate::url::{canonical, carries_credentials, redacted};
+use crate::value::{ArtifactName, ContentHash, Origin, Redacted, Revision, SourceName};
+use crate::workspace::RESERVED_IN_CACHE;
 
 /// The schema version this build writes.
 ///
 /// Refused if the file on disk is newer, for the same reason a marker file is:
 /// an old binary silently misreading a newer database is the failure that has
 /// no error message.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// The SQLite store, over one connection to the ledger's file, or to one in
 /// memory.
@@ -312,6 +313,14 @@ impl Sqlite {
                 self.failed("giving installations the entries they write", source)
             })?;
         }
+        if found < 7 {
+            let failed =
+                |source| self.failed("naming each source and knowing it by its URL", source);
+            // What no SQL can work out of a URL, handed to the step as
+            // values, as the step to schema 5 is handed each project's id.
+            let spelled = spelled_sources(&transaction).map_err(failed)?;
+            seven(&transaction, &spelled).map_err(failed)?;
+        }
 
         transaction
             .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -397,7 +406,8 @@ impl Sqlite {
         Ok(found)
     }
 
-    /// A readable directory name no other source has taken.
+    /// A readable directory name no other source has taken, and none the
+    /// cache keeps for core's own use ([`RESERVED_IN_CACHE`]).
     fn free_directory(&self, wanted: &str) -> Result<String, LedgerError> {
         for attempt in 1.. {
             let candidate = if attempt == 1 {
@@ -405,10 +415,14 @@ impl Sqlite {
             } else {
                 format!("{wanted}-{attempt}")
             };
+            if RESERVED_IN_CACHE.contains(&candidate.as_str()) {
+                continue;
+            }
             let taken = self
                 .connection
                 .query_row(
-                    "SELECT 1 FROM sources WHERE directory = ?1",
+                    "SELECT 1 FROM sources WHERE directory = ?1
+                     UNION ALL SELECT 1 FROM merged_sources WHERE directory = ?1",
                     [&candidate],
                     |_| Ok(()),
                 )
@@ -416,6 +430,21 @@ impl Sqlite {
                 .map_err(|source| self.failed("checking a source directory", source))?
                 .is_some();
             if !taken {
+                return Ok(candidate);
+            }
+        }
+        unreachable!("the loop returns as soon as a name is free")
+    }
+
+    /// `wanted`, or the first of it numbered that no source is called.
+    fn free_name(&self, wanted: &SourceName) -> Result<SourceName, LedgerError> {
+        for attempt in 1.. {
+            let candidate = if attempt == 1 {
+                wanted.clone()
+            } else {
+                wanted.numbered(attempt)
+            };
+            if self.source_named(&candidate)?.is_none() {
                 return Ok(candidate);
             }
         }
@@ -447,14 +476,19 @@ impl LedgerStore for Sqlite {
         reference: Option<&str>,
         subdirectory: &str,
     ) -> Result<Option<Source>, LedgerError> {
-        let url = redacted(url);
         self.connection
             .query_row(
-                "SELECT id, kind, url, reference, subdirectory, revision, directory
-                   FROM sources
-                  WHERE kind = ?1 AND url = ?2 AND subdirectory = ?3
-                    AND reference IS ?4",
-                rusqlite::params![kind.slug(), url.as_ref(), subdirectory, reference],
+                &format!(
+                    "SELECT {SOURCE_COLUMNS} FROM sources
+                      WHERE kind = ?1 AND canonical_url = ?2 AND reference_key = ?3
+                        AND subdirectory = ?4"
+                ),
+                rusqlite::params![
+                    kind.slug(),
+                    canonical(url),
+                    reference.unwrap_or_default(),
+                    subdirectory
+                ],
                 read_source,
             )
             .optional()
@@ -474,19 +508,25 @@ impl LedgerStore for Sqlite {
         }
 
         let directory = self.free_directory(&slug(&url))?;
+        let known_by = canonical(&url);
+        let name = self.free_name(&SourceName::derived(&known_by))?;
         let at = self.now();
         self.connection
             .execute(
                 "INSERT INTO sources
-                     (kind, url, reference, subdirectory, revision, directory, first_seen, last_seen)
-                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?6)",
+                     (kind, url, reference, subdirectory, revision, directory, first_seen, last_seen,
+                      name, canonical_url, reference_key)
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?6, ?7, ?8, ?9)",
                 rusqlite::params![
                     kind.slug(),
                     url.as_ref(),
                     reference,
                     subdirectory,
                     directory,
-                    at
+                    at,
+                    name.as_str(),
+                    known_by,
+                    reference.unwrap_or_default()
                 ],
             )
             .map_err(|source| self.failed("registering a source", source))?;
@@ -499,7 +539,74 @@ impl LedgerStore for Sqlite {
             subdirectory: subdirectory.to_owned(),
             revision: None,
             directory,
+            name,
         })
+    }
+
+    fn source_named(&self, name: &SourceName) -> Result<Option<Source>, LedgerError> {
+        self.connection
+            .query_row(
+                &format!("SELECT {SOURCE_COLUMNS} FROM sources WHERE name = ?1"),
+                [name.as_str()],
+                read_source,
+            )
+            .optional()
+            .map_err(|source| self.failed("looking up a source by its name", source))
+    }
+
+    fn rename_source(&self, id: i64, name: &SourceName) -> Result<(), LedgerError> {
+        self.connection
+            .execute(
+                "UPDATE sources SET name = ?2 WHERE id = ?1",
+                rusqlite::params![id, name.as_str()],
+            )
+            .map(|_| ())
+            .map_err(|source| self.failed("renaming a source", source))
+    }
+
+    fn merged(&self) -> Result<Vec<Merged>, LedgerError> {
+        let failed = |source| self.failed("reading the sources made one", source);
+        let pending: Vec<(String, Option<String>, String, i64)> = {
+            let mut statement = self
+                .connection
+                .prepare(
+                    "SELECT url, reference, directory, into_id FROM merged_sources ORDER BY id",
+                )
+                .map_err(failed)?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
+                .map_err(failed)?;
+            rows.collect::<Result<_, _>>().map_err(failed)?
+        };
+        let mut merged = Vec::new();
+        for (url, reference, directory, into) in pending {
+            merged.push(Merged {
+                url: Redacted::new(&url),
+                reference,
+                directory,
+                into: self
+                    .connection
+                    .query_row(
+                        &format!("SELECT {SOURCE_COLUMNS} FROM sources WHERE id = ?1"),
+                        [into],
+                        read_source,
+                    )
+                    .map_err(failed)?,
+            });
+        }
+        Ok(merged)
+    }
+
+    fn cleared_merge(&self, directory: &str) -> Result<(), LedgerError> {
+        self.connection
+            .execute(
+                "DELETE FROM merged_sources WHERE directory = ?1",
+                [directory],
+            )
+            .map(|_| ())
+            .map_err(|source| self.failed("forgetting a source made one", source))
     }
 
     fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError> {
@@ -560,7 +667,8 @@ impl LedgerStore for Sqlite {
             .connection
             .prepare(
                 "SELECT a.kind, a.name, a.path, a.summary, a.revision, a.gathered_at,
-                        s.id, s.kind, s.url, s.reference, s.subdirectory, s.revision, s.directory
+                        s.id, s.kind, s.url, s.reference, s.subdirectory, s.revision, s.directory,
+                        s.name
                    FROM artifacts a
                    JOIN sources s ON s.id = a.source_id
                   ORDER BY a.kind, a.name, s.url",
@@ -587,6 +695,7 @@ impl LedgerStore for Sqlite {
                     subdirectory: row.get(10)?,
                     source_revision: row.get(11)?,
                     directory: row.get(12)?,
+                    source_name: row.get(13)?,
                 })
             })
             .map_err(|source| self.failed("listing what was gathered", source))?;
@@ -615,6 +724,7 @@ impl LedgerStore for Sqlite {
                     subdirectory: row.subdirectory,
                     revision: row.source_revision,
                     directory: row.directory,
+                    name: SourceName::recorded(row.source_name),
                 },
             });
         }
@@ -625,10 +735,7 @@ impl LedgerStore for Sqlite {
         let failed = |source| self.failed("listing the sources", source);
         let mut statement = self
             .connection
-            .prepare(
-                "SELECT id, kind, url, reference, subdirectory, revision, directory
-                   FROM sources ORDER BY id",
-            )
+            .prepare(&format!("SELECT {SOURCE_COLUMNS} FROM sources ORDER BY id"))
             .map_err(failed)?;
         let rows = statement
             .query_map([], |row| {
@@ -644,6 +751,7 @@ impl LedgerStore for Sqlite {
                             subdirectory: row.get(4)?,
                             revision: row.get(5)?,
                             directory: row.get(6)?,
+                            name: SourceName::recorded(row.get(7)?),
                         })
                     }),
                 )
@@ -1321,10 +1429,9 @@ impl LedgerStore for Sqlite {
     fn tainted_sources(&self) -> Result<Vec<Source>, LedgerError> {
         let mut statement = self
             .connection
-            .prepare(
-                "SELECT id, kind, url, reference, subdirectory, revision, directory
-                   FROM sources WHERE instr(url, '@') > 0 ORDER BY id",
-            )
+            .prepare(&format!(
+                "SELECT {SOURCE_COLUMNS} FROM sources WHERE instr(url, '@') > 0 ORDER BY id"
+            ))
             .map_err(|source| self.failed("looking for credentials in sources", source))?;
         let rows = statement
             .query_map([], |row| {
@@ -1344,92 +1451,24 @@ impl LedgerStore for Sqlite {
         Ok(tainted)
     }
 
-    fn scrub_source(&self, id: i64) -> Result<Option<Source>, LedgerError> {
+    fn scrub_source(&self, id: i64) -> Result<(), LedgerError> {
         let failed = |source| self.failed("rewriting a source without credentials", source);
         let transaction = self.connection.unchecked_transaction().map_err(failed)?;
 
-        let Some((kind, stored, reference, subdirectory)) = transaction
-            .query_row(
-                "SELECT kind, url, reference, subdirectory FROM sources WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, String>(3)?,
-                    ))
-                },
-            )
+        let Some(stored) = transaction
+            .query_row("SELECT url FROM sources WHERE id = ?1", [id], |row| {
+                row.get::<_, String>(0)
+            })
             .optional()
             .map_err(failed)?
         else {
-            return Ok(None);
+            return Ok(());
         };
         let clean = redacted(&stored);
         if clean == stored {
-            return Ok(None);
+            return Ok(());
         }
 
-        let other: Option<i64> = transaction
-            .query_row(
-                "SELECT id FROM sources
-                  WHERE kind = ?1 AND url = ?2 AND subdirectory = ?3 AND reference IS ?4
-                    AND id != ?5
-                  ORDER BY last_seen DESC, id DESC LIMIT 1",
-                rusqlite::params![kind, clean.as_ref(), subdirectory, reference, id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(failed)?;
-
-        let (kept, dropped) = match other {
-            None => (id, None),
-            Some(other) => {
-                // Newest harvest first, `None` for a shelf never filled, then
-                // the last attempt, then the later row.
-                let freshness = |source: i64| {
-                    transaction.query_row(
-                        "SELECT (SELECT MAX(gathered_at) FROM artifacts WHERE source_id = ?1),
-                                last_seen, id
-                           FROM sources WHERE id = ?1",
-                        [source],
-                        |row| {
-                            Ok((
-                                row.get::<_, Option<i64>>(0)?,
-                                row.get::<_, i64>(1)?,
-                                row.get::<_, i64>(2)?,
-                            ))
-                        },
-                    )
-                };
-                let (kept, dropped) =
-                    if freshness(id).map_err(failed)? >= freshness(other).map_err(failed)? {
-                        (id, other)
-                    } else {
-                        (other, id)
-                    };
-                let gone = transaction
-                    .query_row(
-                        "SELECT id, kind, url, reference, subdirectory, revision, directory
-                           FROM sources WHERE id = ?1",
-                        [dropped],
-                        read_source,
-                    )
-                    .map_err(failed)?;
-                transaction
-                    .execute(
-                        "UPDATE installations SET source_id = ?1 WHERE source_id = ?2",
-                        [kept, dropped],
-                    )
-                    .map_err(failed)?;
-                // What it gathered goes with it, by the cascade.
-                transaction
-                    .execute("DELETE FROM sources WHERE id = ?1", [dropped])
-                    .map_err(failed)?;
-                (kept, Some(gone))
-            }
-        };
         let origins: Vec<(i64, String)> = {
             let mut statement = transaction
                 .prepare(
@@ -1438,7 +1477,7 @@ impl LedgerStore for Sqlite {
                 )
                 .map_err(failed)?;
             let rows = statement
-                .query_map([kept], |row| Ok((row.get(0)?, row.get(1)?)))
+                .query_map([id], |row| Ok((row.get(0)?, row.get(1)?)))
                 .map_err(failed)?;
             rows.collect::<Result<_, _>>().map_err(failed)?
         };
@@ -1456,11 +1495,10 @@ impl LedgerStore for Sqlite {
         transaction
             .execute(
                 "UPDATE sources SET url = ?2 WHERE id = ?1",
-                rusqlite::params![kept, clean.as_ref()],
+                rusqlite::params![id, clean.as_ref()],
             )
             .map_err(failed)?;
-        transaction.commit().map_err(failed)?;
-        Ok(dropped)
+        transaction.commit().map_err(failed)
     }
 
     fn scrub_log(&self) -> Result<usize, LedgerError> {
@@ -1792,6 +1830,7 @@ struct Row {
     subdirectory: String,
     source_revision: Option<Revision>,
     directory: String,
+    source_name: String,
 }
 
 /// Where a ledger at `path` is copied before a schema step takes it on from
@@ -1920,7 +1959,10 @@ fn journal_of(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// What a `SELECT` over `sources` maps to.
+/// The columns of `sources` [`read_source`] reads, in its order.
+const SOURCE_COLUMNS: &str = "id, kind, url, reference, subdirectory, revision, directory, name";
+
+/// What a `SELECT` of [`SOURCE_COLUMNS`] maps to.
 fn read_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
     let slug: String = row.get(1)?;
     // No path of ours can write a kind this build does not know: opening
@@ -1942,6 +1984,7 @@ fn read_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
         subdirectory: row.get(4)?,
         revision: row.get(5)?,
         directory: row.get(6)?,
+        name: SourceName::recorded(row.get(7)?),
     })
 }
 
@@ -2234,6 +2277,225 @@ CREATE TABLE installation_entries (
     UNIQUE (installation_id, agent)
 );
 ";
+
+/// The seventh schema: a gathered source is called by a name and known by
+/// its URL however that is spelled (#98, D-13, closing #7).
+///
+/// A source was its URL as typed, so `https://github.com/acme/skills` and
+/// `git@github.com:acme/skills.git` were two sources of one repository,
+/// each offering every skill under an origin of its own, and the `UNIQUE`
+/// of version 1 held nothing at the remote's HEAD, where `reference` is
+/// `NULL`, which SQLite never finds equal to another. `canonical_url` is
+/// the URL every spelling of it is ([`crate::url::canonical`]), which holds
+/// no credential, and `reference_key` the branch, empty for the remote's
+/// HEAD, so the identity behind `sources_by_identity` is never `NULL`.
+/// `name` is what a listing shows and `--from` takes ([`SourceName`]), one
+/// a source. `pin` and `parent_id` are for what a source is pinned to (#99)
+/// and the marketplace it is listed by (#103): nothing reads or writes
+/// either yet.
+///
+/// The columns go on the end of the table rather than into a new one,
+/// which would have to be copied in under foreign keys that cascade a
+/// dropped `sources` into every artifact. The old `UNIQUE` stays, and holds
+/// nothing the new index does not.
+///
+/// `merged_sources` holds each row the step made one with another
+/// ([`Merged`]): the URL it was gathered from without a credential, its
+/// branch, the folder name it had and the source it is one with, until the
+/// first command that writes has said it and removed its folders
+/// ([`LedgerStore::merged`]). Kept in the file rather than handed back by
+/// the opening that took the step, which is a read as often as not and says
+/// nothing; and while a row is there its folder name is given to no new
+/// source, whose clone would otherwise be removed as the merge's. Forgotten
+/// with the source it is one with, which `gather forget` removes only once
+/// it has opened the ledger to write, and so said the merge.
+const SCHEMA_V7: &str = "
+ALTER TABLE sources ADD COLUMN name TEXT NOT NULL DEFAULT '';
+ALTER TABLE sources ADD COLUMN canonical_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE sources ADD COLUMN reference_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE sources ADD COLUMN pin TEXT;
+ALTER TABLE sources ADD COLUMN parent_id INTEGER REFERENCES sources(id) ON DELETE CASCADE;
+
+UPDATE sources SET reference_key = coalesce(reference, '');
+
+CREATE TABLE merged_sources (
+    id        INTEGER PRIMARY KEY,
+    directory TEXT    NOT NULL UNIQUE,
+    url       TEXT    NOT NULL,
+    reference TEXT,
+    into_id   INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE
+);
+";
+
+/// What the seventh schema holds once every row has its identity and name.
+const SCHEMA_V7_INDEXES: &str = "
+CREATE UNIQUE INDEX sources_by_identity
+    ON sources (kind, canonical_url, reference_key, subdirectory);
+CREATE UNIQUE INDEX sources_by_name ON sources (name);
+";
+
+/// What the step to schema 7 is handed of one source: what no SQL can work
+/// out of its URL, by today's rules.
+struct Spelled {
+    id: i64,
+    /// The URL every spelling of its repository is ([`canonical`]), the
+    /// rule a gather finds a source by.
+    identity: String,
+    /// The name a gather would give it ([`SourceName::derived`]), before
+    /// it is numbered for one another source takes first.
+    name: String,
+    /// Its URL without a credential ([`redacted`]).
+    clean: String,
+}
+
+/// What [`seven`] is handed of every source a ledger of an earlier schema
+/// holds, read through `transaction` before the step changes anything.
+///
+/// Worked out here rather than inside the step, which writes it in with SQL
+/// of its own, as the step to schema 5 writes the ids it is handed: no SQL
+/// can tell that two URLs are one repository's, nor take a credential out
+/// of one. It is what today's rules say of each row, and once written it is
+/// what a gather finds the row by: a build that changes a rule takes a step
+/// of its own to write the rows again.
+fn spelled_sources(transaction: &Transaction<'_>) -> rusqlite::Result<Vec<Spelled>> {
+    let mut statement = transaction.prepare("SELECT id, url FROM sources ORDER BY id")?;
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?)))?;
+    rows.map(|row| {
+        row.map(|(id, url)| {
+            let identity = canonical(&url);
+            Spelled {
+                id,
+                name: SourceName::derived(&identity).to_string(),
+                clean: redacted(&url).into_owned(),
+                identity,
+            }
+        })
+    })
+    .collect()
+}
+
+/// The step to schema 7, through `transaction`, `spelled` being what no SQL
+/// can work out of each source's URL ([`spelled_sources`]).
+///
+/// What a version before it held is filled in by its own SQL from what it
+/// is handed, as the step to schema 5 writes in the ids it is handed: each
+/// row's identity, and its name, in the order the sources were first
+/// gathered, the later of two that would take one numbered.
+///
+/// Rows that turn out to be one place, two spellings of one URL at one
+/// branch from one folder, become one before the identity is made unique,
+/// as the scrub of #25 makes two one whose URLs only a credential told
+/// apart: the one whose shelf was filled most recently is kept, since its
+/// folder holds the newer files, and one whose gather failed before it took
+/// anything loses however recently it was tried. What the other gathered
+/// goes with it, and every installation from it is from the kept one now,
+/// its origin rewritten to the kept one's as version 3 spelled an origin,
+/// without the credential the kept one's URL may hold, so an update finds
+/// where it came from offered there and no row is given a credential it
+/// did not hold. Each row that went is kept in `merged_sources`
+/// ([`Merged`]), for the first command that writes to say and to remove its
+/// folders, which nothing points into any more.
+///
+/// A credential is left where the scrub finds it, which every command that
+/// writes runs ([`crate::gather::scrub`]): it rewrites a clone before its
+/// row, and a row this rewrote first would no longer say that its clone
+/// still holds the credential. The identity, the name and an origin this
+/// writes never hold one.
+fn seven(transaction: &Transaction<'_>, spelled: &[Spelled]) -> rusqlite::Result<()> {
+    transaction.execute_batch(SCHEMA_V7)?;
+    let of = |id: i64| {
+        spelled
+            .iter()
+            .find(|spelled| spelled.id == id)
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    };
+    for spelled in spelled {
+        transaction.execute(
+            "UPDATE sources SET canonical_url = ?2 WHERE id = ?1",
+            rusqlite::params![spelled.id, spelled.identity],
+        )?;
+    }
+
+    // Each identity's rows together, the freshest first: the newest
+    // harvest, a shelf never filled last, then the last attempt, then the
+    // later row.
+    let ranked: Vec<(i64, [String; 4])> = {
+        let mut statement = transaction.prepare(
+            "SELECT id, kind, canonical_url, reference_key, subdirectory
+               FROM sources
+              ORDER BY kind, canonical_url, reference_key, subdirectory,
+                       (SELECT MAX(gathered_at) FROM artifacts WHERE source_id = sources.id) DESC,
+                       last_seen DESC, id DESC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                [row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?],
+            ))
+        })?;
+        rows.collect::<Result<_, _>>()?
+    };
+    // Each row that goes, as it was, and the row it is one with.
+    let mut pairs: Vec<(i64, Option<String>, String, i64)> = Vec::new();
+    let mut kept: Option<&(i64, [String; 4])> = None;
+    for row in &ranked {
+        match kept {
+            Some((into, identity)) if *identity == row.1 => {
+                let (reference, directory) = transaction.query_row(
+                    "SELECT reference, directory FROM sources WHERE id = ?1",
+                    [row.0],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                pairs.push((row.0, reference, directory, *into));
+            }
+            _ => kept = Some(row),
+        }
+    }
+    for (gone, reference, directory, into) in &pairs {
+        // Said as it was gathered, which a script may still name it by.
+        transaction.execute(
+            "INSERT INTO merged_sources (directory, url, reference, into_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![directory, of(*gone)?.clean, reference, into],
+        )?;
+        let reference: Option<String> = transaction.query_row(
+            "SELECT reference FROM sources WHERE id = ?1",
+            [into],
+            |row| row.get(0),
+        )?;
+        let clean = &of(*into)?.clean;
+        let origin = match reference {
+            Some(reference) => format!("{clean}#{reference}"),
+            None => clean.clone(),
+        };
+        transaction.execute(
+            "UPDATE installations SET source_id = ?1, origin = ?3 WHERE source_id = ?2",
+            rusqlite::params![into, gone, origin],
+        )?;
+        // What it gathered goes with it, by the cascade.
+        transaction.execute("DELETE FROM sources WHERE id = ?1", [gone])?;
+    }
+
+    let remaining: Vec<i64> = {
+        let mut statement = transaction.prepare("SELECT id FROM sources ORDER BY id")?;
+        let rows = statement.query_map([], |row| row.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    let mut taken: Vec<String> = Vec::new();
+    for id in remaining {
+        let wanted = &of(id)?.name;
+        let name = std::iter::once(wanted.clone())
+            .chain((2..).map(|n| format!("{wanted}-{n}")))
+            .find(|name| !taken.contains(name))
+            .expect("one of endlessly many names is free");
+        transaction.execute(
+            "UPDATE sources SET name = ?2 WHERE id = ?1",
+            rusqlite::params![id, name],
+        )?;
+        taken.push(name);
+    }
+    transaction.execute_batch(SCHEMA_V7_INDEXES)
+}
 
 #[cfg(test)]
 #[path = "sqlite_test.rs"]

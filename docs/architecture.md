@@ -373,9 +373,22 @@ rewritten, and a new one is its author's to watch.
 
 `mindweaver-core` knows what a mind project is, what a weaver workspace is, and
 what each kind of artifact is. It reads and writes files, and the only other
-I/O it does is fetching a repository when asked to gather, through a port whose
-adapter is `gix`, and reading the clock ([values, ports and
-adapters](#values-ports-and-adapters)). It has no idea a terminal exists.
+I/O it does goes through a port ([values, ports and
+adapters](#values-ports-and-adapters)): fetching a repository when asked to
+gather, whose adapter is `gix`; reading a catalog over HTTP, whose adapter is
+reqwest ([catalogs over HTTP](#catalogs-over-http)); and reading the clock.
+It has no idea a terminal exists.
+
+HTTP is core's for the reason every rule is
+([D-14](#d-14-core-owns-http-behind-a-seam)): which redirect is followed and
+with which headers, what a status means, how one page of a catalog leads to
+the next, what is kept and for how long, and what a catalog's JSON is read
+into are rules, and a front end that fetched the bytes and handed them over
+would hold them itself, where a second front end could disagree. What the
+front end still decides is what it alone can know, as it does for a gather:
+which workspace the answers are kept in, and, once a catalog needs one, the
+credential a request carries, read for the run and never stored
+([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)).
 
 `mindweaver-cli` parses a command line, asks core for values, and renders them.
 It holds no rules about artifacts: not the name limits, not the front matter
@@ -454,8 +467,8 @@ Core is written hexagonally, at the owner's request
 ([D-25](#d-25-core-is-values-and-ports)): the rules in the middle, built of
 value objects, depend on nothing outside them; what they need from outside
 is a port; and an adapter on the edge implements each port with a library:
-`gix` for a source, SQLite for the ledger, the system's clock for the time,
-and the system's `git` for a backup.
+`gix` for a source, reqwest for a catalog over HTTP, SQLite for the ledger,
+the system's clock for the time, and the system's `git` for a backup.
 The front ends are the other side's adapters, so a new store or a new
 interaction module is written against what is there, and no rule changes
 for it.
@@ -466,9 +479,12 @@ made only the way its rule allows:
 
 - **Held to a rule**: `ContentHash`, which only the recipes in `hash` make
   (and `ContentHash::parse`, from a digest somebody hands over, and the
-  ledger, as it holds one); `ProjectId`, generated or parsed; and
+  ledger, as it holds one); `ProjectId`, generated or parsed;
   `Redacted`, a URL or words that may quote one, made only through
-  `Redacted::new`, which takes every credential out. A function handed one
+  `Redacted::new`, which takes every credential out; and `SourceName`, what
+  a gathered source is called, parsed from what somebody typed or derived
+  from its URL ([everything is namespaced by its
+  source](#everything-is-namespaced-by-its-source)). A function handed one
   need not check it again: the rule is the type.
 - **Named apart**: `ArtifactName`, `Origin` and `Revision`, and an MCP
   server's `InputName` and `VariableName`, which hold any text, since core
@@ -501,7 +517,10 @@ the same way.
 
 **Ports.** `port` holds what core needs of the world beyond its files, each
 a trait in core's own words: a `Remote` fetches a source into the cache and
-scrubs a clone of what a credential left in it, a `LedgerStore` keeps a
+scrubs a clone of what a credential left in it, an `Http` asks a catalog for
+one `GET` and hands back whatever it answered (an `HttpRequest`, an
+`HttpResponse` holding only the headers core reads, and an `HttpError`, all
+the port's own), a `LedgerStore` keeps a
 workspace's records (its sources and what each supplied, every installation
 and its copies, the projects it knew, the action log), and a `Clock` tells
 the time the ledger stamps by. A port speaks only core's types: what an adapter's
@@ -509,7 +528,8 @@ library says is turned into those at the edge (an error into text, a commit
 into a `Revision`), never carried through, which would tie core's public API
 to the library's version and let a rule lean on how one library works. So
 `GitError` and the clone a fetch answers with (`port::Cloned`) are the
-port's, since they carry only text, and `LedgerError` carries what a store
+port's, since they carry only text, as are `HttpError` and what a request
+is answered (`port::HttpResponse`), and `LedgerError` carries what a store
 said boxed (`Box<dyn Error + Send + Sync>`), so it names no store's type;
 the SQLite adapter, which alone knows what it put there, looks inside it
 with a `downcast_ref` where it has to tell one failure from another.
@@ -518,21 +538,26 @@ with a `downcast_ref` where it has to tell one failure from another.
 with `gix` and asks the credential helpers through the callback that never
 prompts ([a gather never prompts for a credential
 itself](#d-16-credentials-come-from-the-front-end-never-from-a-prompt));
-`adapter::sqlite::Sqlite`, every query, every schema step and the backup
-before one ([why the ledger is SQLite](#why-the-ledger-is-sqlite)); and
-`SystemClock`. Each is the default its port is given wherever nothing else
-is handed over, the seam [D-14](#d-14-core-owns-http-behind-a-seam) chose
-for HTTP: a gather's `Request` fetches through the remote it is handed
-(`Request::through`), `Gix` unless another is, and the ledger stamps by the
-clock it is given (`Ledger::with_clock`), the system's unless another is,
-and keeps its records in the store it is handed (`Ledger::new`), SQLite
-unless another is: every other constructor opens a `Sqlite`. A
-test's fake is one more adapter: `port_test.rs` gathers through a remote
-that writes files and has no git at all, and stamps the ledger by a clock
-that does not move, and what each comes to is what it comes to through the
-real ones. The scrub `ledger_to_write` runs goes through `Gix` whatever a
-gather is handed, since what it repairs is what an older build's gix clones
-kept.
+`adapter::reqwest::Reqwest`, reqwest's blocking client over rustls, which
+follows no redirect and keeps nothing between requests ([catalogs over
+HTTP](#catalogs-over-http)); `adapter::sqlite::Sqlite`, every query, every
+schema step and the backup before one ([why the ledger is
+SQLite](#why-the-ledger-is-sqlite)); and `SystemClock`. Each is the default
+its port is given wherever nothing else is handed over, the seam
+[D-14](#d-14-core-owns-http-behind-a-seam) chose for HTTP: a gather's
+`Request` fetches through the remote it is handed (`Request::through`),
+`Gix` unless another is, a catalog is read through the `Http` its
+`http::Client` is handed (`Client::through`), `Reqwest` unless another is,
+and the ledger stamps by the clock it is given (`Ledger::with_clock`), the
+system's unless another is, and keeps its records in the store it is
+handed (`Ledger::new`), SQLite unless another is: every other constructor
+opens a `Sqlite`. A test's fake is one more adapter: `port_test.rs`
+gathers through a remote that writes files and has no git at all, and
+stamps the ledger by a clock that does not move, `http_test.rs` reads
+catalogs from sites kept in memory, and what each comes to is what it
+comes to through the real ones. The scrub `ledger_to_write` runs goes
+through `Gix` whatever a gather is handed, since what it repairs is what
+an older build's gix clones kept.
 
 **What is not behind a port.** The files are not. What core promises of
 them is how they are written (`create_new`, a temporary renamed into place,
@@ -2225,6 +2250,10 @@ An MCP server's definition carries a format of its own, `format = 1`
 (`MCP_FORMAT`), since it is an artifact, copied and gathered with no marker
 beside it, and is refused from a newer format as a marker is ([what an MCP
 server's definition declares](#what-an-mcp-servers-definition-declares)).
+So does an answer the HTTP cache keeps (`CACHE_FORMAT`), in the line it
+starts with, and one from a newer format is left as it is, neither read nor
+written over, rather than refused: it is only a cache, and the answer is
+asked of the server instead ([catalogs over HTTP](#catalogs-over-http)).
 Adding the kind moved no marker's version: a new `weaver.toml` and a new
 `settings.toml` name no folder for it, so they read to an older build as
 they did, and one that names `mcp` by hand names a key an older build reads
@@ -2513,6 +2542,13 @@ type derives `Serialize` from the start:
   `Asking`, each install of a plan that waits for a yes, as `asks` on
   `Planned`: the task it confirms by its place, the lines it was shown
   with, and the task carrying the yes.
+- **Named by #98**: what a gathered source is called, as `name` on a
+  `ledger::Source`, and so on each shelf row's source, on each of the
+  snapshot's `sources` and in what `gather list --json` prints of an offer
+  from the shelf, and on a gather's `Report`: a name added, which moves
+  neither `ENVELOPE_VERSION` nor `view::FORMAT`. Every `origin` holds what
+  it held, which an install records ([everything is namespaced by its
+  source](#everything-is-namespaced-by-its-source)).
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3036,6 +3072,7 @@ the workspace and belonging to no project yet.
   mindweaver.db
   lock                       held by whoever is writing
   cache/<source>/            the clone
+  cache/http/                what catalogs answered over HTTP
   skills/<source>/<name>/    what was taken out of it
 ```
 
@@ -3054,6 +3091,58 @@ owns a folder, named after its URL and recorded once, and the same name from a
 different source is a different thing rather than a collision. This is the same
 answer `Catalog::find` gives inside a project (return both, decide nothing),
 one level up.
+
+A source is one repository however its URL is spelled, and is called by a
+name ([D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), which
+closed issue #7). It was its URL as typed, so `https://github.com/acme/skills`
+and `git@github.com:acme/skills.git` were two sources of one repository, each
+offering every skill under an origin of its own, and the `UNIQUE` the ledger
+kept held nothing at the remote's HEAD, where the branch is `NULL`, which
+SQLite never finds equal to another. A source is now found by the URL every
+spelling of it is (`url::canonical`): on GitHub and GitLab the https, ssh and
+scp-like spellings, and `owner/repo`, are `https://<host>/<owner>/<repo>` in
+lowercase without `.git`, since both forges read them as one repository;
+elsewhere only what names no other repository goes (a credential, the case
+of the scheme and the host, a trailing `/`, `file://` before a path), since
+on a host of somebody's own `host:path` starts at the login's home where
+`ssh://host/path` starts at the root, and `x.git` may be another `x`. So the
+user ssh logs in as stays there, as `url::redacted` keeps it:
+`alice@host:skills` and `bob@host:skills` are two homes' folders, and one
+repository two logins reach being two sources is the way to be wrong that
+loses nothing. A relative path is an identity of its own, as typed: which folder it
+names depends on where it was typed, which a rule of text cannot know. With the branch, empty for the remote's HEAD, and the folder, that is
+the identity a unique index holds, so a second spelling gathers into the
+source the first registered, from the URL typed this time: the spelling
+somebody asks for now, ssh where https needs a credential the helpers lack.
+`owner/repo` is fetched from GitHub (`url::fetched`), as `gh` and Claude
+Code's plugin marketplaces read it, so a folder on this machine is a path
+that says so, `./skills/repo` when it is relative: reading `owner/repo` as a
+folder whenever one of that name happened to be there would make which
+repository a command names depend on where it ran.
+
+Its name (`value::SourceName`) is `owner-repo`, the last two folders of that
+identity, numbered when another source has it, unless `gather git --name`
+gives one, which a later gather with another `--name` changes; letters,
+digits, `.`, `_` and `-`, so it is one word on a command line, none of the
+origins `--from` takes (no `:`, which `load:` has, no `/`, which a path
+has, and not `workspace`). A name another source has is refused before
+anything is registered or fetched: one name is one source. A loaded
+workspace may still be called what a source is, or be loaded from a folder
+of that name, which `--from` took for it before sources had names: such a
+word names neither, refused as offered twice, since taking it for the
+source would hand a script the source's skill unsaid, and each is still
+named by its origin (`install::Naming::Named`). It is what `gather
+list` shows of where an offer from the shelf comes from (`Offer::listed_from`)
+and what `--from` takes for it, which is what a listing showing it is for. The
+origin an install records stays the source's URL with its branch, which
+`--from` takes as before, and so does every `origin` the envelope and the
+snapshot hold: an update finds an installation's offer by it, and changing
+what it holds would have moved both their versions for a name they can carry
+beside it. A URL spelled another way than the source's, the spelling of a
+row the step to schema 7 made one with another, or one typed from memory,
+still names the source, said with a warning of its own code
+(`from_spelling_deprecated`, `install::Respelled`) that fails nothing,
+since the scripts it is for would break.
 
 The folder a skill lands in keeps the name the **source** gave it, not the name
 the skill declares. When those disagree that is something gathering warns about
@@ -3123,7 +3212,8 @@ has them. A cancel that comes later is too late, and the gather finishes.
 a cancel stops offering it when the gather stops honouring it, rather than
 knowing where the check is. Cancelled in time, the shelf and the ledger are as
 they were: the gather is not logged, and a source it registered is forgotten
-again. It is registered before the fetch because the clone needs the folder
+again, and a source a `--name` renamed is called what it was. It is
+registered before the fetch because the clone needs the folder
 name registering gives it; holding the registration in a transaction until the
 gather ends was the other way, and is rejected, because every other write to
 the ledger would wait as long as the network does. The clone is not part of the
@@ -3180,6 +3270,33 @@ behind a port of its own
 ([D-27](#d-27-a-backup-is-an-export-pushed-with-the-systems-git)). Nothing
 else depends on one being installed.
 
+### Private repositories, as they were checked
+
+#109 gathered a private GitHub repository on 2026-11-09, with gix 0.87.1, gh
+2.102.1, git 2.56.0 and OpenSSH 10.6p1 on Linux, through `mindweaver gather
+git` and #26's callback, each run with its own workspace (`--home` and `-W`)
+and with no display, so no askpass could be shown:
+
+- **HTTPS, no helper:** refused at once as `git_credentials_needed`, with the
+  two ways to give a credential, also with a terminal attached (a pty), where
+  it returned in under a second rather than waiting for a prompt.
+- **HTTPS, gh's helper:** cloned, given `!gh auth git-credential` for
+  `https://github.com` either as `gh auth setup-git` writes it into a global
+  config file (`GIT_CONFIG_GLOBAL`) or through `GIT_CONFIG_COUNT`, so `gix`
+  reads the helper wherever git config puts it, and runs it with the prompt
+  off.
+- **HTTPS, a helper with a refused token:** `git_credentials_needed`, no
+  retry and no prompt.
+- **SSH, no agent:** cloned with the account's own key, which needs no
+  passphrase; the system `ssh` authenticated it without the callback. A key
+  that needs one, with no agent holding it, is ssh's question on the
+  terminal, the open question below, and was not tried. Nor was ssh-agent
+  itself, which this machine's session did not run.
+
+So the callback keeps what was promised: a helper git config names still
+authenticates, and nothing asks. A token handed over for one run (D-16) is
+#110's.
+
 ### A URL is kept without its credentials
 
 A source is stored, logged, listed and named in errors by its URL, so a token
@@ -3217,7 +3334,8 @@ So is such a URL typed where the branch or the folder goes: the ledger keeps
 a source's branch and folder word for word, since neither is a URL, and a
 `GitError` would quote the branch, so a token typed there, found by the
 suite that tries every credentialed form in every place a gather takes text,
-was stored and printed until it was refused alike. Behind that refusal the rest holds whichever caller is writing. The ledger
+was stored and printed until it was refused alike, and so is one typed as
+the name (`--name`), which a name could never hold anyway. Behind that refusal the rest holds whichever caller is writing. The ledger
 redacts every URL on the way in and again on the way out, so nothing it hands
 back carries a credential, scrubbed yet or not. Every `GitError` redacts the
 URL and what `gix` said. A clone is scrubbed as soon as it is made (the gix
@@ -3250,15 +3368,12 @@ in both screens, when what it marked is applied rather than as it opens,
 which is a read ([A read leaves the ledger as it finds
 it](#a-read-leaves-the-ledger-as-it-finds-it)): applying runs the `install`
 and `uninstall` lines its marks amount to, and the first of them opens the
-ledger to write, scrubbing it, as from the shell. A scrub can make two sources
-one row, and a mark on the row that went would install from folders the scrub
-removed, or copy the files and then fail to record them. Each install line
-names its offer by its origin (`--from`), which is shown without credentials
-before a scrub as after it, so once a scrub has taken out a source the line
-finds the row it became one with, through the lookup any `--from` goes
-through; a line for what only the row that went had gathered is refused as
-not offered, said under that line. Scrubbing as the screen opened would have
-spared that, and is rejected: opening it is a read. An edit writes
+ledger to write, scrubbing it, as from the shell. A scrub made two sources one
+row before schema 7, when a mark on the row that went would have installed
+from folders the scrub removed; since that step, two rows only a credential
+told apart are one source already, made one as the ledger was opened, the
+screen's reading included, so no scrub drops a row a mark is on. Scrubbing as
+the screen opened is still rejected: opening it is a read. An edit writes
 nothing to the ledger, since it keeps the record as it was, so `finish_edit`
 only reads it (`ledger_for_reading`) and scrubs nothing.
 
@@ -3268,25 +3383,30 @@ from the URL as it was stored, and the action log. A clone is rewritten before
 its row, so a clone that cannot be rewritten keeps its row tainted and is
 tried again next time, as a warning; what was taken out is a note, said once,
 since the command did what it was asked and an exit code that failed because
-of a fix would break a script for nothing it did. When the URL without
-credentials is already another source's, with the same branch and folder, the
-two are one place gathered twice and become one row: two rows would offer each
-skill twice under one origin, and SQLite's UNIQUE would refuse the rewrite
-outright when a branch is set. The row kept is the one whose shelf was filled
-most recently, since its folder holds the newer files, and a row whose gather
-failed before it took anything loses however recently it was tried. What the
-other row gathered goes with it, and its clone and shelf folder are removed (a
-folder that will not go is a warning), rather than its records moving to the
-kept row: they would point into a folder the ledger no longer reserves, which
-the next source with the same readable name would be given and gather over.
-The ledger turns on SQLite's `secure_delete`, so a rewritten row leaves no
-copy of its old text in the file's free space.
+of a fix would break a script for nothing it did. Two rows whose URLs only a
+credential told apart, with the same branch and folder, are one place
+gathered twice, which the step to schema 7 makes one row, as it does two
+spellings of one URL ([why the ledger is SQLite](#why-the-ledger-is-sqlite)),
+before the scrub ever sees them: the URL a source is known by holds no
+credential. Before that step the scrub made them one itself, by the rule the
+step keeps: the row kept is the one whose shelf was filled most recently,
+since its folder holds the newer files, and a row whose gather failed before
+it took anything loses however recently it was tried. What the other row
+gathered goes with it, and its clone and shelf folder are removed (a folder
+that will not go is a warning), rather than its records moving to the kept
+row: they would point into a folder the ledger no longer reserves, which the
+next source with the same readable name would be given and gather over. The
+ledger turns on SQLite's `secure_delete`, so a rewritten row leaves no copy of
+its old text in the file's free space.
 
 It runs every time rather than once, as a schema step would, because an older
 build could keep writing to the same file after a newer one had scrubbed it,
 and the schema steps are spoken for by the changes that need a new version.
 Schema 3 is a file such a build refuses, so the scrub could now be part of
-that step; whether it should is open (see the open questions). With
+that step, and schema 7, which makes rows one, could have been; whether it
+should is open (see the open questions). Schema 7 runs it again only in that
+the first command that writes after the step scrubs what the step left,
+the clones of the rows it kept among it. With
 nothing to do it still reads, every time a command writes: a scan of the
 sources and one of the action log, in a transaction. Neither can use an index,
 so the log's grows with the log, and every entry naming an ssh URL, which
@@ -3301,6 +3421,108 @@ offering each skill under one origin. Deleting the old
 clones instead of rewriting them would have been simpler and was rejected:
 the clone is kept so a gather can be looked at afterwards, and a scrub has no
 reason to take that away.
+
+### Catalogs over HTTP
+
+The MCP Registry (#106) and the skill directories (#108) are HTTP APIs, not
+repositories, so they are read over HTTP rather than cloned
+([D-14](#d-14-core-owns-http-behind-a-seam)). #105 built the seam they are
+read through, and nothing calls it yet: each of those issues is the first
+caller of its catalog.
+
+**The port** is one `GET` (`port::Http::get`), answered whatever its status.
+An `HttpRequest` is made only through `HttpRequest::get` and `at`, which
+refuse a URL that is not `http` or `https`, names no host, holds a space
+or a control character (`http_url_invalid`), or carries a credential
+(`http_url_credentialed`, said redacted): a credential goes in a header
+instead, added as a secret (`HttpRequest::secret`, and `Authorization`,
+`Cookie` and `Proxy-Authorization` however they are added), which `Debug`
+never shows and no cache keeps. A header's name and value are held to what
+every HTTP library sends (`http_header_invalid`, never quoting the value),
+since a line break in one would start another header. Every request says
+who asks, `mindweaver/<version>` (`USER_AGENT`), which GitHub's API
+refuses a request without. Its timeout (`HTTP_TIMEOUT`, 30 seconds) is the
+whole exchange, from asking to the body's last byte, redirects included,
+rather than each read on its own, which a server sending a byte now and
+then would never run out of; its limit (`HTTP_LIMIT`, 8 MiB) is held as
+the body comes, a length said beyond it refused before a byte is read and
+a body that says none, or lies, refused one chunk past it rather than read
+to its end. An `HttpResponse` keeps the status, the body and only the
+headers core reads (`KEPT_HEADERS`: type, tag, time, `Link`, `Location`,
+`Retry-After`), so a `Set-Cookie`, a credential, never reaches core to be
+kept by mistake. A failure is an `HttpError`, each variant with a code of
+its own (unreachable, timed out, too large, or anything else the library
+said), every URL in it the one asked and what the library said
+`Redacted`.
+
+An adapter follows no redirect. It hands one back with its `Location` made
+absolute against the URL asked, the one part of a redirect that takes a URL
+parser, and core follows it (`http::Client`): at most `MOST_REDIRECTS`
+times, never from `https` to anything else (`http_redirect_downgraded`), and
+to another site only without the request's secrets, as curl and browsers
+drop them. Following them in reqwest was the other way, and is rejected:
+the rule would be the adapter's, a fake would not keep it, and reqwest
+drops only the headers it knows to be credentials, where a catalog's key
+may travel in one of its own name.
+
+**The adapter**, `adapter::reqwest::Reqwest`, is reqwest's blocking client,
+already built by gix's HTTP transport, so the lock gains no crate: rustls
+with the system's roots, none of reqwest's default features, no cookie
+store, and no proxy, which it would otherwise read from the environment
+behind core's back (an [open question](#open-questions)). Its client is
+made on the first request and kept for the next, so a front end that never
+reads a catalog never starts the thread a blocking client runs on. It is
+called from a front end's own threads, as all of core is, never from an
+async task.
+
+**What core makes of an answer** is `http::Client`'s: a status that is no
+success is a failure by its status (`http_status_unsuccessful`), never the
+body; JSON is read into what the caller asks for (`http_json_invalid`); and
+a catalog's pages follow one another as each says (`Client::pages`), by a
+cursor put into the first page's URL (`with_query`) or by the `Link` an
+answer names (`next_link`). Paging stops, said beside the pages read rather
+than in their place, at a page that fails, at one past the most it was told
+to read (`http_pages_exceeded`), at one it read already, which would go round
+for ever (`http_page_repeated`), and at one on another site, where the first
+page's headers were never meant to go (`http_page_elsewhere`). Failures are
+collected, as everywhere: `Paged` holds what was read and why there is no
+more.
+
+**The cache** keeps answers in the workspace, `cache/http` inside its
+folder (`WeaverWorkspace::http_cache_dir`, `.mindflayer/cache/http` in one a
+Mindflayer build made), so a listing read twice asks once (`http::Cache`,
+made only for a workspace). Each answer is one file, named by the SHA-256
+of what tells its request from another (`hash::request`: the URL and every
+header but `User-Agent`, so another `Accept` is another answer and another
+version of Mindweaver is not), which says nothing a URL said and is a name
+every filesystem takes. It holds a line of JSON, its format
+(`CACHE_FORMAT`), the URL, when it was kept, the status and the kept
+headers, then the body. What a secret was sent for is never kept: keyed
+without the secret, the next request without one would be handed it, and
+keyed with it, something of a credential would be on the disk. An answer is
+fresh for as long as the caller says, by the clock the cache is told
+(`Cache::with_clock`, the system's unless another), and asked again after
+that by its tag and its time (`If-None-Match`, `If-Modified-Since`), a 304
+keeping it as of then. Written through a temporary renamed onto it, so two
+writers at once leave one whole answer, and so it takes [the workspace's
+lock](#writers-at-the-same-time) no more than a read does: a command reading
+a catalog should not wait for an install, nor hold one up. A folder that is
+a link is said and neither read nor written; a file that is one is read as
+nothing and replaced, never written through; one written by a newer build
+is left as it is, as every format is ([formats are
+versioned](#formats-are-versioned)). What it cannot do is a warning beside
+the answer (`http_cache_unreadable`, `http_cache_unwritable`,
+`http_cache_linked`), never a failure, since the cache only saves asking
+again. The cache sits beside the clones, each in a folder its source is
+given, so the ledger gives no source the name `http`
+(`RESERVED_IN_CACHE`): one whose URL reads as it is given `http-2`.
+
+**Tested** as the other ports are: `tests/http_test.rs` holds `Reqwest`,
+asking a server the test starts on 127.0.0.1, and a fake keeping its sites
+in memory to one contract, the timeout and the limit among it, with answers
+slower than the one and longer than the other, and runs core's client,
+redirects, pages and cache included, through both. Nothing reaches the
+network.
 
 ### Why the ledger is SQLite
 
@@ -3319,7 +3541,9 @@ command that writes to it makes it; a read never does, and changes an existing
 one only to migrate it ([A read leaves the ledger as it finds
 it](#a-read-leaves-the-ledger-as-it-finds-it)).
 
-Six things are recorded: the **sources** gathered from, the **artifacts** on
+Six things are recorded: the **sources** gathered from, each by its name and
+the identity of its URL ([everything is namespaced by its
+source](#everything-is-namespaced-by-its-source)), the **artifacts** on
 the shelf and which source each came from, the **installations** (which skill,
 rule or MCP server Mindweaver put into which project, from where, every copy it
 wrote and a hash of what it wrote, or for a server every entry it wrote into
@@ -3342,7 +3566,7 @@ A source's shelf folder is stored rather than derived: two URLs can reduce to
 the same readable name, and where a source's files went is a fact about the
 past that must not move when the naming rule changes.
 
-The schema has had six versions, each a block in the SQLite store's
+The schema has had seven versions, each a block in the SQLite store's
 migration (`adapter::sqlite::Sqlite::migrate`) and a
 constant beside it:
 
@@ -3380,6 +3604,17 @@ constant beside it:
    an entry is found by its key in a file every server of the project
    shares. The definition's origin is the installation's `origin`, which
    version 3 added, so the step adds nothing for it.
+7. On `sources`, a `name`, a `canonical_url` and a `reference_key`, empty
+   for the remote's HEAD, unique behind `sources_by_name` and
+   `sources_by_identity`, so a source is called by one name and is one
+   repository however its URL is spelled (#98,
+   [D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), closing
+   the hole #7 left); and `pin` and `parent_id`, for what a source is
+   pinned to (#99) and the marketplace it is listed by (#103), which
+   nothing reads or writes yet. The columns go on the end of the table
+   rather than into a new one, which would be copied in under foreign keys
+   that cascade a dropped `sources` into every artifact, and the old
+   `UNIQUE` stays, holding nothing the new index does not.
 
 An older ledger is migrated step by step, so one made two versions ago ends
 where one made today begins, and two rules hold for every step:
@@ -3426,8 +3661,41 @@ is what the projects hold, not how today's code spells something. A project
 a `mind.toml` marks, an entry that will not open and an id two linked
 directories hold are handed in for none, and their records keep their route
 alone. Version 6 fills in nothing: no build before it installed an MCP
-server. D-04's states (#47) took no step of their own:
-what tells them apart is the hash each copy was written with, which versions
+server. Version 7 is handed, as values, what no SQL can work out of a
+source's URL, as version 5 is handed each project's id: the identity it is
+(`url::canonical`, the rule a gather finds a source by), the name a gather
+would give it (`owner-repo`, `SourceName::derived`) and the URL without a
+credential (`url::redacted`), each worked out before the step
+(`spelled_sources`). Its own SQL writes each row's identity in, names each
+source by what it is handed in the order the sources were first gathered,
+the later of two that would take one name numbered, and makes rows that turn
+out to be one place one, before the identity is made unique: the one whose shelf
+was filled most recently is kept, by the rule the scrub keeps, what the
+other gathered goes with it, and every installation from it is from the kept
+one, its origin rewritten to the kept one's as version 3 spelled an origin,
+without the credential the kept one's URL may still hold, so an update finds
+where it came from offered there and no row is given one it did not hold. It
+is the second
+exception, and of another kind: what it is handed is what today's rules say
+of each row, since no SQL can tell that two URLs are one repository's, and
+once written into the row it is what a gather finds its source by. A build
+that changes a rule changes which URLs are one, and so takes a step of its
+own to write each identity again. Each row that went is kept in a table of
+the step's own, `merged_sources`, by the URL it was gathered from without a
+credential, its branch, its folder name and the source it is one with
+(`LedgerStore::merged`), until the first command that writes has said it and
+removed its clone and shelf folders, which nothing points into any more
+(`gather::scrub`, holding the workspace while it does). Kept in the file
+rather than handed back by the opening that took the step, because that is a
+read as often as not, a `status` or a `list` after an upgrade, which says
+nothing of the step and removes no folder: whichever command took it, the
+first that writes says each merge, as it says what the scrub took out, and
+says it again with each folder that will not go, which every command that
+writes tries again, until it goes. While a merge is kept its folder name is
+given to no new source, so no gather can clone into a folder about to be
+removed. A credential is left where the scrub finds it, which rewrites a
+clone before its row, and which the first command that writes runs next.
+D-04's states (#47) took no step of their own: what tells them apart is the hash each copy was written with, which versions
 3 and 4 keep, and what the place it came from offers now, which is read where
 it is offered rather than kept. A record with no hash is held to its offer
 by the code that reads it (`install::standings`), since a step has no offer
@@ -8552,18 +8820,19 @@ CI gives the panel jobs of its own:
 The rulesets for `dev` and `main` require every check that runs on every
 pull request, the panel's three among them; AGENTS.md lists them by name.
 
-Every Linux job, `Gitflow`'s two among them, runs on the repository's own
-runner, a self-hosted one asked for by its labels (`runs-on: [self-hosted,
-Linux, X64]`), and only test-cross on GitHub's: GitHub's Linux runners
-stopped starting jobs once the account was locked over billing, and a check
-that never starts is one the rulesets wait on for ever. By its labels
-rather than its name, so a second runner given them takes jobs beside the
-first: one runner runs one job at a time, so the jobs GitHub ran side by
-side wait for each other there. A variable naming the runner was rejected:
-it would switch back without a commit, but the workflow would no longer say
-where a job runs. A self-hosted runner's image is not GitHub's, and it keeps
-what a job installed, so a step that needs what GitHub's image held
-installs it only where it is missing, as `test (cli)` does zsh and the
+Every Linux job, `Gitflow`'s two among them, runs on GitHub's runners,
+named `ubuntu-latest` in the workflow. For a while they ran on the
+repository's own runner, a self-hosted one asked for by its labels
+(`runs-on: [self-hosted, Linux, X64]`): GitHub's Linux runners stopped
+starting jobs once the account was locked over billing, and a check that
+never starts is one the rulesets wait on for ever. Once billing was settled
+they went back, since one runner runs one job at a time and the jobs
+GitHub runs side by side waited for each other there. A variable naming the
+runner was rejected both ways: it would switch without a commit, but the
+workflow would no longer say where a job runs. What the self-hosted runner
+needed stays, so it can take the jobs again by its labels alone. Its image
+is not GitHub's, and it keeps what a job installed, so a step that needs
+what an image may lack installs it only where it is missing, as `test (cli)` does zsh and the
 python3 its virtualenv is made with. What every job needs is the image's:
 `make` and a C compiler (`build-essential`), which links every binary and
 compiles the SQLite `rusqlite` bundles, and a user of its own with sudo,
@@ -8973,7 +9242,11 @@ asked for. Every migration copies the database aside before its first step
 ([Why the ledger is SQLite](#why-the-ledger-is-sqlite)), and a read migrates
 through the same migration (`Sqlite::migrate`), so it leaves that copy too: the first
 `mindweaver gather list` after an upgrade puts `mindweaver.db.v2.bak` beside a
-ledger version 2 wrote.
+ledger version 2 wrote. The step to schema 7 is among it: on a read too it
+makes two sources of one repository one, and keeps the one that went in the
+file, for the first command that writes to say and to remove its folders
+([Why the ledger is SQLite](#why-the-ledger-is-sqlite)); a read removes no
+folder and says nothing of it.
 
 ## Agents, and where each kind reaches them
 
@@ -10979,6 +11252,11 @@ How the lock behaves, and why:
   `ledger_for_reading` migrates an older ledger as `ledger` does, in the same
   transaction, so the most a read waits for is another process's migration,
   once after an upgrade.
+- **Nor does the HTTP cache.** What a catalog answered is kept in
+  `cache/http` by a reader, a file an answer, each replaced whole by a
+  rename, so two commands reading one catalog at once leave one whole
+  answer and neither waits for an install to finish
+  ([catalogs over HTTP](#catalogs-over-http)).
 - **Not re-entrant.** Two handles on the file are two writers even in one
   process, which is what lets threads stand in for processes in the tests,
   from a link on each of two threads at once to every writer waiting for a
@@ -11631,6 +11909,11 @@ reference closes. Rejected: a `name@source` spelling, when `@` already means
 plugin@marketplace in Claude and skill@version in `gh`; and keeping URL
 strings. claude-community lists 2283 entries, so gathering a marketplace whole
 by default would clone thousands of repositories. Unblocks #98, #100 and #103.
+#98 carried out what a git source needs ([everything is namespaced by its
+source](#everything-is-namespaced-by-its-source)), the name and the identity
+among it, and the columns the marketplace's children will use; `--from`
+still takes the origin an install records beside the name, since every
+record and every `origin` the envelope and the snapshot hold spell it.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -11644,6 +11927,16 @@ HTTP with no seam, which takes the tests online. Carrying it out amends [the
 line between core and a front
 end](#where-the-line-between-core-and-a-front-end-falls) and AGENTS.md's "only
 I/O is files". Unblocks #105, #106 and #108.
+
+#105 carried out the seam ([catalogs over HTTP](#catalogs-over-http)): the
+`Http` port, `adapter::reqwest::Reqwest` as its default, with rustls and
+none of reqwest's default features, core's `http::Client` following
+redirects, reading JSON and paging, and the answers a workspace keeps in
+`cache/http`, the issue's `.mindflayer/cache/http` under the names
+[D-26](#d-26-the-product-is-mindweaver) has given the folder since. Retries
+are not among it yet: no catalog has said what it needs, so a `429` or a
+`503` is a failure by its status, its `Retry-After` kept for the caller
+that first acts on it. #106 and #108 are its first callers.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -12097,6 +12390,29 @@ repository, stays on `gix`.
   names a file a store kept elsewhere may not have. Splitting the repairs
   off into a port of their own waits for a second store to say which of
   them it can answer, rather than guessing now.
+- **A proxy for a catalog.** `Reqwest` reads no proxy, since one read from
+  `HTTPS_PROXY` would be the environment read behind core's back, and a
+  test asking a server on loopback would ask a developer's proxy instead
+  ([catalogs over HTTP](#catalogs-over-http)). gix's transport does read
+  one, through reqwest's defaults, so somebody behind a proxy can gather
+  and, once #106 lands, not read a catalog. A proxy the front end reads and
+  hands to the adapter, as it will a credential
+  ([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)),
+  closes it when the first catalog does.
+- **A source an older build named `http`.** The ledger gives no source the
+  name of the HTTP cache's folder any more (`RESERVED_IN_CACHE`), but one
+  a build from before #105 gave it keeps it, its clone in the folder the
+  cache keeps answers in: a gather of it removes the answers with the
+  clone it replaces, and the cache would find a clone's files under names
+  of 64 hex digits only by chance. Only a URL whose readable name is
+  exactly `http` (`https://http`, `file:///http`) was ever given it;
+  moving such a source's folders waits for one to be found.
+- **The HTTP cache is never pruned.** An answer is replaced when its
+  request is asked again, and never removed: one for a request no longer
+  asked, a cursor's page of a listing since reordered, stays until the
+  folder is removed by hand, which loses nothing but the next request's
+  saving. Pruning by age waits for a catalog whose pages are many enough
+  to matter.
 - **Values not named yet.** A project's name, a registry entry and a path
   inside a project are still `String`s, and so are an error's fields, as
   the read types that hold them were. Each joins `value` when a rule is
@@ -12809,7 +13125,9 @@ repository, stays on `gix`.
   as the file is opened, before any scrub. Rewriting the copy too, or taking
   it without them, would close that, at the cost of a way back that is no
   longer the file as it was: two of its sources the rewrite makes one would
-  have to be merged in the copy, as the scrub merges them in the ledger.
+  have to be merged in the copy, as the step to schema 7 merges them in the
+  ledger. The copy that step takes holds every spelling it made one, as the
+  way back should.
 - **Seeing to a record from elsewhere.** A change sees to the record of the
   workspace its command resolved, wherever that sits, but not of any other
   workspace that links the same project: nothing in the project says which
@@ -13082,8 +13400,9 @@ repository, stays on `gix`.
   be given is decided in
   [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt): a
   provider the front end supplies, through that same callback. #110 carries it
-  out, and #109 checks the helpers and ssh-agent against a real private
-  repository. ssh's own questions are still open: a passphrase for a key the
+  out. #109 checked the helpers against a real private repository
+  ([as they were checked](#private-repositories-as-they-were-checked)):
+  they do get through, and nothing prompts. ssh's own questions are still open: a passphrase for a key the
   agent does not hold, a password when the server accepts password
   authentication, or whether to trust a host seen for the first time, is asked
   by ssh on the terminal, out of the callback's reach. `BatchMode=yes` in
@@ -13112,7 +13431,17 @@ repository, stays on `gix`.
   finds it](#a-read-leaves-the-ledger-as-it-finds-it)), so a scrub folded into
   that step would run on a read as well, rewriting clones as well as the file,
   and a read would then have to say what it took out, as only a command that
-  writes does now.
+  writes does now. Schema 7 (#98) left it where it was for the same reason:
+  its step makes rows one, on a read too, but leaves their folders and a
+  credential to the scrub, which rewrites a clone before its row and is the
+  one that says what it did.
+- **`owner/repo` is GitHub's.** A gather reads two plain names with one `/`
+  between them as the GitHub repository they name, so a relative path of
+  two folders has to be written `./skills/repo` to be gathered from this
+  machine, which before #98 it did not. GitLab's `owner/repo` is spelled in
+  full. Whether the shorthand should look for the folder first is the
+  owner's to say; it was rejected so that which repository a command names
+  never depends on where it runs.
 - **A user name on its own in an https URL.** #25 allows a bare user name,
   and its examples are ssh's (`git@host:...`, `ssh://git@host/...`). Only ssh
   keeps one here: over http(s) a user name is refused at gather and taken out
@@ -13657,8 +13986,8 @@ repository, stays on `gix`.
   there, with the console's Ctrl-C on Windows.
 - **Which panel `build (cli)` embeds rests on the runner.** `make
   cli/release` embeds the downloaded panel because no pnpm is on the
-  runner's PATH. A self-hosted runner whose image has one, which nothing
-  here rules out, would have it build the panel again, from the same
+  runner's PATH. A runner whose image has one, a self-hosted one put back
+  among them, would have it build the panel again, from the same
   lockfile, on whatever Node the image has, rather than embed the one
   `test (web)` tested; a variable telling `make web/build/if-node` to take
   `dist/` as it is would settle it, at the price of a knob only CI turns.

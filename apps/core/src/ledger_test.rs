@@ -75,13 +75,14 @@ fn keys(text: &str) -> Vec<String> {
 /// holds, never through its own serializer.
 fn source_as_json(source: &Source) -> String {
     format!(
-        r#"{{"kind":{},"url":{},"reference":{},"subdirectory":{},"revision":{},"directory":{}}}"#,
+        r#"{{"kind":{},"url":{},"reference":{},"subdirectory":{},"revision":{},"directory":{},"name":{}}}"#,
         json(source.kind.slug()),
         json(source.url.as_str()),
         json(&source.reference),
         json(&source.subdirectory),
         json(&source.revision.as_ref().map(|revision| revision.as_str())),
         json(&source.directory),
+        json(source.name.as_str()),
     )
 }
 
@@ -332,7 +333,8 @@ fn a_source_serializes_exactly_these_fields() {
             "reference",
             "subdirectory",
             "revision",
-            "directory"
+            "directory",
+            "name"
         ],
         "{source:?}"
     );

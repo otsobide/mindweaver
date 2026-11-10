@@ -11,10 +11,10 @@
 //!
 //! They come in two sorts:
 //!
-//! - **Held to a rule**: [`ContentHash`], [`ProjectId`] and [`Redacted`],
-//!   made only through the rule (the recipe, the generator or the parser, the
-//!   redaction), never from any text at all. A function that is handed one
-//!   need not check it again.
+//! - **Held to a rule**: [`ContentHash`], [`ProjectId`], [`Redacted`] and
+//!   [`SourceName`], made only through the rule (the recipe, the generator
+//!   or the parser, the redaction), never from any text at all. A function
+//!   that is handed one need not check it again.
 //! - **Named apart**: [`ArtifactName`], [`Origin`], [`Revision`],
 //!   [`InputName`] and [`VariableName`], which hold any text, since what
 //!   core reads it reads leniently (a name on the disk can break the rules a
@@ -379,6 +379,106 @@ text_value! {
 }
 from_text!(Revision);
 as_text!(Revision);
+
+text_value! {
+    /// What a gathered source is called (D-13): what a listing names it by
+    /// and `--from` takes, `acme-skills` for `https://github.com/acme/skills`
+    /// unless somebody chose another (`gather git --name`).
+    ///
+    /// Letters, digits, `.`, `_` and `-`, as D-13 says, so it is one word on
+    /// a command line that nothing quotes and no shell reads, and none of
+    /// the origins `--from` takes: no `:`, which `load:` has, and no `/`,
+    /// which a URL and a path have. Not `.` or `..`, which read as a
+    /// folder, nor starting with `-`, which reads as an option, nor
+    /// `workspace`, which `--from` takes for the workspace's own
+    /// ([`crate::install::WORKSPACE_ORIGIN`]). A loaded workspace may be
+    /// called what a source is, or be loaded from a folder of that name,
+    /// and `--from` that word then names neither, refused as offered twice
+    /// ([`crate::install::offered_typed`]).
+    ///
+    /// Made by [`parse`](Self::parse), which holds a name somebody typed to
+    /// that, by [`derived`](Self::derived) from a source's URL, or as the
+    /// ledger holds one, which a store made and is taken as written. No
+    /// `From<String>`, so a URL or an origin handed where a name is meant
+    /// does not compile.
+    pub struct SourceName;
+}
+as_text!(SourceName);
+
+impl SourceName {
+    /// The name `text` is, when it is one a source can take.
+    pub fn parse(text: &str) -> Option<Self> {
+        let usable = !text.is_empty()
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+            && !matches!(text, "." | ".." | crate::install::WORKSPACE_ORIGIN)
+            && !text.starts_with('-');
+        usable.then(|| SourceName(text.to_owned()))
+    }
+
+    /// The name a source is given unless it is given one: its owner and its
+    /// repository, `acme-skills`, from the last two folders of `url`'s path
+    /// (one when there is only one), lowercase, `.git` left off, and every
+    /// character a name cannot hold a `-`. `source` when nothing is left.
+    ///
+    /// Of the URL the source is known by ([`crate::url::canonical`]) rather
+    /// than the one typed, so every spelling of one repository gives one
+    /// name. Two sources may still give one, a branch of a repository and
+    /// its default, or two owners' `skills` on hosts of their own: the
+    /// ledger numbers the second ([`numbered`](Self::numbered)).
+    pub fn derived(url: &str) -> Self {
+        // What comes after the host, when there is one.
+        let path = match url.split_once("://") {
+            Some((_, rest)) => rest.split_once('/').map_or("", |(_, path)| path),
+            None => match url.split_once(':') {
+                Some((host, path)) if !host.contains(['/', '\\']) && host.len() > 1 => path,
+                _ => url,
+            },
+        };
+        let mut folders: Vec<&str> = path
+            .split(['/', '\\'])
+            .filter(|folder| !matches!(*folder, "" | "." | ".."))
+            .collect();
+        if let Some(last) = folders.last_mut() {
+            *last = last.strip_suffix(".git").unwrap_or(last);
+        }
+        let start = folders.len().saturating_sub(2);
+        let mut name = String::new();
+        for (at, folder) in folders[start..].iter().enumerate() {
+            if at > 0 {
+                name.push('-');
+            }
+            for character in folder.chars() {
+                let character = character.to_ascii_lowercase();
+                if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
+                    name.push(character);
+                } else {
+                    name.push('-');
+                }
+            }
+        }
+        let name = name.trim_matches(|character| matches!(character, '-' | '.'));
+        match name {
+            "" => SourceName(String::from("source")),
+            crate::install::WORKSPACE_ORIGIN => SourceName(format!("{name}-2")),
+            name => SourceName(name.to_owned()),
+        }
+    }
+
+    /// The `n`th of this name, `acme-skills-2`, for a source that would
+    /// take a name another has: still a name, since a `-` and digits are.
+    pub fn numbered(&self, n: usize) -> Self {
+        SourceName(format!("{}-{n}", self.0))
+    }
+
+    /// A name as the ledger holds it, taken as written rather than judged
+    /// again: every name there a store made by one of the two ways above,
+    /// and a row somebody edited by hand is still listed by what it says.
+    pub(crate) fn recorded(text: String) -> Self {
+        SourceName(text)
+    }
+}
 
 text_value! {
     /// The name of an input an MCP server's definition declares

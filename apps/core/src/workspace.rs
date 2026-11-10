@@ -138,6 +138,17 @@ pub const FLAYER_CONFIG: &str = "flayer.toml";
 /// Kept rather than discarded so a gather can be inspected after the fact, and
 /// so what a source actually contained is still there when its report is not.
 pub const CACHE_DIR: &str = "cache";
+/// Where a workspace keeps what catalogs answered over HTTP, inside
+/// [`CACHE_DIR`] ([`crate::http::Cache`]).
+///
+/// Beside the clones, each of which is in a folder of its source's, so the
+/// ledger gives no source this name ([`RESERVED_IN_CACHE`]): a source given
+/// it would have its clone made over the answers kept there, and a
+/// repository's files read as answers.
+pub const HTTP_CACHE_DIR: &str = "http";
+/// The names in [`CACHE_DIR`] that are core's own rather than a source's,
+/// which the ledger never gives a source's clone.
+pub const RESERVED_IN_CACHE: &[&str] = &[HTTP_CACHE_DIR];
 /// Where a workspace keeps its own artifacts when its marker does not say,
 /// inside [`WEAVER_DIR`]: a folder per kind, named after it.
 ///
@@ -1497,6 +1508,13 @@ impl WeaverWorkspace {
         self.weaver_dir().join(CACHE_DIR)
     }
 
+    /// Where answers read over HTTP are kept ([`HTTP_CACHE_DIR`] in the
+    /// cache), whether or not it exists yet: what
+    /// [`crate::http::Cache::of`] keeps them in.
+    pub fn http_cache_dir(&self) -> PathBuf {
+        self.cache_dir().join(HTTP_CACHE_DIR)
+    }
+
     /// The workspace's scratch folder ([`SCRATCH_DIR`] in `.mindweaver`),
     /// whether or not anything has made it yet: where a front end puts what
     /// it hands a command as a file and takes away after, the panel's text
@@ -1594,7 +1612,8 @@ impl WeaverWorkspace {
     ///
     /// A ledger made or migrated here is told the id of each project the
     /// workspace links (`WeaverWorkspace::known`), which the step to schema 5
-    /// names each one's records by.
+    /// names each one's records by. What the step to schema 7 made one is
+    /// left for a command that writes to say and clear ([`gather::scrub`]).
     pub fn ledger(&self) -> Result<Ledger, LedgerError> {
         if !self.made {
             return Err(LedgerError::Unmade {

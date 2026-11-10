@@ -65,7 +65,10 @@ use crate::exclude::{self, ExcludeError};
 use crate::export::ExportError;
 use crate::frontmatter::FrontMatterError;
 use crate::gather::{self, GatherError, Leftover, ScrubFailure};
-use crate::install::{rules, Clash, ConfigUnread, InstallError, LoadFailure, PlanError, Refused};
+use crate::http::{CacheError, FetchError};
+use crate::install::{
+    rules, Clash, ConfigUnread, InstallError, LoadFailure, PlanError, Refused, Respelled,
+};
 use crate::kind::UnknownKind;
 use crate::ledger::LedgerError;
 use crate::lifecycle::LifecycleError;
@@ -74,7 +77,7 @@ use crate::mcp::{Inexpressible, McpError};
 use crate::migrate::{MigrateError, NamesFailure, ProjectFailure, Refusal};
 use crate::opencode_mcp::{self, OpenCodeMcpError};
 use crate::policy::PolicyError;
-use crate::port::{GitError, UpstreamError};
+use crate::port::{GitError, HttpError, UpstreamError};
 use crate::reapply::{ReapplyError, ReapplyFailure};
 use crate::relink::{Duplicate, RelinkError};
 use crate::resolve::ResolveError;
@@ -232,12 +235,16 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("gather::ScrubFailure", ScrubFailure::CODES),
     ("port::GitError", GitError::CODES),
     ("port::UpstreamError", UpstreamError::CODES),
+    ("port::HttpError", HttpError::CODES),
+    ("http::FetchError", FetchError::CODES),
+    ("http::cache::CacheError", CacheError::CODES),
     ("install::InstallError", InstallError::CODES),
     ("install::entries::ConfigUnread", ConfigUnread::CODES),
     ("install::LoadFailure", LoadFailure::CODES),
     ("install::plan::Clash", Clash::CODES),
     ("install::plan::PlanError", PlanError::CODES),
     ("install::Refused", Refused::CODES),
+    ("install::Respelled", Respelled::CODES),
     ("install::rules::Warning", rules::Warning::CODES),
     ("install::rules::Withheld", rules::Withheld::CODES),
     ("kind::UnknownKind", UnknownKind::CODES),

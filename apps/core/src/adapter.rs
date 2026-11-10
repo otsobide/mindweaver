@@ -3,14 +3,17 @@
 //!
 //! Each is the default its port is given wherever nothing else is handed
 //! over, as D-14 chose for HTTP: [`gix::Gix`] fetches a source,
-//! [`git::SystemGit`] sends a backup, and [`SystemClock`] tells the time. Another adapter is written beside them
+//! [`git::SystemGit`] sends a backup, [`reqwest::Reqwest`] reads a catalog,
+//! and [`SystemClock`] tells the time. Another adapter is written beside them
 //! against the same port and handed to what takes the port, a gather's
-//! [`Request::through`](crate::gather::Request::through) or the ledger's
+//! [`Request::through`](crate::gather::Request::through), an HTTP client's
+//! [`Client::through`](crate::http::Client::through) or the ledger's
 //! [`with_clock`](crate::ledger::Ledger::with_clock); nothing behind the port
 //! changes. A test's fake is one more adapter, and lives with the test.
 
 pub mod git;
 pub mod gix;
+pub mod reqwest;
 pub mod sqlite;
 
 use std::time::{SystemTime, UNIX_EPOCH};

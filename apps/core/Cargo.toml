@@ -33,6 +33,14 @@ jsonc-parser = { version = "0.34", features = ["cst"] }
 # (`gather::git`). It builds no new crate: the tree is prodash's, which
 # gix-features already builds with the tree in.
 gix = { version = "0.87", features = ["blocking-network-client", "blocking-http-transport-reqwest-rust-tls", "progress-tree"] }
+# The HTTP a catalog is read over (D-14), behind the `Http` port as gix is
+# behind `Remote`: the client gix's own HTTP transport builds already, so
+# the lock gains no crate. `blocking`, since core is synchronous; `rustls`,
+# the TLS gix's transport is built with, trusting the system's roots
+# through rustls-platform-verifier; and none of the defaults beside them,
+# which would add a proxy read from the environment behind core's back.
+# MIT or Apache-2.0, as is what it brings, which GPL-3.0-only takes in.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
 # `backup`, for the copy taken before a schema step: SQLite's own online
 # backup, since reading the file from outside while a connection holds it
 # would drop that connection's locks on Unix.
@@ -60,9 +68,13 @@ ts-rs = { version = "12", optional = true, features = ["no-serde-warnings"] }
 # says a type either as serde writes it or as serde reads it: an `Option`
 # field is always written, and may be left out of what is read. Only under
 # `schema`, as ts-rs is under `ts`. MIT, as are its derive and the two small
-# crates it brings; serde_json beside it to write what a type says by hand.
+# crates it brings; serde_json, below, to write what a type says by hand.
 schemars = { version = "1.2", optional = true }
-serde_json = { version = "1", optional = true }
+# What a catalog answers over HTTP is JSON, read into what core makes of it
+# (`http::Client::json`, `http::Client::pages`), and what the HTTP cache
+# keeps of an answer begins with a line of it. The version the server and
+# the CLI build.
+serde_json = "1"
 # What a fixture mother holds its folder in (`mother::fixture`), only under
 # `mother`, as the dev-dependency below is for core's own tests.
 tempfile = { version = "3", optional = true }
@@ -74,7 +86,7 @@ ts = ["dep:ts-rs"]
 # The JSON Schema of what core hands a front end and takes from one: `make
 # api/schemas` builds with it to write them into docs/api/schemas, and
 # nothing else does.
-schema = ["dep:schemars", "dep:serde_json"]
+schema = ["dep:schemars"]
 # The object mothers tests build the domain with (`mother`): core's own
 # compile them under `cfg(test)`, and its integration tests and the CLI's
 # through a dev-dependency that turns this on, so no binary holds them.

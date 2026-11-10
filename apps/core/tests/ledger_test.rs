@@ -82,6 +82,12 @@ const VERSION_4: &str = include_str!("fixtures/ledger-v4.sql");
 /// What schema 5 wrote, dumped from a ledger it made.
 const VERSION_5: &str = include_str!("fixtures/ledger-v5.sql");
 
+/// Every column of `sources` a version before 7 had, which schema 7 adds
+/// to: what a step after it keeps of each row it is not about.
+const SOURCES_AS_WRITTEN: &str = "SELECT id, kind, url, reference, subdirectory, revision,
+                                         directory, first_seen, last_seen
+                                    FROM sources ORDER BY id";
+
 /// A ledger file in `dir` holding what `fixture` describes, untouched by
 /// anything of this build's.
 fn written_at(dir: &Path, fixture: &str) -> PathBuf {
@@ -288,7 +294,7 @@ fn a_version_2_ledger_keeps_every_row_it_had() {
     let after = Connection::open(&path).unwrap();
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
-        "SELECT * FROM sources ORDER BY id",
+        SOURCES_AS_WRITTEN,
         "SELECT * FROM artifacts ORDER BY id",
         "SELECT * FROM actions ORDER BY id",
         "SELECT id, project, kind, name, source_id, installed_at
@@ -453,7 +459,7 @@ fn a_version_3_ledger_keeps_every_row_it_had_and_its_copies_gain_no_hash() {
     let after = Connection::open(&path).unwrap();
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
-        "SELECT * FROM sources ORDER BY id",
+        SOURCES_AS_WRITTEN,
         "SELECT * FROM artifacts ORDER BY id",
         "SELECT * FROM actions ORDER BY id",
         "SELECT id, project, kind, name, source_id, installed_at, origin, content_hash
@@ -530,7 +536,7 @@ fn a_version_4_ledger_keeps_every_row_it_had_and_knows_no_project_it_is_not_told
     let after = Connection::open(&path).unwrap();
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
-        "SELECT * FROM sources ORDER BY id",
+        SOURCES_AS_WRITTEN,
         "SELECT * FROM artifacts ORDER BY id",
         "SELECT * FROM actions ORDER BY id",
         "SELECT id, project, kind, name, source_id, installed_at, origin, content_hash
@@ -614,7 +620,7 @@ fn a_version_5_ledger_keeps_every_row_it_had_and_its_installations_gain_no_entry
     let after = Connection::open(&path).unwrap();
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
-        "SELECT * FROM sources ORDER BY id",
+        SOURCES_AS_WRITTEN,
         "SELECT * FROM artifacts ORDER BY id",
         "SELECT * FROM actions ORDER BY id",
         "SELECT * FROM installations ORDER BY id",
@@ -685,6 +691,455 @@ fn a_version_5_ledger_is_copied_aside_and_the_copy_opens_at_version_5() {
     ] {
         assert_eq!(rows(&copy, query), rows(&before, query), "{query}");
     }
+}
+
+/// What schema 6 wrote, dumped from a ledger it made, with what an older
+/// build left beside it: a token as `<token>`, filled in by [`version_6`].
+const VERSION_6: &str = include_str!("fixtures/ledger-v6.sql");
+
+/// A token as GitHub hands one out, made as the test runs rather than
+/// written down, so that nothing in the repository looks like a secret.
+fn token() -> String {
+    format!("ghp_{}", "T0k3n".repeat(7) + "x")
+}
+
+/// [`VERSION_6`] with `token` where an older build stored one.
+fn version_6(token: &str) -> String {
+    VERSION_6.replace("<token>", token)
+}
+
+#[test]
+fn a_version_6_ledger_keeps_every_row_but_those_of_a_spelling_made_one_with_another() {
+    let token = token();
+    let fixture = version_6(&token);
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), &fixture);
+    let before = as_written(&fixture);
+
+    let ledger = Ledger::open(&path).unwrap();
+
+    let after = Connection::open(&path).unwrap();
+    assert_eq!(version_of(&after), SCHEMA_VERSION);
+    // The spelling of the first repository gathered last and the one of
+    // the second gathered with the token are kept, as is the branch, which
+    // is a place of its own; what the others gathered went with them.
+    for (now, then) in [
+        (
+            SOURCES_AS_WRITTEN,
+            "SELECT id, kind, url, reference, subdirectory, revision, directory, first_seen,
+                    last_seen
+               FROM sources WHERE id IN (2, 3, 4) ORDER BY id",
+        ),
+        (
+            "SELECT * FROM artifacts ORDER BY id",
+            "SELECT * FROM artifacts WHERE source_id IN (2, 3, 4) ORDER BY id",
+        ),
+        (
+            "SELECT id, project, kind, name, installed_at, content_hash, project_id
+               FROM installations ORDER BY id",
+            "SELECT id, project, kind, name, installed_at, content_hash, project_id
+               FROM installations ORDER BY id",
+        ),
+        (
+            "SELECT * FROM installation_targets ORDER BY installation_id, path",
+            "SELECT * FROM installation_targets ORDER BY installation_id, path",
+        ),
+        (
+            "SELECT * FROM projects ORDER BY id",
+            "SELECT * FROM projects ORDER BY id",
+        ),
+        // The scrub is what takes a credential out, which a command that
+        // writes runs next.
+        (
+            "SELECT * FROM actions ORDER BY id",
+            "SELECT * FROM actions ORDER BY id",
+        ),
+    ] {
+        let kept = rows(&after, now);
+        assert_eq!(kept, rows(&before, then), "{now}");
+        assert!(!kept.is_empty(), "{now} reads nothing to compare");
+    }
+    // An installation from a spelling that went is from the one kept, by
+    // the origin that one is installed from, without the credential the
+    // kept one still holds, which it never held.
+    let skills = String::from("git@github.com:acme/skills.git");
+    let private = String::from("https://github.com/acme/private");
+    assert_eq!(
+        rows(
+            &after,
+            "SELECT id, source_id, origin FROM installations ORDER BY id"
+        ),
+        [
+            [Value::Integer(1), Value::Integer(2), text(&skills)],
+            [Value::Integer(2), Value::Integer(2), text(&skills)],
+            [Value::Integer(3), Value::Integer(4), text(&private)],
+        ]
+    );
+    let merged = ledger.merged().unwrap();
+    let merged: Vec<(&str, &str, i64)> = merged
+        .iter()
+        .map(|merged| {
+            (
+                merged.url.as_str(),
+                merged.directory.as_str(),
+                merged.into.id,
+            )
+        })
+        .collect();
+    assert_eq!(
+        merged,
+        [
+            (
+                "https://github.com/Acme/Private.git",
+                "github.com-acme-private-2",
+                4
+            ),
+            (
+                "https://github.com/acme/skills",
+                "github.com-acme-skills",
+                2
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_version_6_ledger_names_each_source_and_finds_it_by_any_spelling_of_its_url() {
+    let token = token();
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), &version_6(&token));
+
+    let ledger = Ledger::open(&path).unwrap();
+
+    let named: Vec<(i64, String, String)> = ledger
+        .sources()
+        .unwrap()
+        .into_iter()
+        .map(|source| {
+            (
+                source.id,
+                source.name.to_string(),
+                source.origin().into_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (
+                2,
+                String::from("acme-skills"),
+                String::from("git@github.com:acme/skills.git")
+            ),
+            (
+                4,
+                String::from("acme-private"),
+                String::from("https://github.com/acme/private")
+            ),
+            (
+                3,
+                String::from("acme-skills-2"),
+                String::from("https://github.com/acme/skills#main")
+            ),
+        ]
+    );
+    for (spelling, reference, id) in [
+        ("https://github.com/acme/skills.git", None, 2),
+        ("acme/skills", None, 2),
+        ("ssh://git@github.com/Acme/Skills", Some("main"), 3),
+        ("git@github.com:acme/private.git", None, 4),
+    ] {
+        let found = ledger
+            .source(
+                mindweaver_core::SourceKind::Git,
+                spelling,
+                reference,
+                "skills",
+            )
+            .unwrap();
+        assert_eq!(found.map(|source| source.id), Some(id), "{spelling}");
+    }
+    let identities = rows(
+        &Connection::open(&path).unwrap(),
+        "SELECT canonical_url, reference_key, name FROM sources ORDER BY id",
+    );
+    assert!(
+        !format!("{identities:?}").contains(&token),
+        "{identities:?}"
+    );
+}
+
+#[test]
+fn a_version_6_ledger_is_copied_aside_and_the_copy_opens_at_version_6() {
+    let fixture = version_6(&token());
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), &fixture);
+    let before = as_written(&fixture);
+
+    Ledger::open(&path).unwrap();
+
+    let backup = dir.path().join("mindweaver.db.v6.bak");
+    assert_eq!(backup_path(&path, 6), backup);
+    let copy = Connection::open(&backup).unwrap();
+    assert_eq!(version_of(&copy), 6);
+    for query in [
+        "SELECT * FROM sources ORDER BY id",
+        "SELECT * FROM artifacts ORDER BY id",
+        "SELECT * FROM actions ORDER BY id",
+        "SELECT * FROM installations ORDER BY id",
+        "SELECT type, name, sql FROM sqlite_master ORDER BY name",
+    ] {
+        assert_eq!(rows(&copy, query), rows(&before, query), "{query}");
+    }
+}
+
+/// The folders each source of [`VERSION_6`] had in the workspace at
+/// `workspace`: a clone, made from its URL as the fixture spells it, and a
+/// shelf of what it supplied.
+fn folders_of_version_6(workspace: &WeaverWorkspace, token: &str) {
+    for (directory, url, skill_name) in [
+        (
+            "github.com-acme-skills",
+            "https://github.com/acme/skills",
+            "deploy",
+        ),
+        (
+            "github.com-acme-skills-2",
+            "git@github.com:acme/skills.git",
+            "deploy",
+        ),
+        (
+            "github.com-acme-skills-3",
+            "https://github.com/acme/skills",
+            "deploy",
+        ),
+        (
+            "github.com-acme-private",
+            &format!("https://x-access-token:{token}@github.com/acme/private"),
+            "audit",
+        ),
+        (
+            "github.com-acme-private-2",
+            "https://github.com/Acme/Private.git",
+            "audit",
+        ),
+    ] {
+        let git = workspace.cache_dir().join(directory).join(".git");
+        std::fs::create_dir_all(git.join("logs")).unwrap();
+        std::fs::write(
+            git.join("config"),
+            format!("[remote \"origin\"]\n\turl = {url}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            git.join("logs").join("HEAD"),
+            format!("0000 1111 Fixture <fixture@example.com> 0 +0000\tclone: from {url}\n"),
+        )
+        .unwrap();
+        let shelf = workspace
+            .gathered_dir(Kind::Skill)
+            .join(directory)
+            .join(skill_name);
+        std::fs::create_dir_all(&shelf).unwrap();
+        std::fs::write(shelf.join("SKILL.md"), skill(skill_name, "Gathered")).unwrap();
+    }
+}
+
+/// Everything under `root` that reads as text, joined.
+fn text_under(root: &Path) -> String {
+    let mut text = String::new();
+    for entry in std::fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            text.push_str(&text_under(&path));
+        } else if let Ok(contents) = std::fs::read_to_string(&path) {
+            text.push_str(&contents);
+        }
+    }
+    text
+}
+
+#[test]
+fn opening_a_version_6_ledger_to_write_leaves_no_credential_and_nothing_a_merge_left() {
+    let token = token();
+    let dir = TempDir::new().unwrap();
+    let (workspace, _) = WeaverWorkspace::init(dir.path()).unwrap();
+    written_at(&dir.path().join(".mindweaver"), &version_6(&token));
+    folders_of_version_6(&workspace, &token);
+
+    let (ledger, scrub) = workspace.ledger_to_write().unwrap();
+
+    // Each merge is said, by what it was gathered as and what it is now.
+    let merged: Vec<(&str, &str)> = scrub
+        .merged
+        .iter()
+        .map(|merged| (merged.url.as_str(), merged.into.name.as_str()))
+        .collect();
+    assert_eq!(
+        merged,
+        [
+            ("https://github.com/Acme/Private.git", "acme-private"),
+            ("https://github.com/acme/skills", "acme-skills"),
+        ]
+    );
+    assert!(scrub.leftovers.is_empty(), "{:?}", scrub.leftovers);
+    // And so is the credential the scrub took out, once.
+    let told: Vec<&str> = scrub
+        .sources
+        .iter()
+        .map(|source| source.url.as_str())
+        .collect();
+    assert_eq!(told, ["https://github.com/acme/private"]);
+    assert_eq!(scrub.actions, 2);
+    assert!(scrub.failures.is_empty(), "{:?}", scrub.failures);
+    // The folders of a spelling that went go with it; the others stay.
+    for (directory, kept) in [
+        ("github.com-acme-skills", false),
+        ("github.com-acme-skills-2", true),
+        ("github.com-acme-skills-3", true),
+        ("github.com-acme-private", true),
+        ("github.com-acme-private-2", false),
+    ] {
+        for folder in [
+            workspace.cache_dir().join(directory),
+            workspace.gathered_dir(Kind::Skill).join(directory),
+        ] {
+            assert_eq!(folder.exists(), kept, "{folder:?}");
+        }
+    }
+    let audit = ledger
+        .installation("tanukeys", Kind::Skill, "audit")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        audit.origin.as_deref(),
+        Some("https://github.com/acme/private")
+    );
+    drop(ledger);
+
+    // No credential in the ledger, its log, any clone or the shelf.
+    let ledger_dir = dir.path().join(".mindweaver");
+    for entry in std::fs::read_dir(&ledger_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(LEDGER_FILE)
+            && path.extension().is_none_or(|extension| extension != "bak")
+        {
+            let bytes = std::fs::read(&path).unwrap();
+            assert!(
+                !bytes
+                    .windows(token.len())
+                    .any(|bytes| bytes == token.as_bytes()),
+                "{path:?}"
+            );
+        }
+    }
+    let cached =
+        text_under(&workspace.cache_dir()) + &text_under(&workspace.gathered_dir(Kind::Skill));
+    assert!(!cached.contains(&token));
+    // The copy is the way back, the file as it was.
+    let copy = Connection::open(backup_path(&workspace.ledger_path(), 6)).unwrap();
+    assert_eq!(version_of(&copy), 6);
+    assert_eq!(
+        rows(&copy, "SELECT count(*) FROM sources"),
+        [[Value::Integer(5)]]
+    );
+
+    // Said once: the second time there is nothing left to say.
+    assert!(workspace.ledger_to_write().unwrap().1.is_empty());
+}
+
+#[test]
+fn reading_a_version_6_ledger_leaves_what_a_merge_left_for_the_first_command_that_writes_to_say() {
+    let token = token();
+    let dir = TempDir::new().unwrap();
+    let (workspace, _) = WeaverWorkspace::init(dir.path()).unwrap();
+    written_at(&dir.path().join(".mindweaver"), &version_6(&token));
+    folders_of_version_6(&workspace, &token);
+
+    // Read twice, as a `status` and a `list` after an upgrade would.
+    for _ in 0..2 {
+        let ledger = workspace.ledger_for_reading().unwrap();
+        assert_eq!(ledger.merged().unwrap().len(), 2);
+    }
+    // A read removes no folder and scrubs nothing.
+    for folder in [
+        workspace.cache_dir().join("github.com-acme-skills"),
+        workspace
+            .gathered_dir(Kind::Skill)
+            .join("github.com-acme-private-2"),
+    ] {
+        assert!(folder.exists(), "{folder:?}");
+    }
+
+    // The next command that writes says each merge, clears its folders and
+    // scrubs the rest, whichever command took the step.
+    let (_ledger, scrub) = workspace.ledger_to_write().unwrap();
+    let merged: Vec<&str> = scrub
+        .merged
+        .iter()
+        .map(|merged| merged.directory.as_str())
+        .collect();
+    assert_eq!(
+        merged,
+        ["github.com-acme-private-2", "github.com-acme-skills"]
+    );
+    assert!(scrub.leftovers.is_empty(), "{:?}", scrub.leftovers);
+    assert_eq!(scrub.sources.len(), 1, "{:?}", scrub.sources);
+    for directory in ["github.com-acme-skills", "github.com-acme-private-2"] {
+        assert!(!workspace.cache_dir().join(directory).exists());
+        assert!(!workspace.gathered_dir(Kind::Skill).join(directory).exists());
+    }
+    assert!(!text_under(&workspace.cache_dir()).contains(&token));
+    assert!(workspace.ledger_to_write().unwrap().1.is_empty());
+}
+
+/// A folder of a merge that will not go is said by every command that
+/// writes, with its merge, and tried again, until it goes.
+#[cfg(unix)]
+#[test]
+fn a_folder_a_merge_left_that_will_not_go_is_tried_and_said_again_until_it_goes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let token = token();
+    let dir = TempDir::new().unwrap();
+    let (workspace, _) = WeaverWorkspace::init(dir.path()).unwrap();
+    written_at(&dir.path().join(".mindweaver"), &version_6(&token));
+    folders_of_version_6(&workspace, &token);
+    let stuck = workspace
+        .cache_dir()
+        .join("github.com-acme-skills")
+        .join(".git");
+    let mode = |mode| std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(mode));
+    mode(0o555).unwrap();
+
+    let (_ledger, first) = workspace.ledger_to_write().unwrap();
+    let (_ledger, second) = workspace.ledger_to_write().unwrap();
+    mode(0o755).unwrap();
+    let (_ledger, third) = workspace.ledger_to_write().unwrap();
+
+    for scrub in [&first, &second] {
+        let said: Vec<&str> = scrub
+            .merged
+            .iter()
+            .map(|merged| merged.directory.as_str())
+            .collect();
+        assert!(said.contains(&"github.com-acme-skills"), "{said:?}");
+        assert_eq!(scrub.leftovers.len(), 1, "{:?}", scrub.leftovers);
+        assert!(scrub.leftovers[0].path.ends_with("github.com-acme-skills"));
+    }
+    // The other merge, whose folders went, is said once.
+    assert_eq!(second.merged.len(), 1, "{:?}", second.merged);
+    assert_eq!(third.merged.len(), 1, "{:?}", third.merged);
+    assert!(third.leftovers.is_empty(), "{:?}", third.leftovers);
+    assert!(!workspace
+        .cache_dir()
+        .join("github.com-acme-skills")
+        .exists());
+    assert!(workspace.ledger_to_write().unwrap().1.is_empty());
 }
 
 #[test]
