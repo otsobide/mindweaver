@@ -195,9 +195,14 @@ under `apps/` with its own `Makefile`:
   `gather::Request::again`), reading a catalog over HTTP (through
   `port::Http`), the redirects core follows, a status that is no success,
   JSON read into what is asked and pages that follow one another
-  (`http::Client`, `http::with_query`, `http::next_link`), and the answers a
-  workspace keeps in its `cache/http` (`http::Cache`), none of it called
-  yet (#106 and #108 are its first callers), the ledger (through
+  (`http::Client`, `http::with_query`, `http::next_link`), a rate limit said
+  as one with when it resets (`FetchError::RateLimited`), and the answers a
+  workspace keeps in its `cache/http` (`http::Cache`), searching the skill
+  directories through it (`finder`: GitHub's code search, asked with a
+  token, and skills.sh's and api.claude-plugins.dev's, unstable, each read
+  in a module of its own, the finders a workspace's `finders` enables,
+  `finder::enabled`, a search, `Search`, followed by a `finder::Watch`, and
+  what it found, each skill once, `Found` and `Hit`), the ledger (through
   `port::LedgerStore`), installing, keeping installs out of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
@@ -297,8 +302,10 @@ under `apps/` with its own `Makefile`:
   (workspaces, workspaces forget), `artifact` (add, edit, rename, remove,
   templates), `read` (list, show, validate), `status`, `doctor`, `settings`
   (agents, share, targets), `gather`, `install`, `update` and `migrate`
-  (each at both levels), `adopt` (mindweaver adopt), `export` and `backup`
-  (mindweaver export, mindweaver backup, which reads the token
+  (each at both levels), `search` (mindweaver gather search, which reads
+  the token GitHub's code search is asked with, and takes a result through
+  `gather`'s own function), `adopt` (mindweaver adopt), `export` and
+  `backup` (mindweaver export, mindweaver backup, which reads the token
   `--token-env` names) and `ui` (the panel, at
   both levels).
   `add mcp`'s options for how a server is started or reached are one
@@ -318,9 +325,10 @@ under `apps/` with its own `Makefile`:
   `Refusal`, what a front end with no terminal does not run,
   `Caution`, what a line takes away, which such a front end asks about
   first, and `Followed`, what a line does that a front end follows while
-  it runs and can stop, a gather. `src/progress.rs` says a gather's steps
-  in words, the line `mindweaver gather` draws and the TUI's box, and as
-  the `Step` the panel's backend reports, paced (`progress::reported`).
+  it runs and can stop, a gather, a backup and a search. `src/progress.rs`
+  says each one's steps in words, the line `mindweaver gather` draws and
+  the TUI's box, and as the `Step` the panel's backend reports, paced
+  (`progress::reported`).
   `commands::run_line` runs one line a front end built, for the TUI and the
   panel alike. `src/admit.rs` holds a task sent from outside to the path
   policy (`Admission`), and `src/backend.rs` is the panel's backend
@@ -499,7 +507,11 @@ These are easy to break from a single file without noticing.
   branch, and so are the kind a gather takes unsaid and the folder a
   gather of a kind looks in unsaid (`gather::DEFAULT_KIND`,
   `gather::default_folder`), which a task asks before it leaves either
-  off its line. Which agents read none of a project's targets is
+  off its line. Which skill directories a workspace asks, what each is
+  sent and what of its answer is a result, two finders' results told to
+  be one skill, are core's too (`finder`), and so is which host a search's
+  token is for and which result it may go on to (`Search::token_host`,
+  `Search::token_reaches`). Which agents read none of a project's targets is
   core's too (`ProjectStatus::unreached`), and so is which read a rule it
   received nowhere (`ProjectStatus::missed`). Which kind a name typed bare
   is, to install or take out, is core's (`install::offered_typed`,
@@ -542,7 +554,9 @@ These are easy to break from a single file without noticing.
   an `http::Client`'s `Http` (`Reqwest` unless `Client::through` hands
   another), which follows no redirect, keeps nothing between requests and
   hands back whatever a server answered, every rule of what core makes of
-  it (redirects, statuses, pages, the cache) being `http`'s, the ledger
+  it (redirects, statuses, a rate limit, pages, the cache) being `http`'s,
+  a skill directory among the catalogs read so (`finder::Search`, handed
+  its `Client`), the ledger
   keeps its records only in its
   `LedgerStore` (SQLite unless `Ledger::new` hands another) and reads the
   time only through its `Clock` (`with_clock`), and no module but
@@ -585,7 +599,8 @@ These are easy to break from a single file without noticing.
   box's plan applied with `batchOf`), through the same runner. A gather's
   and a backup's lines run on a
   thread of their own (`Task::runs_apart`), still through the same parsers:
-  the thread changes where they run, not what they are. Which lines a front
+  the thread changes where they run, not what they are, and so does a
+  search of the skill directories, each finder the network. Which lines a front
   end follows as they run and can stop is one list, `task::Followed`, read
   off the parsed command by a match with no wildcard (`Followed::of_mind`,
   `of_weaver`, `task::followed`): the TUI runs a task with such a line
@@ -628,7 +643,13 @@ These are easy to break from a single file without noticing.
   task carries no token, no variable's name and no `--gh`, so its lines
   hand none over: a gather's token comes from a shell alone. It carries
   its kind (`kind`, skills when a task leaves it out), which the TUI's
-  form never sets otherwise. `edit` is
+  form never sets otherwise. The TUI's search of the skill directories, on
+  the shelf's page, is `Task::SearchSkills`, `mindweaver gather search
+  --json`, its results read back from the JSON the line printed, by the
+  names the envelope gives them, never a table's columns, and a result
+  taken is the `Task::Gather` of its repository, folder and branch, the
+  line `--take` amounts to, so the transcript gathers the same again
+  however the finders answer by then; it carries no token either. `edit` is
   refused in an editor and with `--contents -`, standard input, and run
   with `--contents FILE` (`Refusal::of_edit`); the one task that builds
   that line, the panel's save (`Task::Save`, its text and the hash it was
@@ -711,7 +732,7 @@ These are easy to break from a single file without noticing.
 - **Reading commands print JSON in one envelope, and its names are a
   contract.** A reading command's `--json` (`list`, `show`, `validate`,
   `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`,
-  `gather list` and `gather sources`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
+  `gather list`, `gather sources` and `gather search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
   [...], "coded_warnings": [...]}`, never a shape of its own, with what its
   text says on stderr as `warning:` lines in `warnings`, the same lines
   with their codes in `coded_warnings`, and the exit status its text has;
@@ -1236,6 +1257,16 @@ These are easy to break from a single file without noticing.
     reads a linked file only inside the clone. Two of a source's skills,
     or rules, called the same are a failure each, never a pick
     (`gathered_name_clash`).
+  - What a skill directory answers is somebody else's JSON
+    (`finder`): an answer in a shape this build does not read fails that
+    finder alone (`finder_answer_unreadable`), beside the others' results,
+    and a result naming no repository, one with a credential, which is
+    never repeated, a folder climbing out of its repository or a folder on
+    this machine is dropped and said (`finder_result_dropped`); a folder
+    here is taken from a finder on this machine alone. Every word of one
+    is made printable. A finder asked elsewhere than its own address
+    (`--finder-url`, `Search::at`) is asked over https, or plain http to
+    this machine alone (`finder_url_invalid`).
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1337,7 +1368,12 @@ These are easy to break from a single file without noticing.
   `gather_token_not_https`). Core never reads it from anywhere: the CLI
   does (`src/token.rs`), from `--token-env`, or from `gh auth token
   --hostname <host>` with `--gh`, the host `gather::token_host` says, `gh`
-  given no standard input and what it prints shown nowhere. Two gaps are open questions in
+  given no standard input and what it prints shown nowhere. A search's
+  token is GitHub's alone: read the same way, only when a finder to ask
+  takes one, `gh` asked for the host `Search::token_host` says, and sent
+  to GitHub's finder as a secret header, never to another, never kept by
+  the HTTP cache, and on to the gather `--take` makes only for a
+  repository on that host (`Search::token_reaches`). Two gaps are open questions in
   the architecture doc: what the system ssh asks on the terminal, and `gix`'s
   retry after a remote branch named `HEAD`, a connection the callback cannot
   reach. Nor does a backup, the one thing sent with the system's `git`
@@ -1372,7 +1408,9 @@ These are easy to break from a single file without noticing.
   reading old files the way they were written, and move one forward only
   when asked, never on a read (`mindweaver migrate --library`, `mind migrate`).
   A key an older build reads past without misreading anything moves no
-  version, as the default workspace's `known` did not.
+  version, as the default workspace's `known` did not, nor `finders`, the
+  skill directories `gather search` may ask, which a person writes by hand
+  and no command does.
   - A ledger schema step is one more block in the SQLite store's migration
     (`adapter::sqlite::Sqlite::migrate`), which takes
     the write lock, copies the file to `mindweaver.db.v<old>.bak`
@@ -1852,7 +1890,13 @@ These are easy to break from a single file without noticing.
   127.0.0.1, on a port the system picks, and a fake keeping its sites in
   memory, under `example.com`, to the same one, every slow or endless
   answer bounded; anything else that reads over HTTP is handed a fake
-  (`http::Client::through`).
+  (`http::Client::through`), as `tests/finder_test.rs` hands each skill
+  directory one answering as the service shaped its answer
+  (`tests/fixtures/finders`), a changed shape among them. No test or trial
+  asks skills.sh or api.claude-plugins.dev, whose terms D-15 has the owner
+  read first: the CLI's end to end asks a server on loopback in their place
+  (`--finder-url`, `e2e/searching.rs`), and the TUI's tests stand a
+  `Runner` in for the line.
 - Git sources are built in-process with `gix` (`common::repository`): no
   network and no `git` binary. A CLI fixture's project is a repository given
   `mind init` (`common::new_project`), so a local install keeps its copies out
@@ -1876,9 +1920,9 @@ These are easy to break from a single file without noticing.
   installs zsh so that both shells run there.
 - The CLI end to end is `apps/cli/tests/e2e_test.rs`, one target whose
   modules under `tests/e2e/` group the use cases by what a person is
-  doing (projects, authoring, installing, gathering, updating, reading,
-  workspaces, settings, adopting, removing, loading, exporting, upgrading, json,
-  mistakes). Each test is one use case: it builds its own
+  doing (projects, authoring, installing, gathering, searching, updating,
+  reading, workspaces, settings, adopting, removing, loading, exporting,
+  upgrading, json, mistakes). Each test is one use case: it builds its own
   scenario (`e2e/scenario.rs`, `Scenario`), runs one command line as a
   person types it, and holds its exit status, stdout and stderr word for
   word, and what it left on the disk. A scenario is a temporary folder read

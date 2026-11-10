@@ -369,7 +369,8 @@ pub const HTTP_LIMIT: usize = 8 * 1024 * 1024;
 
 /// The headers of an answer core reads, and so the only ones a
 /// [`HttpResponse`] holds: its type, what a cached answer is checked again
-/// by, the next page, where a redirect leads and how long to wait.
+/// by, the next page, where a redirect leads, and how long to wait and how
+/// many requests are left, which tell a rate limit ([`crate::http`]).
 ///
 /// A list rather than every header, because what an answer holds may be
 /// kept on the disk ([`crate::http::Cache`]), and a `Set-Cookie` is a
@@ -382,6 +383,8 @@ pub const KEPT_HEADERS: &[&str] = &[
     "link",
     "location",
     "retry-after",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
 ];
 
 /// The headers a request sends as a secret whichever way they were added,

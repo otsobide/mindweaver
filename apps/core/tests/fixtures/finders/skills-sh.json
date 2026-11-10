@@ -1,0 +1,29 @@
+{
+  "query": "pdf",
+  "searchType": "fuzzy",
+  "searchVersion": "algolia",
+  "skills": [
+    {
+      "id": "acme/skills/pdf",
+      "source": "acme/skills",
+      "skillId": "pdf",
+      "name": "pdf",
+      "installs": 2263
+    },
+    {
+      "id": "beta/house-rules/commit-style",
+      "source": "beta/house-rules",
+      "skillId": "commit-style",
+      "name": "commit-style",
+      "installs": 56
+    },
+    {
+      "id": "nowhere",
+      "skillId": "broken",
+      "name": "broken",
+      "installs": 7
+    }
+  ],
+  "count": 3,
+  "duration_ms": 214
+}

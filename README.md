@@ -321,6 +321,14 @@ update` gathers them again, taking off the shelf what a repository no longer
 has, `gather rename` calls one something else, and `gather remove` forgets
 one, leaving what was installed from it in place, orphaned.
 
+`mindweaver gather search pdf` looks for skills before you gather them, and
+`--take 2` gathers the second it lists. It asks GitHub's code search, with
+a token you hand over for the search (`--token-env`, `--gh`), and only the
+skill directories your workspace's `weaver.toml` lists in `finders`:
+skills.sh and claude-plugins.dev are best-effort, read from APIs nobody
+documents, which can change under it, so none is asked until you list it,
+having read its terms.
+
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`
 offers them to yours.

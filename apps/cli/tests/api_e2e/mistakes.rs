@@ -130,8 +130,8 @@ fn a_task_nobody_knows_is_refused_with_every_one_there_is() {
              `deploy`, expected one of `init_workspace`, `init_project`, `link`, `link_here`, \
              `init_and_link`, `unlink`, `relink`, `load`, `load_here`, `unload`, \
              `unload_here`, `add`, `show`, `edit`, `save`, `edit_server`, `rename`, `remove`, \
-             `validate`, `minds`, `marks`, `shelf`, `workspaces`, `gather`, `update_sources`, \
-             `remove_source`, `export`, `backup`, `targets`, \
+             `validate`, `minds`, `marks`, `shelf`, `workspaces`, `search_skills`, `gather`, \
+             `update_sources`, `remove_source`, `export`, `backup`, `targets`, \
              `settings`, `toggled`, `update`, `install`, `uninstall`, `uninstall_orphaned`, \
              `adopt`, `migrate`, `open_install`, `apply_install`, `refresh` at line 1 column 16",
         );

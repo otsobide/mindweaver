@@ -12,6 +12,7 @@ use mindweaver_core::adopt::AdoptError;
 use mindweaver_core::backup::BackupError;
 use mindweaver_core::everywhere::EverywhereError;
 use mindweaver_core::export::ExportError;
+use mindweaver_core::finder::SearchError;
 use mindweaver_core::gather::GatherError;
 use mindweaver_core::ledger::LedgerError;
 use mindweaver_core::sources::SourceError;
@@ -107,6 +108,8 @@ pub enum CliError {
     Export(#[from] ExportError),
     #[error(transparent)]
     Backup(#[from] BackupError),
+    #[error(transparent)]
+    Search(#[from] SearchError),
     #[error(
         "${0} holds no token: set it for this command, or leave --token-env out to log in as git does"
     )]
@@ -328,6 +331,7 @@ codes!(CliError {
     Self::Artifact(error) => error,
     Self::Gather(error) => error,
     Self::Source(error) => error,
+    Self::Search(error) => error,
     Self::Ledger(error) => error,
     Self::Install(error) => error,
     Self::Create(error) => error,

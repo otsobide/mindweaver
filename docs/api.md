@@ -649,6 +649,27 @@ variable holding one: a private repository logs in as git config's
 credential helpers and ssh do on the server's machine, and a token for a
 gather is handed over from a shell alone (`--token-env`, `--gh`).
 
+A search of the skill directories is the network too. A `search_skills`
+task, `{"type": "search_skills", "query": ...}`, is `mindweaver gather search
+--json`, which asks the finders the workspace's `weaver.toml` enables
+([the reference](reference.md#searching-the-skill-directories)) with no
+token, and so never GitHub's code search, which needs one; its run's output
+is what the command prints, the results in the envelope's `data`. It is
+previewed as `cancellable`, and asks nothing until it runs:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "search_skills", "query": "pdf"}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather search --json pdf"
+  ],
+  "confirm": [],
+  "cancellable": true
+}
+```
+
 A backup is the network too. A `backup` task, `{"type": "backup", "url":
 ..., "branch": null, "kinds": [], "message": null, "token_env": null}`, is
 `mindweaver backup`: its repository is named as a gather's source is, and
@@ -679,7 +700,8 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
 shelf, and its outcome says it was cancelled (`gather_cancelled`); one
 already placing what it read finishes, as its outcome says too. A backup
 stops before it pushes, the `git` it was running stopped and the
-repository as it was (`backup_cancelled`); one already pushing finishes. A run that
+repository as it was (`backup_cancelled`); one already pushing finishes. A
+search stops before it asks the next finder (`search_cancelled`). A run that
 is not the one under way, over already or not started yet, is refused with
 a 409 and nothing is asked of any run, so a cancel that crosses the end of
 its run never stops the one behind it; so is the run under way when its

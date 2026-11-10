@@ -72,6 +72,9 @@ impl Admission<'_> {
             | Task::Workspaces
             | Task::OpenInstall
             | Task::Refresh => {}
+            // A query names nothing on the disk, and the line asks only the
+            // finders the workspace enables, with no token.
+            Task::SearchSkills { .. } => {}
             // An address is the gather's to judge, a credential in it among
             // what it refuses; a folder is held as a folder to link is. The
             // folder in the source and the reference are values, which the

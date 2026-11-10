@@ -14,7 +14,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 40] = [
+const TAGS: [&str; 41] = [
     "init_workspace",
     "init_project",
     "link",
@@ -38,6 +38,7 @@ const TAGS: [&str; 40] = [
     "marks",
     "shelf",
     "workspaces",
+    "search_skills",
     "gather",
     "update_sources",
     "remove_source",
@@ -127,6 +128,7 @@ fn every(value: &str) -> Vec<Task> {
         },
         Task::Shelf,
         Task::Workspaces,
+        Task::SearchSkills { query: owned() },
         Task::Gather {
             url: owned(),
             folder: owned(),
@@ -1705,6 +1707,11 @@ fn without_the_ui_feature_there_is_no_ui_command() {
 fn a_front_end_with_no_terminal_runs_everything_else() {
     for said in [
         "mindweaver gather list",
+        // The network, each finder asked in turn, and stopped between two
+        // of them; with `--take`, a gather besides (#108).
+        "mindweaver gather search pdf",
+        "mindweaver gather search --json --finder skills.sh pdf",
+        "mindweaver gather search --take 2 pdf",
         // The network, followed as it goes and stopped when asked, and
         // never a prompt (#112).
         "mindweaver gather git https://example.com/skills.git",
@@ -1753,11 +1760,12 @@ fn a_task_is_refused_for_the_first_of_its_lines_that_is() {
     }
 }
 
-/// A gather and a backup are followed as they go and stopped when asked,
-/// whichever binary spells them and whatever they are told; nothing else
-/// is, a gather's list and an export among it.
+/// A gather, a backup and a search are followed as they go and stopped
+/// when asked, whichever binary spells them and whatever they are told; a
+/// search that takes a result is a gather; nothing else is, a gather's list
+/// and an export among it.
 #[test]
-fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
+fn a_front_end_follows_a_gather_a_backup_and_a_search_and_nothing_else() {
     for said in [
         "mindweaver gather git https://example.com/skills.git",
         "mindweaver -W /home/you/work gather git --path tools --ref v2 /srv/git/skills",
@@ -1765,6 +1773,8 @@ fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
         "mind -C alpha weaver gather git file:///srv/git/skills",
         "mindweaver gather update acme-skills other-rules",
         "mind weaver gather update --all --gh",
+        "mindweaver gather search --take 1 pdf",
+        "mind weaver gather search --gh --take 3 -- -odd",
     ] {
         assert_eq!(followed(&line(said)), Some(Followed::Gather), "{said}");
     }
@@ -1774,6 +1784,13 @@ fn a_front_end_follows_a_gather_and_a_backup_and_nothing_else() {
         "mind weaver backup --token-env GITHUB_TOKEN -m saved git@example.com:you/library.git",
     ] {
         assert_eq!(followed(&line(said)), Some(Followed::Backup), "{said}");
+    }
+    for said in [
+        "mindweaver gather search pdf",
+        "mindweaver gather search --json --finder skills.sh --finder github pdf",
+        "mind weaver gather search --token-env GITHUB_TOKEN pdf",
+    ] {
+        assert_eq!(followed(&line(said)), Some(Followed::Search), "{said}");
     }
     for said in [
         "mindweaver gather list",
@@ -1800,7 +1817,10 @@ fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
     for task in values.flat_map(every) {
         let expected = matches!(
             task,
-            Task::Gather { .. } | Task::UpdateSources { .. } | Task::Backup { .. }
+            Task::Gather { .. }
+                | Task::UpdateSources { .. }
+                | Task::Backup { .. }
+                | Task::SearchSkills { .. }
         );
 
         assert_eq!(task.runs_apart(), expected, "{task:?}");
@@ -2480,4 +2500,25 @@ fn a_backup_is_the_line_the_cli_takes_naming_a_token_by_its_variable() {
         assert!(task.writes() && task.runs_apart(), "{task:?}");
         assert!(task.cautions().is_empty(), "{task:?}");
     }
+}
+
+/// The TUI's search reads what the line prints back as JSON, and hands no
+/// token over, nor the name of a variable holding one (D-16).
+#[test]
+fn a_search_of_the_skill_directories_is_its_json_line_with_no_token() {
+    let task = Task::SearchSkills {
+        query: String::from("pdf forms"),
+    };
+
+    let mut expected = line("mindweaver gather search --json");
+    expected.push(String::from("pdf forms"));
+    assert_eq!(task.commands(), vec![expected]);
+    assert_eq!(
+        task.describe(),
+        "mindweaver gather search --json 'pdf forms'"
+    );
+    assert!(!task.writes());
+    assert!(task.runs_apart());
+    assert_eq!(task.refusal(), None);
+    assert!(task.cautions().is_empty());
 }

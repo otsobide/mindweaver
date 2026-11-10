@@ -516,6 +516,24 @@
       ]
     },
     {
+      "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "search_skills"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "query"
+      ]
+    },
+    {
       "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
       "type": "object",
       "properties": {

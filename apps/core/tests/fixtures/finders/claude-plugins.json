@@ -1,0 +1,58 @@
+{
+  "skills": [
+    {
+      "id": "63d64579-47a6-4a5a-9457-ae16e08b7d1d",
+      "name": "pdf",
+      "namespace": "@acme/skills/pdf",
+      "sourceUrl": "https://github.com/Acme/Skills/tree/main/skills/pdf",
+      "description": "Read and write PDF files",
+      "version": null,
+      "dependencies": null,
+      "author": "acme",
+      "stars": 321,
+      "installs": 12,
+      "metadata": {
+        "repoOwner": "Acme",
+        "repoName": "Skills",
+        "directoryPath": "skills/pdf",
+        "rawFileUrl": "https://raw.githubusercontent.com/Acme/Skills/main/skills/pdf/SKILL.md"
+      },
+      "createdAt": "2025-11-04T07:05:04.729Z",
+      "updatedAt": "2026-01-11T16:51:45Z"
+    },
+    {
+      "id": "4f1b4ee9-a8be-4bf4-810f-2fe94b1f55bb",
+      "name": "slides",
+      "namespace": "@beta/decks/slides",
+      "sourceUrl": null,
+      "description": "Make a deck",
+      "version": null,
+      "dependencies": null,
+      "author": "beta",
+      "stars": 7,
+      "installs": null,
+      "metadata": {
+        "repoOwner": "beta",
+        "repoName": "decks",
+        "directoryPath": "skills/slides",
+        "rawFileUrl": null
+      },
+      "createdAt": "2025-10-30T21:05:09.788Z",
+      "updatedAt": "2026-01-11T16:51:45Z"
+    },
+    {
+      "id": "0d0e8c1c-4a3b-4c55-9b2c-3f6f0e7b9a10",
+      "name": "escape",
+      "namespace": "@acme/skills/escape",
+      "sourceUrl": "https://github.com/acme/skills/tree/main/../../outside",
+      "description": "Climbs out",
+      "author": "acme",
+      "stars": 1,
+      "installs": 0,
+      "metadata": null
+    }
+  ],
+  "total": 3,
+  "limit": 20,
+  "offset": 0
+}
