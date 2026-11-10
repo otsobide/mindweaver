@@ -2296,10 +2296,13 @@ impl GatherForm {
         let reference = Some(self.reference.text().trim())
             .filter(|reference| !reference.is_empty())
             .map(str::to_owned);
+        // Skills, the form having no field for the kind: rules are
+        // gathered from a command line, or a task the API is sent.
         Some(Task::Gather {
             url: url.to_owned(),
             folder: folder.to_owned(),
             reference,
+            kind: mindweaver_core::gather::DEFAULT_KIND,
         })
     }
 }

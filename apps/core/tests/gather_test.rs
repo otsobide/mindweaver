@@ -317,19 +317,39 @@ fn a_gather_that_finds_no_folder_leaves_the_revision_its_shelf_came_from() {
 }
 
 #[test]
-fn rules_cannot_be_gathered_yet_and_say_so() {
+fn mcp_servers_cannot_be_gathered_yet_and_say_so() {
     let source = repository(&[("skills/deploy/SKILL.md", &skill("deploy", "Ship it"))]);
     let (_dir, workspace) = workspace();
     let ledger = workspace.ledger().unwrap();
 
-    let mut request = Request::git(url(&source));
-    request.kind = Kind::Rule;
+    let request = Request::git(url(&source)).taking(Kind::Mcp);
     let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
 
     assert!(
-        matches!(error, GatherError::NotGatherable { .. }),
+        matches!(error, GatherError::NotGatherable { kind: Kind::Mcp }),
         "{error}"
     );
+    assert!(ledger.sources().unwrap().is_empty());
+}
+
+/// Rules are gathered from the folder named, every markdown file in it
+/// one, so a gather of them naming none is refused, and logged as a gather
+/// that failed (#111).
+#[test]
+fn rules_are_gathered_only_from_a_folder_named() {
+    let source = repository(&[("rules/style.md", "# Style\n")]);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let request = Request::git(url(&source)).taking(Kind::Rule);
+    let error = gather::gather(&workspace, &ledger, &request).unwrap_err();
+
+    assert!(
+        matches!(error, GatherError::FolderUnnamed { kind: Kind::Rule }),
+        "{error}"
+    );
+    assert!(ledger.sources().unwrap().is_empty());
+    assert!(!workspace.gathered_dir(Kind::Rule).exists());
 }
 
 #[test]
@@ -1394,6 +1414,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
         name: SourceName::parse("acme-skills").unwrap(),
         left_out: Vec::new(),
         pin: None,
+        kind: Kind::Skill,
     };
 
     let serialized = serde_json::to_string(&report).unwrap();
@@ -1409,7 +1430,7 @@ fn a_gather_report_serializes_what_changed_and_leaves_its_failures_to_the_warnin
             r#""unchanged":[{"name":"review","directory":"review","summary":"About review","#,
             r#""path":"/work/.mindweaver/skills/github.com-acme-skills/review","#,
             r#""route":"skills/review"}],"#,
-            r#""name":"acme-skills","pin":null}"#,
+            r#""name":"acme-skills","pin":null,"kind":"skill"}"#,
         )
     );
 }

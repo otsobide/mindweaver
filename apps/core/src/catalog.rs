@@ -259,7 +259,8 @@ impl Catalog {
     /// project is read from its own: what is checked is what is there, so a
     /// file edited or broken since it was gathered is found as it is now. Each
     /// source has a folder of its own under the kind's, holding what it
-    /// yielded the way a project's folder holds its skills.
+    /// yielded the way a project's folder holds its skills or its rules, a
+    /// rule named by its route from there as a gather named it (#111).
     pub fn discover_gathered(workspace: &WeaverWorkspace, kinds: &[Kind]) -> Self {
         let mut catalog = Catalog::default();
 
@@ -267,12 +268,9 @@ impl Catalog {
             // Matched on the kind, like the refusal in `gather`: a third kind
             // has to say whether it is ever on the shelf.
             match kind {
-                Kind::Skill => {}
-                Kind::Rule | Kind::Mcp => continue,
+                Kind::Skill | Kind::Rule => {}
+                Kind::Mcp => continue,
             }
-            let Layout::Directory { manifest } = kind.layout() else {
-                continue;
-            };
             let Some(mut sources) = catalog.read_dir(&workspace.gathered_dir(*kind)) else {
                 continue;
             };
@@ -284,7 +282,15 @@ impl Catalog {
                 if !source.is_dir() {
                     continue;
                 }
-                let found = catalog.load_directories(&source, manifest, workspace.root());
+                let found = match kind.layout() {
+                    Layout::Directory { manifest } => {
+                        catalog.load_directories(&source, manifest, workspace.root())
+                    }
+                    Layout::Files { extension } => {
+                        catalog.load_files(&source, extension, workspace.root())
+                    }
+                    Layout::Flat { .. } => Vec::new(),
+                };
                 catalog.artifacts.extend(found);
             }
         }
@@ -950,7 +956,7 @@ fn readers(project: &MindProject, kind: Kind, folder: &Path, agents: &[Agent]) -
 }
 
 /// A file's route below `root`, without its extension, `/` separated.
-fn route(root: &Path, file: &Path) -> Option<String> {
+pub(crate) fn route(root: &Path, file: &Path) -> Option<String> {
     let relative = file.strip_prefix(root).ok()?;
     let without_extension = relative.with_extension("");
     paths::to_config_string(&without_extension)
@@ -960,7 +966,7 @@ fn route(root: &Path, file: &Path) -> Option<String> {
 ///
 /// A case-insensitive filesystem will happily hand back `NOTES.MD`, and a rule
 /// invisible because of how its name was capitalised is a bad half hour.
-fn has_extension(path: &Path, extension: &str) -> bool {
+pub(crate) fn has_extension(path: &Path, extension: &str) -> bool {
     path.extension()
         .and_then(|found| found.to_str())
         .is_some_and(|found| found.eq_ignore_ascii_case(extension))

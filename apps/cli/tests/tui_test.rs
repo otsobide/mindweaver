@@ -1166,6 +1166,7 @@ fn gathering_in_the_tui_is_weaver_gather_git() {
             url: url.clone(),
             folder: String::from(mindweaver_core::DEFAULT_SUBDIRECTORY),
             reference: None,
+            kind: Kind::Skill,
         })
     );
     let Mode::Reading(reader) = &app.mode else {
@@ -1919,6 +1920,7 @@ fn every_task_the_tui_runs_is_a_line_the_binaries_accept() {
             url: String::from("https://example.com/skills.git"),
             folder: String::from("agents"),
             reference: Some(String::from("-weird")),
+            kind: Kind::Skill,
         },
         Task::Add {
             holder: Holder::Project(String::from("alpha")),

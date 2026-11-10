@@ -55,7 +55,9 @@ pub enum Licence {
 impl Licence {
     /// The licence `artifact`, put on the shelf at `folder`, says it is
     /// under: its manifest's `license`, else a licence file directly in
-    /// `folder`, else none.
+    /// `folder`, else none. A rule declares none and has no folder of its
+    /// own: its `folder` is the one it was gathered from, whose licence
+    /// file is every rule's there, and no rule itself (#111).
     ///
     /// A licence file is one whose name is `LICENSE` or `LICENCE`, in any
     /// case, alone or followed by an extension or a `-` and more
@@ -120,7 +122,7 @@ fn licence_file(folder: &Path) -> Option<String> {
 }
 
 /// Whether a file called `name` is a licence file ([`Licence::of`]).
-fn is_licence_file(name: &str) -> bool {
+pub(crate) fn is_licence_file(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     ["LICENSE", "LICENCE"].iter().any(|stem| {
         upper

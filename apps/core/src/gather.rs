@@ -42,7 +42,7 @@ use crate::lock::LockError;
 use crate::paths;
 use crate::port::{Cloned, GitError, Remote, Token};
 use crate::url::{carries_credentials, located, over_ssh, redacted};
-use crate::value::{ArtifactName, Origin, Pin, Redacted, Revision, SourceName};
+use crate::value::{ArtifactName, ContentHash, Origin, Pin, Redacted, Revision, SourceName};
 use crate::workspace::WeaverWorkspace;
 
 pub use watch::{Progress, Watch};
@@ -54,6 +54,29 @@ pub use watch::{Progress, Watch};
 /// shows a folder wherever its folder is shown, and `--path .` is the
 /// same source as no `--path`.
 pub const DEFAULT_SUBDIRECTORY: &str = ".";
+
+/// What a gather takes unless it is told another kind
+/// ([`Request::taking`]): skills, all a gather took before rules (#111).
+pub const DEFAULT_KIND: Kind = Kind::Skill;
+
+/// The folder a gather of `kind` looks in when none is named: the
+/// repository's root for skills, which are found wherever in it they are
+/// kept ([`LAYOUTS`]), and none for rules, whose folder is named (#111).
+///
+/// None for rules because every markdown file under the folder looked in
+/// is one, named by its route from there: a whole repository read as rules
+/// would take whatever it documents itself with, a changelog and a guide
+/// for contributors among them, and name each rule after the folder its
+/// collection is kept in. `--path .` still names the root, when that is
+/// where a repository keeps them.
+///
+/// Matched on the kind, so a third one has to say where it is looked for.
+pub fn default_folder(kind: Kind) -> Option<&'static str> {
+    match kind {
+        Kind::Skill => Some(DEFAULT_SUBDIRECTORY),
+        Kind::Rule | Kind::Mcp => None,
+    }
+}
 
 /// The folder an older build harvested unless another was named, before a
 /// gather looked through the whole repository (#101): a source registered
@@ -124,11 +147,14 @@ impl Source {
 #[derive(Debug, Clone)]
 pub struct Request {
     pub source: Source,
-    /// The folder inside the source to harvest, its root unless told
-    /// another ([`DEFAULT_SUBDIRECTORY`]); a URL that names one says it
-    /// instead ([`crate::url::located`]).
-    pub subdirectory: String,
-    /// What to look for there.
+    /// The folder inside the source to harvest, as somebody named it: a
+    /// route from its root, or `None` for the one a gather of its kind
+    /// looks in when none is named ([`default_folder`]), which a kind may
+    /// have none of. A URL that names one says it instead
+    /// ([`crate::url::located`]).
+    pub subdirectory: Option<String>,
+    /// What to look for there: skills unless told otherwise
+    /// ([`taking`](Self::taking)).
     pub kind: Kind,
     /// Told how the gather is going, and able to stop it. A request carries
     /// it, rather than [`gather`] taking it beside one, so a front end that
@@ -162,8 +188,8 @@ impl Request {
                 url: url.into(),
                 reference: None,
             },
-            subdirectory: DEFAULT_SUBDIRECTORY.to_owned(),
-            kind: Kind::Skill,
+            subdirectory: None,
+            kind: DEFAULT_KIND,
             watch: Watch::new(),
             remote: Arc::new(Gix),
             name: None,
@@ -175,7 +201,14 @@ impl Request {
     /// Take only what is in `subdirectory`, a route from the source's root,
     /// rather than from the whole of it.
     pub fn from_subdirectory(mut self, subdirectory: impl Into<String>) -> Self {
-        self.subdirectory = subdirectory.into();
+        self.subdirectory = Some(subdirectory.into());
+        self
+    }
+
+    /// Take artifacts of `kind` rather than skills: rules, each a markdown
+    /// file in the folder named, at any depth (#111).
+    pub fn taking(mut self, kind: Kind) -> Self {
+        self.kind = kind;
         self
     }
 
@@ -262,7 +295,9 @@ pub struct Harvested {
     pub name: ArtifactName,
     /// The name of the folder it came from inside the source, which is the
     /// folder it kept; for a skill at the source's root, which has no
-    /// folder of its own there, the name it declares.
+    /// folder of its own there, the name it declares. For a rule, its
+    /// file's route from the folder gathered from, which the shelf files it
+    /// by (#111).
     pub directory: String,
     /// The one line a listing shows.
     pub summary: Option<String>,
@@ -270,8 +305,9 @@ pub struct Harvested {
     #[serde(serialize_with = "paths::lossy")]
     pub path: PathBuf,
     /// Where it is in the source: its folder's route from the source's
-    /// root, `/` separated, `.` for the root itself. Added after the rest
-    /// (#101), since a source keeps its skills in more than one place.
+    /// root, `/` separated, `.` for the root itself, or a rule's file's.
+    /// Added after the rest (#101), since a source keeps its skills in more
+    /// than one place.
     pub route: String,
 }
 
@@ -322,6 +358,9 @@ pub struct Report {
     /// The commit it was gathered at when that was a pin, which the source
     /// is pinned to now: added after the rest (#99).
     pub pin: Option<Pin>,
+    /// What was gathered, skills or rules, which a front end counts them
+    /// as: added after the rest (#111).
+    pub kind: Kind,
 }
 
 impl Report {
@@ -595,7 +634,7 @@ pub fn dry_run(
     ledger: &Ledger,
     request: &Request,
 ) -> Result<Report, GatherError> {
-    let (typed, manifest) = typed(request)?;
+    let (typed, finding) = typed(request)?;
     if request.watch.is_cancelled() {
         return Err(GatherError::Cancelled);
     }
@@ -612,7 +651,7 @@ pub fn dry_run(
         .scratch_dir()
         .join(format!("gather-{}", copy::unique_name()));
     let outcome = foresee(
-        workspace, request, &typed, manifest, &scratch, name, directory,
+        workspace, request, &typed, finding, &scratch, name, directory,
     );
     // Whatever came of it: nothing of a dry run is kept. One that will not
     // go is left in a folder no agent reads, under a name no other run is
@@ -622,12 +661,13 @@ pub fn dry_run(
 }
 
 /// A dry run once its source is known: fetched into `scratch`, read, and
-/// each skill copied there and compared with the shelf's copy of it.
+/// each skill copied there and compared with the shelf's copy of it, each
+/// rule's file compared with the shelf's as it reads.
 fn foresee(
     workspace: &WeaverWorkspace,
     request: &Request,
     typed: &Typed,
-    manifest: &str,
+    finding: Finding,
     scratch: &Path,
     name: SourceName,
     directory: String,
@@ -645,19 +685,29 @@ fn foresee(
         name,
         left_out: Vec::new(),
         pin: typed.pin.clone(),
+        kind: request.kind,
     };
     let mut failures = Vec::new();
-    let examined = examine(&clone, typed, manifest, &request.watch, &mut failures);
+    let examined = examine(&clone, typed, finding, &request.watch, &mut failures);
     report.failures = failures
         .into_iter()
         .map(|failure| failure.routed(&clone.root))
         .collect();
-    let leave_out = left_out_of_shelf();
     for found in examined? {
-        let destination = shelf.join(&found.folder);
-        let copy = scratch.join("shelf").join(&found.folder);
-        let change = copy::replace_leaving(&found.directory, &copy, &clone.root, &leave_out)
-            .and_then(|_| copy::compared(&copy, &destination));
+        let destination = shelf.join(&found.filed);
+        let change = match found.layout() {
+            // Copied as a gather would put it on the shelf, so a copy a
+            // gather would refuse is refused here too.
+            Layout::Directory { .. } => {
+                let copy = scratch.join("shelf").join(&found.filed);
+                copy::replace_leaving(&found.from, &copy, &clone.root, &left_out_of_shelf())
+                    .and_then(|_| copy::compared(&copy, &destination))
+            }
+            // Read as a gather reads it, which is all a gather does with it.
+            Layout::Files { .. } | Layout::Flat { .. } => {
+                copy::compared_file(&found.from, &destination)
+            }
+        };
         let change = match change {
             Ok(change) => change,
             Err(source) => {
@@ -668,7 +718,7 @@ fn foresee(
                 continue;
             }
         };
-        noted(&mut report, &found, &destination, manifest);
+        noted(&mut report, &found, &destination);
         let harvested = found.harvested(destination);
         match change {
             Change::Added => report.added.push(harvested),
@@ -700,11 +750,12 @@ fn ordered(mut report: Report) -> Report {
 /// What a request comes to once what was typed for it is read: the
 /// repository to fetch, the branch, the folder as a route from the
 /// repository's root ([`route_of`]), and what to call the source, each held
-/// to its rule.
+/// to its rule, beside the kind it takes.
 #[derive(Debug, Clone)]
 struct Typed {
     /// What is fetched ([`located`]).
     url: String,
+    kind: Kind,
     reference: Option<String>,
     path: String,
     name: Option<SourceName>,
@@ -713,9 +764,9 @@ struct Typed {
 }
 
 /// Read what `request` was typed with, refusing what no gather takes before
-/// anything is registered or fetched, beside the manifest a folder of its
-/// kind holds.
-fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
+/// anything is registered or fetched, beside how a gather finds its kind
+/// ([`gatherable`]).
+fn typed(request: &Request) -> Result<(Typed, Finding), GatherError> {
     // Refused before anything is registered or fetched, rather than used for
     // this one fetch and dropped from what is stored: a token on the command
     // line is already where `ps` and the shell history show it, and every
@@ -729,7 +780,7 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
     let given = [
         Some(request.source.url()),
         request.source.reference(),
-        Some(request.subdirectory.as_str()),
+        request.subdirectory.as_deref(),
         request.name.as_deref(),
         request.pin.as_deref(),
     ];
@@ -763,23 +814,34 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
         (Some(named), _) => Some(named),
         (None, given) => given.map(str::to_owned),
     };
-    let given = route_of(&request.subdirectory).ok_or_else(|| GatherError::PathOutside {
-        path: request.subdirectory.clone(),
-    })?;
-    let path = match at.path {
-        Some(named) => {
+    // A kind no gather takes is refused before what was typed for its
+    // folder is read, since no folder would hold it.
+    let finding = gatherable(request.kind)?;
+    let given = match &request.subdirectory {
+        Some(typed) => Some(route_of(typed).ok_or_else(|| GatherError::PathOutside {
+            path: typed.clone(),
+        })?),
+        None => None,
+    };
+    let path = match (at.path, given) {
+        (Some(named), given) => {
             let route = route_of(&named).ok_or_else(|| GatherError::PathOutside {
                 path: named.clone(),
             })?;
-            if given != DEFAULT_SUBDIRECTORY && given != route {
+            if given.is_some_and(|given| given != DEFAULT_SUBDIRECTORY && given != route) {
                 return Err(GatherError::PathTwice {
                     named,
-                    given: request.subdirectory.clone(),
+                    given: request.subdirectory.clone().unwrap_or_default(),
                 });
             }
             route
         }
-        None => given,
+        (None, Some(given)) => given,
+        // Named by neither: the folder a gather of the kind looks in, or a
+        // refusal for a kind that has none, before anything is fetched.
+        (None, None) => default_folder(request.kind)
+            .map(str::to_owned)
+            .ok_or(GatherError::FolderUnnamed { kind: request.kind })?,
     };
 
     let name = match &request.name {
@@ -800,26 +862,47 @@ fn typed(request: &Request) -> Result<(Typed, &'static str), GatherError> {
         None => None,
     };
 
-    // Only directory-shaped kinds are gatherable today. Matching on the kind
-    // rather than on its layout keeps the compiler asking: a third kind has to
-    // answer this question before it can be added.
-    match request.kind {
-        Kind::Skill => {}
-        Kind::Rule | Kind::Mcp => return Err(GatherError::NotGatherable { kind: request.kind }),
-    }
-    let Layout::Directory { manifest } = request.kind.layout() else {
-        return Err(GatherError::NotGatherable { kind: request.kind });
-    };
     Ok((
         Typed {
             url: at.url,
+            kind: request.kind,
             reference,
             path,
             name,
             pin,
         },
-        manifest,
+        finding,
     ))
+}
+
+/// How a gather finds a kind in the folder it looks in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Finding {
+    /// Each folder holding `manifest` where one of [`LAYOUTS`] looks, a
+    /// folder with everything in it: a skill.
+    Folders { manifest: &'static str },
+    /// Each file ending in `extension` at any depth, named by its route
+    /// from there as a project's are ([`crate::catalog::route`]): a rule
+    /// (#111).
+    Files { extension: &'static str },
+}
+
+/// How a gather finds `kind` in a source, as the kind is laid out: a skill
+/// as a folder holding its manifest, a rule as a markdown file at any depth.
+/// An MCP server is gathered from nowhere yet.
+///
+/// Matched on the kind rather than on its layout, so the compiler keeps
+/// asking: a third kind has to answer this before it can be added.
+fn gatherable(kind: Kind) -> Result<Finding, GatherError> {
+    let refused = GatherError::NotGatherable { kind };
+    match kind {
+        Kind::Skill | Kind::Rule => match kind.layout() {
+            Layout::Directory { manifest } => Ok(Finding::Folders { manifest }),
+            Layout::Files { extension } => Ok(Finding::Files { extension }),
+            Layout::Flat { .. } => Err(refused),
+        },
+        Kind::Mcp => Err(refused),
+    }
 }
 
 /// `typed`, a folder in a repository, as the route from its root a source
@@ -856,7 +939,9 @@ fn route_of(typed: &str) -> Option<String> {
 /// That one rather than a second source of one repository: its shelf holds
 /// what is under `skills/` already, filed as a gather of the whole
 /// repository files it, and what was installed from it names it by an
-/// origin that holds no folder, which two sources would share.
+/// origin that holds no folder, which two sources would share. Only for a
+/// gather of skills, which is all an older build gathered: a gather of
+/// rules from the root names its folder, and is no older gather's.
 fn known(
     ledger: &Ledger,
     kind: SourceKind,
@@ -866,7 +951,7 @@ fn known(
     if let Some(found) = ledger.source(kind, &typed.url, reference, &typed.path)? {
         return Ok(Some((found, false)));
     }
-    if typed.path != DEFAULT_SUBDIRECTORY {
+    if typed.path != DEFAULT_SUBDIRECTORY || typed.kind != Kind::Skill {
         return Ok(None);
     }
     Ok(ledger
@@ -898,7 +983,7 @@ fn harvest(
     ledger: &Ledger,
     request: &Request,
 ) -> Result<Report, GatherError> {
-    let (typed, manifest) = typed(request)?;
+    let (typed, finding) = typed(request)?;
 
     // Before the source is registered, so a gather cancelled before it began
     // has nothing to undo.
@@ -933,7 +1018,7 @@ fn harvest(
         source.name = name;
     }
 
-    let outcome = take(workspace, ledger, request, &typed, &source, manifest);
+    let outcome = take(workspace, ledger, request, &typed, &source, finding);
     if !matches!(outcome, Err(GatherError::Cancelled)) {
         return outcome;
     }
@@ -994,7 +1079,7 @@ fn take(
     request: &Request,
     typed: &Typed,
     source: &ledger::Source,
-    manifest: &str,
+    finding: Finding,
 ) -> Result<Report, GatherError> {
     let watch = &request.watch;
     let cache = workspace.cache_dir().join(&source.directory);
@@ -1012,12 +1097,13 @@ fn take(
         name: source.name.clone(),
         left_out: Vec::new(),
         pin: typed.pin.clone(),
+        kind: request.kind,
     };
 
     // Everything is read before anything is placed, rather than each
     // artifact read and placed in turn, so that the shelf only starts to
     // change once all of it is known.
-    let found = examine(&clone, typed, manifest, watch, &mut report.failures)?;
+    let found = examine(&clone, typed, finding, watch, &mut report.failures)?;
 
     // The last moment a cancel is honoured, and the reason everything is read
     // first: past here the shelf and the ledger change, and a gather stopped
@@ -1034,10 +1120,9 @@ fn take(
 
     let total = found.len();
     watch.report(Progress::Placing { done: 0, total });
-    let leave_out = left_out_of_shelf();
     for (done, one) in found.into_iter().enumerate() {
-        let destination = shelf.join(&one.folder);
-        let placed = copy::replace_leaving(&one.directory, &destination, &clone.root, &leave_out);
+        let destination = shelf.join(&one.filed);
+        let placed = one.shelve(&destination, &clone.root);
         watch.report(Progress::Placing {
             done: done + 1,
             total,
@@ -1052,13 +1137,13 @@ fn take(
                 continue;
             }
         };
-        noted(&mut report, &one, &destination, manifest);
+        noted(&mut report, &one, &destination);
 
         // What was placed, as an install hashes what it wrote, so the two
         // are told by one recipe: the shelf's copy leaves out what every
         // install's copy does. One that cannot be read back is recorded
         // with no hash rather than not at all, and said.
-        let content_hash = match hash::tree(&destination) {
+        let content_hash = match one.hashed(&destination) {
             Ok(hash) => Some(hash),
             Err(source) => {
                 report.failures.push(Failure::Unhashed {
@@ -1078,7 +1163,7 @@ fn take(
                 revision: clone.revision.clone(),
                 upstream_path: one.route.clone(),
                 content_hash,
-                licence: Licence::of(&one.artifact, &destination),
+                licence: one.licence(&destination),
             },
         )?;
 
@@ -1100,26 +1185,42 @@ fn take(
 /// for other agents: what is wrong with one is said, and it is taken
 /// anyway. Installing it is where it is held to the rules. Judged as it is
 /// filed, under the folder the shelf keeps it in, which for a skill at the
-/// source's root is not the folder it was read from.
-fn noted(report: &mut Report, found: &Found, destination: &Path, manifest: &str) {
+/// source's root is not the folder it was read from. A rule is judged as
+/// `validate` judges one, its name aside, which no rule is taken without
+/// ([`Failure::Unnamed`]).
+fn noted(report: &mut Report, found: &Found, destination: &Path) {
+    // The file what is wrong is in: a skill's manifest, a rule itself.
+    let file = match found.layout() {
+        Layout::Directory { manifest } => destination.join(manifest),
+        Layout::Files { .. } | Layout::Flat { .. } => destination.to_path_buf(),
+    };
     report.warnings.extend(
         found
             .artifact
-            .validate_filed_as(&found.folder)
+            .validate_filed_as(&found.filed)
             .into_iter()
             .map(|issue| Warning {
-                path: destination.join(manifest),
+                path: file.clone(),
                 issue,
             }),
     );
-    report.left_out.extend(
-        install::left_out(&found.directory)
-            .into_iter()
-            .map(|left| Unshelved {
-                name: found.artifact.name().to_owned(),
-                left,
-            }),
-    );
+    // Matched on the layout: what an install leaves out is at the top of a
+    // folder, which a file has none of.
+    match found.layout() {
+        Layout::Directory { .. } => {
+            report
+                .left_out
+                .extend(
+                    install::left_out(&found.from)
+                        .into_iter()
+                        .map(|left| Unshelved {
+                            name: found.artifact.name().to_owned(),
+                            left,
+                        }),
+                )
+        }
+        Layout::Files { .. } | Layout::Flat { .. } => {}
+    }
 }
 
 /// What no copy on the shelf holds from the top of a skill's folder: what an
@@ -1133,13 +1234,24 @@ fn left_out_of_shelf() -> Vec<&'static str> {
     names
 }
 
-/// A skill found in a source: its folder in the clone, the folder the shelf
-/// files it under, its route from the source's root, and what it declares.
+/// An artifact found in a source: where it is in the clone, where the shelf
+/// files it below the source's folder, its route from the source's root,
+/// what it declares, and the folder the gather looked in.
+///
+/// A skill is a folder, filed under its name in the source; a rule is a
+/// file, filed by its route from the folder looked in, as it is named.
 struct Found {
-    directory: PathBuf,
-    folder: String,
+    /// A skill's folder in the clone, or a rule's file.
+    from: PathBuf,
+    /// Below the source's folder on the shelf: a skill's folder name, a
+    /// rule's file by its route from the folder looked in, as the source
+    /// spells it (`python/style.md`).
+    filed: String,
     route: String,
     artifact: Artifact,
+    /// The folder looked in, in the clone, whose licence file a rule is
+    /// under.
+    looked_in: PathBuf,
 }
 
 impl Found {
@@ -1147,28 +1259,71 @@ impl Found {
     fn harvested(self, path: PathBuf) -> Harvested {
         Harvested {
             name: self.artifact.name().to_owned(),
-            directory: self.folder,
+            directory: self.filed,
             summary: self.artifact.summary().map(str::to_owned),
             path,
             route: self.route,
         }
     }
+
+    /// How it is laid out, which is how it is put on the shelf.
+    fn layout(&self) -> Layout {
+        self.artifact.kind().layout()
+    }
+
+    /// Put it on the shelf at `to`, replacing what was there: a skill's
+    /// folder whole, without what no copy on the shelf holds
+    /// ([`left_out_of_shelf`]), its links followed only inside `clone`; a
+    /// rule's file as it reads, never written through a link at `to`.
+    fn shelve(&self, to: &Path, clone: &Path) -> Result<Change, io::Error> {
+        match self.layout() {
+            Layout::Directory { .. } => {
+                copy::replace_leaving(&self.from, to, clone, &left_out_of_shelf())
+            }
+            Layout::Files { .. } | Layout::Flat { .. } => copy::replace_file(&self.from, to),
+        }
+    }
+
+    /// Its copy at `at`, hashed by the recipe an install keeps of what it
+    /// writes there: a folder's tree ([`hash::tree`]), a file's bytes
+    /// ([`hash::bytes`]), as a rule's install records each copy of it.
+    fn hashed(&self, at: &Path) -> Result<ContentHash, io::Error> {
+        match self.layout() {
+            Layout::Directory { .. } => hash::tree(at),
+            Layout::Files { .. } | Layout::Flat { .. } => {
+                fs::read(at).map(|bytes| hash::bytes(&bytes))
+            }
+        }
+    }
+
+    /// The licence it says it is under, once it is on the shelf at `at`: a
+    /// skill's, read from its folder there ([`Licence::of`]); a rule's,
+    /// which says nothing of one itself, the licence file at the top of the
+    /// folder it was gathered from, which no rule is taken from (#111).
+    fn licence(&self, at: &Path) -> Licence {
+        match self.layout() {
+            Layout::Directory { .. } => Licence::of(&self.artifact, at),
+            Layout::Files { .. } | Layout::Flat { .. } => {
+                Licence::of(&self.artifact, &self.looked_in)
+            }
+        }
+    }
 }
 
-/// What `clone` offers in the folder `typed` names, each skill read, with
-/// what could not be among `failures`: everything a gather knows before the
-/// shelf changes.
+/// What `clone` offers in the folder `typed` names, each skill or rule
+/// read, with what could not be among `failures`: everything a gather knows
+/// before the shelf changes.
 ///
 /// The folder is held to being inside the clone once links are followed,
-/// since `--path` names one of the repository's, and found to hold a skill
-/// at all: a source that offers nothing where every layout looks is a
-/// gather that names the wrong thing, said rather than gathered as nothing,
-/// which would leave the shelf holding a revision's skills under a revision
-/// that has none.
+/// since `--path` names one of the repository's, and found to hold one at
+/// all: a source that offers nothing where a gather looks is a gather that
+/// names the wrong thing, said rather than gathered as nothing, which would
+/// leave the shelf holding a revision's skills under a revision that has
+/// none.
 fn examine(
     clone: &Cloned,
     typed: &Typed,
-    manifest: &str,
+    finding: Finding,
     watch: &Watch,
     failures: &mut Vec<Failure>,
 ) -> Result<Vec<Found>, GatherError> {
@@ -1195,28 +1350,37 @@ fn examine(
         });
     }
 
-    let candidates = candidates(&root, manifest)?;
+    let candidates = match finding {
+        Finding::Folders { manifest } => candidates(&root, manifest)?,
+        Finding::Files { extension } => rule_files(&root, extension)?,
+    };
     if candidates.is_empty() {
         return Err(GatherError::NothingFound {
             url: typed.url.clone(),
             path: typed.path.clone(),
+            kind: typed.kind,
         });
     }
     let total = candidates.len();
     watch.report(Progress::Harvesting { done: 0, total });
     let mut found = Vec::with_capacity(total);
-    for (done, directory) in candidates.iter().enumerate() {
-        if let Some((directory, folder, artifact)) = read(directory, &clone.root, failures) {
-            let route = paths::relative_to(&directory, &clone.root)
+    for (done, candidate) in candidates.iter().enumerate() {
+        let read = match finding {
+            Finding::Folders { .. } => read(candidate, &clone.root, failures),
+            Finding::Files { .. } => read_rule(candidate, &root, &clone.root, failures),
+        };
+        if let Some((from, filed, artifact)) = read {
+            let route = paths::relative_to(&from, &clone.root)
                 .as_deref()
                 .and_then(paths::to_config_string)
                 .filter(|route| !route.is_empty())
                 .unwrap_or_else(|| DEFAULT_SUBDIRECTORY.to_owned());
             found.push(Found {
-                directory,
-                folder,
+                from,
+                filed,
                 route,
                 artifact,
+                looked_in: root.clone(),
             });
         }
         watch.report(Progress::Harvesting {
@@ -1229,7 +1393,9 @@ fn examine(
 
 /// `found` without every skill another in the same source is called as
 /// too, by the folder the shelf would file it under or by the name it
-/// declares, each of those a failure naming the others (#101).
+/// declares, each of those a failure naming the others (#101). A rule's
+/// file and its name are its route, so two rules clash only by a name the
+/// extension's case alone tells apart (`style.md`, `style.MD`).
 ///
 /// Neither is taken: which of them a name means is not a gather's to pick,
 /// and taking the first would make which skill a project gets depend on
@@ -1239,7 +1405,7 @@ fn examine(
 /// any case, since a disk that does not tell `Deploy` from `deploy` would
 /// hold one folder of both, and a source gathers the same on every disk.
 fn unclashed(found: Vec<Found>, failures: &mut Vec<Failure>) -> Vec<Found> {
-    let folder = |one: &Found| one.folder.to_ascii_lowercase();
+    let folder = |one: &Found| one.filed.to_ascii_lowercase();
     let declared = |one: &Found| one.artifact.name().as_str().to_ascii_lowercase();
     let mut folders: HashMap<String, usize> = HashMap::new();
     let mut names: HashMap<String, usize> = HashMap::new();
@@ -1267,13 +1433,14 @@ fn unclashed(found: Vec<Found>, failures: &mut Vec<Failure>) -> Vec<Found> {
             })
             .map(|(_, _, route)| route.clone())
             .collect();
-        let name = if shared {
-            one.folder.clone()
-        } else {
-            one.artifact.name().to_string()
+        // A skill by its folder when that is what is shared; a rule always
+        // by its name, which its file is with an extension.
+        let name = match (shared, one.layout()) {
+            (true, Layout::Directory { .. }) => one.filed.clone(),
+            _ => one.artifact.name().to_string(),
         };
         failures.push(Failure::Clash {
-            path: one.directory,
+            path: one.from,
             route: one.route,
             name,
             others,
@@ -1341,6 +1508,137 @@ fn read(
         return None;
     };
     Some((directory.to_path_buf(), folder.to_owned(), artifact))
+}
+
+/// One rule's file, loaded to learn its name and its summary: the file,
+/// its route from `root`, the folder looked in, which the shelf files it
+/// by, and the rule. `None`, with the reason among `failures`, when it
+/// cannot be taken.
+///
+/// Named by its route from `root` without its extension, the rule a
+/// project's rules are named by ([`crate::catalog::route`]), and taken only
+/// under a name a rule can have ([`install::is_installable_name`]). Not
+/// taken and said otherwise, where a skill declaring a name that breaks the
+/// rules is taken and said: a skill's folder keeps the name its source gave
+/// it whatever it declares, and a rule's name is the place the shelf files
+/// it at, the marker of its section in a project's `AGENTS.md` and the file
+/// Claude reads it from, so one that is no name is a rule nothing could
+/// ever install. Read as `clone`'s, as a skill is, and not read at all when
+/// it is a link leading out of the clone, whose text the report would
+/// quote.
+fn read_rule(
+    file: &Path,
+    root: &Path,
+    clone: &Path,
+    failures: &mut Vec<Failure>,
+) -> Option<(PathBuf, String, Artifact)> {
+    if fs::symlink_metadata(file).is_ok_and(|metadata| metadata.is_symlink()) {
+        let outside = fs::canonicalize(clone)
+            .ok()
+            .zip(fs::canonicalize(file).ok())
+            .is_none_or(|(clone, real)| !real.starts_with(clone));
+        if outside {
+            failures.push(Failure::Outside {
+                path: file.to_path_buf(),
+            });
+            return None;
+        }
+    }
+
+    let filed = file
+        .strip_prefix(root)
+        .ok()
+        .and_then(paths::to_config_string);
+    let (Some(name), Some(filed)) = (crate::catalog::route(root, file), filed) else {
+        failures.push(Failure::UnusableName {
+            path: file.to_path_buf(),
+        });
+        return None;
+    };
+    let issues = crate::artifact::name_issues(&name);
+    if !issues.is_empty() {
+        failures.push(Failure::Unnamed {
+            path: file.to_path_buf(),
+            route: paths::relative_to(file, clone)
+                .as_deref()
+                .and_then(paths::to_config_string)
+                .unwrap_or_else(|| filed.clone()),
+            problem: crate::artifact::issue_list(&issues),
+        });
+        return None;
+    }
+
+    match Artifact::rule(file, name, clone) {
+        Ok(artifact) => Some((file.to_path_buf(), filed, artifact)),
+        Err(error) => {
+            failures.push(Failure::Artifact(error));
+            None
+        }
+    }
+}
+
+/// Every file ending in `extension` under `root`, the folder rules are
+/// gathered from, at any depth, in order, but its README and its licence
+/// ([`documents_the_folder`]): a rule each.
+///
+/// The walk a project's rules are found by ([`crate::Catalog`]): a hidden
+/// file or folder is passed over, and so are [`PASSED_OVER`], which a
+/// project's walk need not pass over and a repository can hold; a link to
+/// a folder is not gone into, since a loop of them would never end and no
+/// rule needs one; a link to a file is one more, which [`read_rule`] reads
+/// only inside the clone. A folder that cannot be read is a gather that
+/// cannot be trusted to have found everything, as it is for skills
+/// ([`folders_in`]).
+fn rule_files(root: &Path, extension: &str) -> Result<Vec<PathBuf>, GatherError> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(folder) = pending.pop() {
+        let unread = |source| GatherError::Read {
+            path: folder.clone(),
+            source,
+        };
+        for entry in fs::read_dir(&folder).map_err(unread)? {
+            let entry = entry.map_err(unread)?;
+            let name = entry.file_name();
+            if name.as_encoded_bytes().starts_with(b".")
+                || PASSED_OVER.iter().any(|passed| name == *passed)
+            {
+                continue;
+            }
+            let path = entry.path();
+            if entry.file_type().map_err(unread)?.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            // A file, or a link leading to one: a link to a folder, or to
+            // nothing, is passed over.
+            let is_file = fs::metadata(&path).is_ok_and(|metadata| metadata.is_file());
+            if !is_file
+                || !crate::catalog::has_extension(&path, extension)
+                || (folder == root && documents_the_folder(&name))
+            {
+                continue;
+            }
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Whether a file of this name, directly in the folder rules are gathered
+/// from, documents that folder rather than being a rule (#111): its README,
+/// or its licence ([`Licence::of`] reads the second as every rule's), in
+/// any case, whatever its extension, as a collection is documented.
+///
+/// Only there: further down, a file of either name is a rule like the
+/// rest, as it would be in a project's own rules.
+fn documents_the_folder(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let stem = name.split('.').next().unwrap_or(name);
+    stem.eq_ignore_ascii_case("readme") || crate::licence::is_licence_file(name)
 }
 
 /// One step on the way from the folder a gather looks in to a folder of
@@ -1551,7 +1849,8 @@ pub enum Failure {
         name: String,
         others: Vec<String>,
     },
-    /// Its manifest is a link that leads out of the source.
+    /// Its manifest, or a rule's file, is a link that leads out of the
+    /// source.
     #[error("{path}: is a link leading out of the source, so it is not read")]
     Outside { path: PathBuf },
     /// A skill at the source's root, which is filed under the name it
@@ -1569,6 +1868,16 @@ pub enum Failure {
         #[source]
         source: io::Error,
     },
+    /// A rule's route from the folder looked in, which is its name, is no
+    /// name a rule can have (#111): said by its route in the source, and
+    /// what is wrong with the name, in `validate`'s words.
+    #[error("{route}: not taken, since a rule is named by its route, and {problem}")]
+    Unnamed {
+        /// Its file in the clone, which [`Failure::path`] says.
+        path: PathBuf,
+        route: String,
+        problem: String,
+    },
 }
 
 codes!(Failure {
@@ -1578,6 +1887,7 @@ codes!(Failure {
     Self::Outside { .. } => "gathered_link_outside",
     Self::Unfiled { .. } => "gathered_root_unnamed",
     Self::Unhashed { .. } => "gathered_unhashed",
+    Self::Unnamed { .. } => "gathered_route_unusable",
 } carried {
     Self::Artifact(error) => error,
 });
@@ -1592,7 +1902,8 @@ impl Failure {
             | Failure::Clash { path, .. }
             | Failure::Outside { path }
             | Failure::Unfiled { path, .. }
-            | Failure::Unhashed { path, .. } => path,
+            | Failure::Unhashed { path, .. }
+            | Failure::Unnamed { path, .. } => path,
         }
     }
 
@@ -1629,6 +1940,15 @@ impl Failure {
             Failure::Unhashed { path, source } => Failure::Unhashed {
                 path: routed(path),
                 source,
+            },
+            Failure::Unnamed {
+                path,
+                route,
+                problem,
+            } => Failure::Unnamed {
+                path: routed(path),
+                route,
+                problem,
             },
         }
     }
@@ -1703,14 +2023,24 @@ pub enum GatherError {
     NoSuchFolder { subdirectory: String, url: String },
     /// Not one skill where any of [`LAYOUTS`] looks, in the folder looked
     /// in: the wrong repository, or one keeping its skills where `--path`
-    /// has to name.
+    /// has to name. For rules, not one markdown file in the folder named
+    /// but its README and its licence (#111).
+    #[error("{url}: {}", nothing_found(*kind, path))]
+    NothingFound {
+        url: String,
+        path: String,
+        /// What was looked for, added after the rest (#111).
+        kind: Kind,
+    },
+    /// A gather of a kind that is looked for in no folder unless one is
+    /// named ([`default_folder`]), which names none: a gather of rules
+    /// without `--path` (#111).
     #[error(
-        "{url}: no skill found {}: looked for a `SKILL.md` there, in each folder there, and in \
-         each folder of `skills`, `skills/<namespace>`, `.agents/skills`, `.claude/skills` and \
-         `plugins/<plugin>/skills`; name the folder that holds them with `--path`",
-        looked_in(path)
+        "{} are gathered from the folder `--path` names, every markdown file in it one: name the \
+         folder that holds them, or `--path .` for the whole repository",
+        .kind.plural()
     )]
-    NothingFound { url: String, path: String },
+    FolderUnnamed { kind: Kind },
     /// `--path`, or the folder a URL names, is not one inside the
     /// repository: it climbs out with `..`, starts at a root of its own, or
     /// is a link in the repository leading out of it.
@@ -1761,6 +2091,7 @@ codes!(GatherError {
     Self::TokenNotHttps { .. } => "gather_token_not_https",
     Self::NoSuchFolder { .. } => "gather_no_such_folder",
     Self::NothingFound { .. } => "gather_nothing_found",
+    Self::FolderUnnamed { .. } => "gather_folder_unnamed",
     Self::PathOutside { .. } => "gather_path_outside",
     Self::ReferenceTwice { .. } => "gather_ref_twice",
     Self::PathTwice { .. } => "gather_path_twice",
@@ -1774,6 +2105,28 @@ codes!(GatherError {
     Self::Ledger(error) => error,
     Self::Lock(error) => error,
 });
+
+/// What [`GatherError::NothingFound`] says after the URL: nothing of `kind`
+/// found in `path`, and where a gather of it looked there, which for
+/// skills ends by saying what `--path` is for.
+///
+/// Matched on the kind, so a third one has to say where it was looked for.
+fn nothing_found(kind: Kind, path: &str) -> String {
+    let at = looked_in(path);
+    match kind {
+        Kind::Skill => format!(
+            "no skill found {at}: looked for a `SKILL.md` there, in each folder there, and in \
+             each folder of `skills`, `skills/<namespace>`, `.agents/skills`, `.claude/skills` \
+             and `plugins/<plugin>/skills`; name the folder that holds them with `--path`"
+        ),
+        Kind::Rule => format!(
+            "no rule found {at}: looked for a markdown file (`.md`) at any depth there, but its \
+             README and its licence"
+        ),
+        // Gathered from nowhere yet ([`gatherable`]).
+        Kind::Mcp => format!("no {} found {at}", kind.noun()),
+    }
+}
 
 /// Where [`GatherError::NothingFound`] looked: the repository, or the
 /// folder `--path` named.

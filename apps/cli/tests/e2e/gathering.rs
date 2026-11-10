@@ -659,6 +659,204 @@ fn a_branch_given_twice_over_is_refused_before_anything_is_fetched() {
 }
 
 // ---------------------------------------------------------------------------
+// Rules, from the folder a repository keeps them in (#111): the
+// reference's "Gathering rules"
+// ---------------------------------------------------------------------------
+
+const RULES: &str = "~/src/acme-rules";
+
+/// `~/Projects` linking `collapse`, beside `~/src/acme-rules`, a repository
+/// keeping two rules in `rules/`, one a folder down, beside the README and
+/// the licence the folder is documented with, and a changelog at its root.
+fn acme_rules() -> Scenario {
+    let scenario = Scenario::projects(&["collapse"]);
+    scenario.source(
+        RULES,
+        &[
+            (
+                "rules/git/commits.md",
+                "# Commit one coherent step at a time\n\nSay why in the body.\n",
+            ),
+            (
+                "rules/review/tone.md",
+                "# Say what a change does before what is wrong with it\n",
+            ),
+            ("rules/README.md", "# Our rules\n\nOne file a rule.\n"),
+            ("rules/LICENSE", "MIT License\n\nCopyright (c) Acme\n"),
+            ("CHANGELOG.md", "# Changelog\n\n- Every rule.\n"),
+        ],
+    );
+    scenario
+}
+
+#[test]
+fn gathering_rules_takes_every_markdown_file_in_the_folder_named_by_its_route() {
+    let scenario = acme_rules();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-rules: ../src/acme-rules at {}\n\
+             \x20 added  git/commits  Commit one coherent step at a time\n\
+             \x20 added  review/tone  Say what a change does before what is wrong with it\n\
+             \n\
+             2 rules: 2 added, 0 updated, 0 unchanged\n",
+            scenario.head(RULES)
+        ))
+        .quiet();
+
+    assert_eq!(
+        scenario.files("~/Projects/.mindweaver/rules"),
+        [
+            "..-src-acme-rules/git/commits.md",
+            "..-src-acme-rules/review/tone.md"
+        ],
+        "the README and the licence are no rules, and the changelog is not in the folder"
+    );
+    assert!(
+        !scenario.exists("~/Projects/collapse/AGENTS.md"),
+        "nothing is written into a project"
+    );
+}
+
+#[test]
+fn rules_are_gathered_only_from_a_folder_named() {
+    let scenario = acme_rules();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules",
+        )
+        .exits(1)
+        .prints("")
+        .says(
+            "error: rules are gathered from the folder `--path` names, every markdown file in it \
+             one: name the folder that holds them, or `--path .` for the whole repository\n",
+        );
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/cache"));
+}
+
+#[test]
+fn a_rule_whose_route_is_no_name_is_said_and_not_taken() {
+    let scenario = acme_rules();
+    scenario.change(RULES, &[("rules/Python_Style.md", "# Prefer pathlib\n")]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+        )
+        .exits(1)
+        .prints(&format!(
+            "src-acme-rules: ../src/acme-rules at {}\n\
+             \x20 added  git/commits  Commit one coherent step at a time\n\
+             \x20 added  review/tone  Say what a change does before what is wrong with it\n\
+             \n\
+             2 rules: 2 added, 0 updated, 0 unchanged\n",
+            scenario.head(RULES)
+        ))
+        .says(
+            "warning: rules/Python_Style.md: not taken, since a rule is named by its route, and \
+             `Python_Style` is not usable as a name: it has to be lowercase letters and digits, \
+             joined by single hyphens\n",
+        );
+}
+
+#[test]
+fn a_dry_run_of_rules_says_where_each_is_and_writes_nothing() {
+    let scenario = acme_rules();
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules --dry-run",
+        )
+        .succeeds()
+        .prints(&format!(
+            "src-acme-rules: ../src/acme-rules at {}\n\
+             \x20 would add  git/commits  rules/git/commits.md  Commit one coherent step at a \
+             time\n\
+             \x20 would add  review/tone  rules/review/tone.md  Say what a change does before \
+             what is wrong with it\n\
+             \n\
+             2 rules: 2 to add, 0 to update, 0 unchanged\n\
+             nothing gathered: run it without --dry-run to gather\n",
+            scenario.head(RULES)
+        ))
+        .quiet();
+
+    assert!(!scenario.exists("~/Projects/.mindweaver/rules"));
+}
+
+#[test]
+fn a_gathered_rule_installs_into_the_projects_agents_md() {
+    let scenario = acme_rules();
+    scenario.given(
+        "~/Projects",
+        "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+    );
+
+    scenario
+        .run("~/Projects", "mindweaver install -p collapse git/commits")
+        .succeeds()
+        .prints("installed rule git/commits into collapse, from ../src/acme-rules\n")
+        .quiet();
+
+    assert_eq!(
+        scenario.read("~/Projects/collapse/AGENTS.md"),
+        concat!(
+            "<!-- mindweaver:begin -->\n",
+            "<!-- mindweaver:rule git/commits -->\n",
+            "# Commit one coherent step at a time\n",
+            "\n",
+            "Say why in the body.\n",
+            "<!-- mindweaver:end -->\n",
+        )
+    );
+}
+
+#[test]
+fn gather_list_says_the_kind_of_each_once_rules_are_on_the_shelf_beside_skills() {
+    let scenario = acme_rules();
+    scenario
+        .source(
+            SOURCE,
+            &[(
+                "skills/commit-style/SKILL.md",
+                &licensed(
+                    "commit-style",
+                    "How this repo writes commit messages",
+                    "MIT",
+                ),
+            )],
+        )
+        .given("~/Projects", "mindweaver gather git ../src/acme-skills")
+        .given(
+            "~/Projects",
+            "mindweaver gather git ../src/acme-rules --kind rules --path rules",
+        );
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(concat!(
+            "skill  commit-style  src-acme-skills  MIT          How this repo writes commit \
+             messages\n",
+            "rule   git/commits   src-acme-rules   MIT License  Commit one coherent step at a \
+             time\n",
+            "rule   review/tone   src-acme-rules   MIT License  Say what a change does before \
+             what is wrong with it\n",
+        ))
+        .quiet();
+}
+
+// ---------------------------------------------------------------------------
 // A private repository: the reference's paragraphs on one, in "Gathering skills
 // from elsewhere"
 // ---------------------------------------------------------------------------
