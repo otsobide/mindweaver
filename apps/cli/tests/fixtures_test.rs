@@ -23,7 +23,9 @@ mod common;
 
 use common::*;
 use mindweaver_cli::backend::{PanelBackend, Query};
-use mindweaver_core::ledger::{Action, Outcome as Logged};
+use mindweaver_core::hash;
+use mindweaver_core::ledger::{Action, Outcome as Logged, Taken};
+use mindweaver_core::licence::Licence;
 use mindweaver_core::SourceKind;
 use mindweaver_server::{Backend, Underway};
 use serde_json::{json, Value};
@@ -489,7 +491,7 @@ fn shelve(root: &Path) {
     let source = ledger
         .source_for(SourceKind::Git, SOURCE, None, "skills")
         .unwrap();
-    ledger.saw_source(source.id, Some(REVISION)).unwrap();
+    ledger.saw_source(source.id, Some(REVISION), None).unwrap();
     for (name, summary) in [
         ("format", "Format the code the way the team does"),
         ("triage", "Sort new issues by what they need"),
@@ -502,11 +504,16 @@ fn shelve(root: &Path) {
         ledger
             .record(
                 &source,
-                Kind::Skill,
-                name,
-                &shelf,
-                Some(summary),
-                Some(REVISION),
+                &Taken {
+                    kind: Kind::Skill,
+                    name: name.into(),
+                    path: shelf.clone(),
+                    summary: Some(summary.to_owned()),
+                    revision: Some(REVISION.into()),
+                    upstream_path: format!("skills/{name}"),
+                    content_hash: Some(hash::tree(&root.join(&shelf)).unwrap()),
+                    licence: Licence::Unknown,
+                },
             )
             .unwrap();
     }

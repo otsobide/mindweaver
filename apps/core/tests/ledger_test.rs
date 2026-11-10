@@ -10,10 +10,12 @@ use common::{repository, skill, url};
 use mindweaver_core::gather::{self, Request};
 use mindweaver_core::hash;
 use mindweaver_core::install::{self, Installed, Offer};
-use mindweaver_core::ledger::{backup_path, InstallRecord, Target, SCHEMA_VERSION};
-use mindweaver_core::mother::{InstallRecordMother, McpMother};
+use mindweaver_core::ledger::{backup_path, InstallRecord, Taken, Target, SCHEMA_VERSION};
+use mindweaver_core::mother::{InstallRecordMother, McpMother, PinMother, TakenMother};
 use mindweaver_core::AgentHomes;
-use mindweaver_core::{Kind, Ledger, MindProject, ProjectId, WeaverWorkspace, LEDGER_FILE};
+use mindweaver_core::{
+    Kind, Ledger, MindProject, ProjectId, SourceKind, WeaverWorkspace, LEDGER_FILE,
+};
 use rusqlite::types::Value;
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -87,6 +89,12 @@ const VERSION_5: &str = include_str!("fixtures/ledger-v5.sql");
 const SOURCES_AS_WRITTEN: &str = "SELECT id, kind, url, reference, subdirectory, revision,
                                          directory, first_seen, last_seen
                                     FROM sources ORDER BY id";
+
+/// Every column of `artifacts` a version before 8 had, which schema 8 adds
+/// to: what a step after it keeps of each row it is not about.
+const ARTIFACTS_AS_WRITTEN: &str = "SELECT id, kind, name, source_id, path, summary, revision,
+                                           gathered_at
+                                      FROM artifacts ORDER BY id";
 
 /// A ledger file in `dir` holding what `fixture` describes, untouched by
 /// anything of this build's.
@@ -295,7 +303,7 @@ fn a_version_2_ledger_keeps_every_row_it_had() {
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
         SOURCES_AS_WRITTEN,
-        "SELECT * FROM artifacts ORDER BY id",
+        ARTIFACTS_AS_WRITTEN,
         "SELECT * FROM actions ORDER BY id",
         "SELECT id, project, kind, name, source_id, installed_at
            FROM installations ORDER BY id",
@@ -460,7 +468,7 @@ fn a_version_3_ledger_keeps_every_row_it_had_and_its_copies_gain_no_hash() {
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
         SOURCES_AS_WRITTEN,
-        "SELECT * FROM artifacts ORDER BY id",
+        ARTIFACTS_AS_WRITTEN,
         "SELECT * FROM actions ORDER BY id",
         "SELECT id, project, kind, name, source_id, installed_at, origin, content_hash
            FROM installations ORDER BY id",
@@ -537,7 +545,7 @@ fn a_version_4_ledger_keeps_every_row_it_had_and_knows_no_project_it_is_not_told
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
         SOURCES_AS_WRITTEN,
-        "SELECT * FROM artifacts ORDER BY id",
+        ARTIFACTS_AS_WRITTEN,
         "SELECT * FROM actions ORDER BY id",
         "SELECT id, project, kind, name, source_id, installed_at, origin, content_hash
            FROM installations ORDER BY id",
@@ -621,7 +629,7 @@ fn a_version_5_ledger_keeps_every_row_it_had_and_its_installations_gain_no_entry
     assert_eq!(version_of(&after), SCHEMA_VERSION);
     for query in [
         SOURCES_AS_WRITTEN,
-        "SELECT * FROM artifacts ORDER BY id",
+        ARTIFACTS_AS_WRITTEN,
         "SELECT * FROM actions ORDER BY id",
         "SELECT * FROM installations ORDER BY id",
         "SELECT * FROM installation_targets ORDER BY installation_id, path",
@@ -731,8 +739,9 @@ fn a_version_6_ledger_keeps_every_row_but_those_of_a_spelling_made_one_with_anot
                FROM sources WHERE id IN (2, 3, 4) ORDER BY id",
         ),
         (
-            "SELECT * FROM artifacts ORDER BY id",
-            "SELECT * FROM artifacts WHERE source_id IN (2, 3, 4) ORDER BY id",
+            ARTIFACTS_AS_WRITTEN,
+            "SELECT id, kind, name, source_id, path, summary, revision, gathered_at
+               FROM artifacts WHERE source_id IN (2, 3, 4) ORDER BY id",
         ),
         (
             "SELECT id, project, kind, name, installed_at, content_hash, project_id
@@ -867,6 +876,131 @@ fn a_version_6_ledger_names_each_source_and_finds_it_by_any_spelling_of_its_url(
         !format!("{identities:?}").contains(&token),
         "{identities:?}"
     );
+}
+
+/// What schema 7 wrote, dumped from a ledger it made.
+const VERSION_7: &str = include_str!("fixtures/ledger-v7.sql");
+
+#[test]
+fn a_version_7_ledger_keeps_every_row_it_had_and_its_artifacts_gain_nothing_it_did_not_keep() {
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), VERSION_7);
+    let before = as_written(VERSION_7);
+
+    let ledger = Ledger::open(&path).unwrap();
+
+    let after = Connection::open(&path).unwrap();
+    assert_eq!(version_of(&after), SCHEMA_VERSION);
+    for query in [
+        "SELECT * FROM sources ORDER BY id",
+        ARTIFACTS_AS_WRITTEN,
+        "SELECT * FROM actions ORDER BY id",
+        "SELECT * FROM installations ORDER BY id",
+        "SELECT * FROM installation_targets ORDER BY installation_id, path",
+        "SELECT * FROM projects ORDER BY id",
+        "SELECT * FROM merged_sources ORDER BY id",
+    ] {
+        assert_eq!(rows(&after, query), rows(&before, query), "{query}");
+    }
+    assert!(!rows(&after, ARTIFACTS_AS_WRITTEN).is_empty());
+    // Read off what a gather fetched and placed, which no row from before
+    // kept: empty until its source is gathered again.
+    assert_eq!(
+        rows(
+            &after,
+            "SELECT DISTINCT upstream_path, content_hash, licence_from, licence, licence_file
+               FROM artifacts"
+        ),
+        [[
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null
+        ]]
+    );
+    for gathered in ledger.gathered().unwrap() {
+        assert_eq!(gathered.upstream_path, None, "{}", gathered.name);
+        assert_eq!(gathered.content_hash, None, "{}", gathered.name);
+        assert_eq!(gathered.licence, None, "{}", gathered.name);
+        assert_eq!(gathered.source.pin, None, "{}", gathered.name);
+    }
+    let names: Vec<String> = ledger
+        .sources()
+        .unwrap()
+        .into_iter()
+        .map(|source| source.name.into_string())
+        .collect();
+    assert_eq!(names, ["team-private", "acme-skills", "acme-skills-2"]);
+}
+
+#[test]
+fn a_version_7_ledger_is_copied_aside_and_the_copy_opens_at_version_7() {
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), VERSION_7);
+    let before = as_written(VERSION_7);
+
+    Ledger::open(&path).unwrap();
+
+    let backup = dir.path().join("mindweaver.db.v7.bak");
+    assert_eq!(backup_path(&path, 7), backup);
+    let copy = Connection::open(&backup).unwrap();
+    assert_eq!(version_of(&copy), 7);
+    for query in [
+        "SELECT * FROM sources ORDER BY id",
+        "SELECT * FROM artifacts ORDER BY id",
+        "SELECT * FROM actions ORDER BY id",
+        "SELECT * FROM installations ORDER BY id",
+        "SELECT type, name, sql FROM sqlite_master ORDER BY name",
+    ] {
+        assert_eq!(rows(&copy, query), rows(&before, query), "{query}");
+    }
+}
+
+#[test]
+fn a_version_7_ledger_records_a_pin_and_what_a_gather_takes_once_it_is_migrated() {
+    let dir = TempDir::new().unwrap();
+    let path = written_at(dir.path(), VERSION_7);
+    let ledger = Ledger::open(&path).unwrap();
+    let source = ledger
+        .source(
+            SourceKind::Git,
+            "https://github.com/acme/skills",
+            None,
+            "skills",
+        )
+        .unwrap()
+        .unwrap();
+    let pin = PinMother::random();
+    let taken = Taken {
+        revision: Some(pin.revision()),
+        ..TakenMother::create(
+            Kind::Skill,
+            "deploy",
+            ".mindweaver/skills/github.com-acme-skills/deploy",
+        )
+    };
+
+    ledger
+        .saw_source(source.id, Some(pin.as_str()), Some(&pin))
+        .unwrap();
+    ledger.record(&source, &taken).unwrap();
+
+    let gathered = ledger.gathered().unwrap();
+    let deploy = gathered
+        .iter()
+        .find(|gathered| gathered.source.id == source.id && gathered.name == "deploy")
+        .unwrap();
+    assert_eq!(deploy.source.pin.as_ref(), Some(&pin));
+    assert_eq!(deploy.upstream_path.as_ref(), Some(&taken.upstream_path));
+    assert_eq!(deploy.content_hash, taken.content_hash);
+    assert_eq!(deploy.licence.as_ref(), Some(&taken.licence));
+    // Its neighbour, which no gather has taken since, is as it was.
+    let review = gathered
+        .iter()
+        .find(|gathered| gathered.source.id == source.id && gathered.name == "review")
+        .unwrap();
+    assert_eq!(review.licence, None);
 }
 
 #[test]

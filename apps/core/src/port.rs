@@ -43,7 +43,7 @@ use crate::gather::Watch;
 use crate::kind::Kind;
 use crate::ledger::{
     Action, Carried, Entry, Forgotten, Gathered, InstallRecord, LedgerError, Merged, Moved,
-    Outcome, Source, SourceKind, Target,
+    Outcome, Source, SourceKind, Taken, Target,
 };
 use crate::settings::ProjectId;
 use crate::url::carries_credentials;
@@ -801,8 +801,14 @@ pub trait LedgerStore: Debug + Send {
     /// given again from then on, and a merge said for the last time.
     fn cleared_merge(&self, directory: &str) -> Result<(), LedgerError>;
 
-    /// Note which revision a source was last gathered at.
-    fn saw_source(&self, id: i64, revision: Option<&str>) -> Result<(), LedgerError>;
+    /// Note which revision a source was last gathered at, and the pin it
+    /// was gathered at, or none, which is what it is pinned to from now on.
+    fn saw_source(
+        &self,
+        id: i64,
+        revision: Option<&str>,
+        pin: Option<&Pin>,
+    ) -> Result<(), LedgerError>;
 
     /// Forget a source, and with it what it brought; an installation from it
     /// keeps its `origin` but no longer points at it (see the schema's notes
@@ -820,15 +826,7 @@ pub trait LedgerStore: Debug + Send {
     /// The same name from a *different* source is a different row, on purpose:
     /// two repositories offering `commit-style` are two things to choose
     /// between, and this is what remembers which is which.
-    fn record(
-        &self,
-        source: &Source,
-        kind: Kind,
-        name: &str,
-        path: &str,
-        summary: Option<&str>,
-        revision: Option<&str>,
-    ) -> Result<(), LedgerError>;
+    fn record(&self, source: &Source, taken: &Taken) -> Result<(), LedgerError>;
 
     /// Everything gathered, ordered the way a listing reads it: by kind, then
     /// name, then source.

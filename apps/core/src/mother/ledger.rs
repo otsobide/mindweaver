@@ -4,12 +4,14 @@
 use crate::agent::Agent;
 use crate::kind::Kind;
 use crate::ledger::{
-    Entry, EntryTarget, Gathered, InstallRecord, Moved, Source, SourceKind, Target,
+    Entry, EntryTarget, Gathered, InstallRecord, Moved, Source, SourceKind, Taken, Target,
 };
+use crate::licence::Licence;
+use crate::mother::artifact::SkillMother;
 use crate::mother::random;
 use crate::mother::url::UrlMother;
 use crate::mother::value::{
-    ArtifactNameMother, ContentHashMother, OriginMother, RedactedMother, RevisionMother,
+    ArtifactNameMother, ContentHashMother, OriginMother, PinMother, RedactedMother, RevisionMother,
 };
 use crate::value::{ArtifactName, ContentHash, Origin, Redacted, SourceName};
 
@@ -17,13 +19,19 @@ use crate::value::{ArtifactName, ContentHash, Origin, Redacted, SourceName};
 pub struct SourceMother;
 
 impl SourceMother {
-    /// A git source, at a branch or not, last gathered at some revision.
+    /// A git source, at a branch or not, last gathered at some revision,
+    /// pinned to it or not.
     pub fn random() -> Source {
         let reference = random::chance().then(random::word);
-        Self::create(&UrlMother::clean(), reference.as_deref())
+        let source = Self::create(&UrlMother::clean(), reference.as_deref());
+        if random::chance() {
+            Self::pinned(source)
+        } else {
+            source
+        }
     }
 
-    /// A git source at `url`, asked for at `reference`.
+    /// A git source at `url`, asked for at `reference`, following it.
     pub fn create(url: &str, reference: Option<&str>) -> Source {
         Source {
             id: random::between(1, 1000) as i64,
@@ -34,6 +42,76 @@ impl SourceMother {
             revision: Some(RevisionMother::random()),
             directory: random::word(),
             name: SourceName::derived(&crate::url::canonical(url)),
+            pin: None,
+        }
+    }
+
+    /// `source` pinned to the revision it was last gathered at, as a
+    /// gather at a pin leaves it.
+    pub fn pinned(source: Source) -> Source {
+        let pin = PinMother::random();
+        Source {
+            revision: Some(pin.revision()),
+            pin: Some(pin),
+            ..source
+        }
+    }
+}
+
+/// Makes [`Licence`]s, as a gather reads one off what it took.
+pub struct LicenceMother;
+
+impl LicenceMother {
+    /// One read from wherever a skill says it, or none.
+    pub fn random() -> Licence {
+        match random::between(0, 2) {
+            0 => Self::manifest(&SkillMother::licence()),
+            1 => Self::file("LICENSE", Some("MIT License")),
+            _ => Licence::Unknown,
+        }
+    }
+
+    /// The licence a manifest declares as `text`.
+    pub fn manifest(text: &str) -> Licence {
+        Licence::Manifest {
+            text: text.to_owned(),
+        }
+    }
+
+    /// The licence the file `file` names in its first line, `text`.
+    pub fn file(file: &str, text: Option<&str>) -> Licence {
+        Licence::File {
+            file: file.to_owned(),
+            text: text.map(str::to_owned),
+        }
+    }
+}
+
+/// Makes [`Taken`]s, an artifact as a gather tells the ledger of it.
+pub struct TakenMother;
+
+impl TakenMother {
+    /// A skill some gather took.
+    pub fn random() -> Taken {
+        let name = ArtifactNameMother::random();
+        let path = format!(".mindweaver/skills/{}/{name}", random::word());
+        Self::create(Kind::Skill, &name, &path)
+    }
+
+    /// `name`, of `kind`, put on the shelf at `path`, from the folder of
+    /// its name under `skills` in its source, with no summary and taken at
+    /// no revision, as a source with no commit yields one: what a test of
+    /// those leaves to a mother.
+    pub fn create(kind: Kind, name: &str, path: &str) -> Taken {
+        Taken {
+            kind,
+            name: ArtifactName::from(name),
+            path: path.to_owned(),
+            summary: None,
+            revision: None,
+            upstream_path: format!("{}/{name}", crate::gather::DEFAULT_SUBDIRECTORY),
+            content_hash: Some(ContentHashMother::random()),
+            licence: LicenceMother::random(),
         }
     }
 }
@@ -56,11 +134,14 @@ impl GatheredMother {
         Gathered {
             kind,
             path: format!(".mindweaver/{}/{}/{name}", kind.slug(), source.directory),
+            upstream_path: Some(format!("{}/{name}", crate::gather::DEFAULT_SUBDIRECTORY)),
             name,
             summary: random::chance().then(|| random::text(30)),
             revision: source.revision.clone(),
             gathered_at: random::between(1_600_000_000, 1_900_000_000) as i64,
             source,
+            content_hash: Some(ContentHashMother::random()),
+            licence: Some(LicenceMother::random()),
         }
     }
 }

@@ -407,6 +407,13 @@ impl Pin {
         digits.then(|| Pin(text.to_ascii_lowercase()))
     }
 
+    /// A pin as the ledger holds it, taken as written rather than judged
+    /// again, as a source's name is: every pin there a gather parsed, and a
+    /// row somebody edited by hand is still listed by what it says.
+    pub(crate) fn recorded(text: String) -> Self {
+        Pin(text)
+    }
+
     /// The revision a gather at it takes: the commit itself.
     pub fn revision(&self) -> Revision {
         Revision::from(self.as_str())
