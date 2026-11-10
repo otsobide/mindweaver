@@ -1069,6 +1069,8 @@ impl Followed {
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
                 | WeaverCommand::Adopt { .. }
+                | WeaverCommand::Export { .. }
+                | WeaverCommand::Backup { .. }
                 | WeaverCommand::Agents { .. }
                 | WeaverCommand::Share { .. }
                 | WeaverCommand::Targets { .. }
@@ -1140,6 +1142,14 @@ pub enum Refusal {
     /// itself.
     #[error("serves the panel until Ctrl-C stops it, from the terminal it was started in")]
     Panel,
+    /// `mindweaver backup`: the network, through the system's `git`, for as
+    /// long as that takes, with no progress to show nor a way to stop it,
+    /// and an ssh that may ask on the terminal it was started from, which
+    /// only a shell has.
+    #[error(
+        "sends over the network with git for as long as that takes, which only a shell shows, and whose ssh may ask on its terminal"
+    )]
+    Sends,
 }
 
 codes!(Refusal {
@@ -1149,6 +1159,7 @@ codes!(Refusal {
     Self::Shell => "prints_shell_code",
     Self::Unheld => "show_unheld",
     Self::Panel => "serves_panel",
+    Self::Sends => "backup_unwatched",
 });
 
 impl Refusal {
@@ -1210,6 +1221,7 @@ impl Refusal {
             Some(WeaverCommand::Edit { editing, .. }) => Refusal::of_edit(editing),
             Some(WeaverCommand::Activate { .. }) => Some(Refusal::Shell),
             Some(WeaverCommand::Show { .. }) => Some(Refusal::Unheld),
+            Some(WeaverCommand::Backup { .. }) => Some(Refusal::Sends),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Some(Refusal::Panel),
             Some(
@@ -1239,6 +1251,7 @@ impl Refusal {
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
                 | WeaverCommand::Adopt { .. }
+                | WeaverCommand::Export { .. }
                 | WeaverCommand::Agents { .. }
                 | WeaverCommand::Share { .. }
                 | WeaverCommand::Targets { .. }
@@ -1306,7 +1319,9 @@ pub fn refused(words: &[String]) -> Option<Refusal> {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Caution {
-    /// `remove --yes`, at either level: the artifact deleted.
+    /// `remove --yes`, at either level: the artifact deleted. And
+    /// `mindweaver export --yes`, which deletes from the folder it writes
+    /// what an earlier export put there and the library no longer holds.
     #[error("deletes an artifact: its folder and everything in it, or its file")]
     Removes,
     /// `uninstall`, every form of it, and `mindweaver remove --everywhere
@@ -1385,6 +1400,11 @@ impl Caution {
             }
             Some(WeaverCommand::Unlink { .. }) => vec![Caution::Unlinks],
             Some(WeaverCommand::Unload { .. }) => vec![Caution::Unloads],
+            // What an earlier export wrote and the library no longer holds
+            // is deleted from the folder, and the rest written over.
+            Some(WeaverCommand::Export { yes, .. }) => when(*yes, &[Caution::Removes]),
+            // What it takes out of the branch is kept in its history.
+            Some(WeaverCommand::Backup { .. }) => Vec::new(),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Vec::new(),
             None

@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use mindweaver_core::activate::{self, ActivateError, WORKSPACE_VARIABLE};
 use mindweaver_core::adopt::AdoptError;
+use mindweaver_core::backup::BackupError;
 use mindweaver_core::everywhere::EverywhereError;
+use mindweaver_core::export::ExportError;
 use mindweaver_core::gather::GatherError;
 use mindweaver_core::ledger::LedgerError;
 use mindweaver_core::{
@@ -98,6 +100,14 @@ pub enum CliError {
     Everywhere(#[from] EverywhereError),
     #[error(transparent)]
     Adopt(#[from] AdoptError),
+    #[error(transparent)]
+    Export(#[from] ExportError),
+    #[error(transparent)]
+    Backup(#[from] BackupError),
+    #[error(
+        "${0} holds no token: set it for this command, or leave --token-env out to log in as git does"
+    )]
+    TokenUnset(String),
     #[error(transparent)]
     Template(#[from] TemplateError),
     #[error(transparent)]
@@ -289,6 +299,7 @@ codes!(CliError {
     Self::TokenFileFolderMissing(_) => "token_file_folder_missing",
     Self::TokenFileUnwritable { .. } => "token_file_unwritable",
     Self::TokenFileUnremoved { .. } => "token_file_unremoved",
+    Self::TokenUnset(_) => "token_env_unset",
 } carried {
     Self::Workspace(error) => error,
     Self::Chosen { source, .. } => source,
@@ -300,6 +311,8 @@ codes!(CliError {
     Self::Lifecycle(error) => error,
     Self::Everywhere(error) => error,
     Self::Adopt(error) => error,
+    Self::Export(error) => error,
+    Self::Backup(error) => error,
     Self::Template(error) => error,
     Self::Activate(error) => error,
     Self::Refused(refusal) => refusal,

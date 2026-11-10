@@ -1406,6 +1406,14 @@ fn a_front_end_with_no_terminal_refuses_what_draws_edits_activates_or_shows() {
         ),
         ("mindweaver activate", Refusal::Shell),
         ("mind weaver activate --shell fish work", Refusal::Shell),
+        (
+            "mindweaver backup https://example.com/library.git",
+            Refusal::Sends,
+        ),
+        (
+            "mind weaver backup ../library.git --kind skills --token-env TOKEN",
+            Refusal::Sends,
+        ),
         ("mind show deploy", Refusal::Unheld),
         ("mind -C alpha show --json rule:style", Refusal::Unheld),
         ("mindweaver show -p alpha deploy", Refusal::Unheld),
@@ -1598,6 +1606,7 @@ fn a_refusal_says_why_by_a_code_of_its_own() {
         Refusal::Shell,
         Refusal::Unheld,
         Refusal::Panel,
+        Refusal::Sends,
     ]
     .iter()
     .map(Refusal::code)
@@ -1647,6 +1656,11 @@ fn a_line_that_takes_something_away_is_asked_about_for_what_it_takes() {
         ("mind weaver unlink alpha", vec![Unlinks]),
         ("mind unload ../team", vec![Unloads]),
         ("mindweaver unload team", vec![Unloads]),
+        ("mindweaver export ../backup --yes", vec![Removes]),
+        (
+            "mind weaver export --kind rules -y ../backup",
+            vec![Removes],
+        ),
     ] {
         assert_eq!(cautions(&line(said)), expected, "{said}");
     }
@@ -1670,6 +1684,8 @@ fn a_line_that_takes_nothing_away_is_asked_about_for_nothing() {
         "mindweaver relink alpha beta",
         "mindweaver load ../team",
         "mindweaver adopt -p alpha --yes legacy",
+        "mindweaver export ../backup",
+        "mindweaver backup https://example.com/library.git",
         "mindweaver agents -p alpha --yes claude",
         "mind share --yes local",
         "mind targets set --yes skills .skills",

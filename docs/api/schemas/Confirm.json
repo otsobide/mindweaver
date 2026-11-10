@@ -29,7 +29,7 @@
       "description": "What a command line takes away, which a front end asks somebody to\nconfirm before it runs the line: what [`cautions`] reads off the parsed\ncommand, as [`refused`] reads a refusal, so a line is asked about the\nsame way whatever task it came from, and by every front end.\n\nOne list, here, rather than one per front end: the panel holds no rules\n(D-18), so which of its lines need a yes first is said with each preview\nit is answered with, in these words, and a list in TypeScript would be a\nsecond place for a command to be forgotten. The TUI asks its own\nquestions, worded for the row they are about, before it builds a task.\n\nOnly what takes something away, or writes over somebody's work: a line\nthat only adds, or that changes what is installed where its agents now\nread, is shown before it runs and runs once asked. And never a dry run,\nwhich a line of a command that takes `--yes` is without it: it takes\nnothing away, and says what it would.",
       "oneOf": [
         {
-          "description": "`remove --yes`, at either level: the artifact deleted.",
+          "description": "`remove --yes`, at either level: the artifact deleted. And\n`mindweaver export --yes`, which deletes from the folder it writes\nwhat an earlier export put there and the library no longer holds.",
           "type": "string",
           "const": "removes"
         },

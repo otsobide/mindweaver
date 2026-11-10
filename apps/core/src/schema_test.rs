@@ -508,6 +508,9 @@ fn every_value_objects_schema_is_the_strings_serde_writes() {
         schema_is_a_strings(&OriginMother::random());
         schema_is_a_strings(&ArtifactNameMother::random());
         schema_is_a_strings(&RevisionMother::random());
+        schema_is_a_strings(&crate::value::SourceName::derived(
+            &crate::mother::UrlMother::https(),
+        ));
     }
 }
 

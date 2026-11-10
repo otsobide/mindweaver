@@ -4,7 +4,9 @@
 //! codes and its messages are the same whichever adapter met the failure:
 //! pinned here, beside the promise that a message says only what its fields
 //! hold, which is what keeps a credential the adapter took out of a URL from
-//! coming back in the words around it.
+//! coming back in the words around it. An HTTP request and its answer are
+//! the port's too, and so are the rules they are made by: which URL may be
+//! asked, which header sent, which kept of an answer.
 
 use super::*;
 
@@ -274,5 +276,438 @@ fn a_clone_is_equal_to_one_at_the_same_place_and_revision() {
             ..clone.clone()
         },
         clone
+    );
+}
+
+// ---------------------------------------------------------------------------
+// HTTP
+// ---------------------------------------------------------------------------
+
+/// An https URL a catalog could be at, with a query.
+fn catalog_url() -> String {
+    format!(
+        "https://{}/v0/{}?limit={}",
+        UrlMother::host(),
+        random::word(),
+        random::between(1, 100)
+    )
+}
+
+#[test]
+fn a_request_asks_its_url_saying_who_asks_within_the_defaults() {
+    let url = catalog_url();
+
+    let request = HttpRequest::get(&url).unwrap();
+
+    assert_eq!(request.url().as_str(), url);
+    assert_eq!(request.timeout(), HTTP_TIMEOUT);
+    assert_eq!(request.limit(), HTTP_LIMIT);
+    let headers: Vec<(&str, &str)> = request
+        .headers()
+        .iter()
+        .map(|header| (header.name(), header.value()))
+        .collect();
+    assert_eq!(headers, vec![("user-agent", USER_AGENT)]);
+    assert!(!request.carries_secrets());
+}
+
+#[test]
+fn the_user_agent_names_mindweaver_and_its_version() {
+    assert_eq!(
+        USER_AGENT,
+        format!("mindweaver/{}", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn a_request_is_given_its_own_timeout_and_limit() {
+    let timeout = Duration::from_millis(random::between(1, 100_000) as u64);
+    let limit = random::between(1, 1 << 30);
+
+    let request = HttpRequest::get(&catalog_url())
+        .unwrap()
+        .within(timeout)
+        .at_most(limit);
+
+    assert_eq!((request.timeout(), request.limit()), (timeout, limit));
+}
+
+#[test]
+fn a_request_of_any_scheme_but_http_or_https_is_refused_by_its_code() {
+    let host = UrlMother::host();
+    for url in [
+        format!("ftp://{host}/catalog"),
+        format!("file:///srv/{host}"),
+        format!("ssh://git@{host}/catalog"),
+        format!("{host}/catalog"),
+        String::from("/srv/catalog.json"),
+        format!("https:/{host}"),
+    ] {
+        let error = HttpRequest::get(&url).unwrap_err();
+
+        assert_eq!(error.code(), "http_url_invalid", "{url}: {error:?}");
+        assert!(error.to_string().starts_with(&url), "{error}");
+    }
+}
+
+#[test]
+fn a_request_of_http_or_https_in_any_case_is_asked() {
+    let host = UrlMother::host();
+    for url in [
+        format!("http://{host}/x"),
+        format!("HTTPS://{host}"),
+        format!("https://{host}:8443?q=1"),
+        format!("http://127.0.0.1:{}/", random::between(1, 65535)),
+        String::from("http://[::1]:8080/x"),
+    ] {
+        assert!(HttpRequest::get(&url).is_ok(), "{url}");
+    }
+}
+
+#[test]
+fn a_request_with_a_space_a_control_character_or_no_host_is_refused() {
+    let host = UrlMother::host();
+    for url in [
+        format!("https://{host}/a b"),
+        format!("https://{host}/a\nb"),
+        format!("https://{host}/a\tb"),
+        String::from("https:///path"),
+        String::from("https://?q=1"),
+        String::from("https://"),
+    ] {
+        let error = HttpRequest::get(&url).unwrap_err();
+
+        assert_eq!(error.code(), "http_url_invalid", "{url:?}: {error:?}");
+    }
+}
+
+/// A token in a URL would be kept wherever the URL is: in the cache's
+/// files, in an error, in a log. A credential goes in a header.
+#[test]
+fn a_request_of_a_url_carrying_a_credential_is_refused_without_saying_it() {
+    let mut tried = 0;
+    for typed in UrlMother::every_credentialed() {
+        if !typed.typed.to_ascii_lowercase().starts_with("http") {
+            continue;
+        }
+        tried += 1;
+
+        let error = HttpRequest::get(&typed.typed).unwrap_err();
+        let at = HttpRequest::get(&catalog_url())
+            .unwrap()
+            .at(&typed.typed)
+            .unwrap_err();
+
+        for error in [error, at] {
+            assert_eq!(error.code(), "http_url_credentialed", "{typed:?}");
+            let said = error.to_string();
+            assert!(!said.contains(&typed.secret), "{said}");
+            assert!(!format!("{error:?}").contains(&typed.secret), "{error:?}");
+            assert!(said.starts_with(&typed.clean), "{typed:?} gave {said}");
+        }
+    }
+    assert!(tried > 0);
+}
+
+#[test]
+fn a_request_at_another_url_keeps_its_headers_timeout_and_limit() {
+    let first = HttpRequest::get(&catalog_url())
+        .unwrap()
+        .header("Accept", "application/json")
+        .unwrap()
+        .secret("Authorization", &UrlMother::secret())
+        .unwrap()
+        .within(Duration::from_secs(7))
+        .at_most(1234);
+    let next = catalog_url();
+
+    let request = first.at(&next).unwrap();
+
+    assert_eq!(request.url().as_str(), next);
+    assert_eq!(request.headers(), first.headers());
+    assert_eq!(
+        (request.timeout(), request.limit()),
+        (Duration::from_secs(7), 1234)
+    );
+}
+
+#[test]
+fn a_header_given_again_replaces_what_it_said_under_its_name_in_any_case() {
+    let request = HttpRequest::get(&catalog_url())
+        .unwrap()
+        .header("Accept", "text/plain")
+        .unwrap()
+        .header("ACCEPT", "application/json")
+        .unwrap();
+
+    assert_eq!(request.header_value("accept"), Some("application/json"));
+    assert_eq!(
+        request
+            .headers()
+            .iter()
+            .filter(|header| header.name() == "accept")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_header_named_for_a_credential_is_a_secret_however_it_was_added() {
+    for name in ["Authorization", "cookie", "PROXY-AUTHORIZATION"] {
+        let request = HttpRequest::get(&catalog_url())
+            .unwrap()
+            .header(name, &UrlMother::secret())
+            .unwrap();
+
+        assert!(request.carries_secrets(), "{name}");
+    }
+    let plain = HttpRequest::get(&catalog_url())
+        .unwrap()
+        .header("x-client", "mindweaver")
+        .unwrap();
+    assert!(!plain.carries_secrets());
+}
+
+#[test]
+fn a_request_without_its_secrets_keeps_every_other_header() {
+    let request = HttpRequest::get(&catalog_url())
+        .unwrap()
+        .header("accept", "application/json")
+        .unwrap()
+        .secret("x-api-key", &UrlMother::secret())
+        .unwrap()
+        .header("authorization", &UrlMother::secret())
+        .unwrap();
+
+    let without = request.without_secrets();
+
+    assert!(!without.carries_secrets());
+    let names: Vec<&str> = without.headers().iter().map(Header::name).collect();
+    assert_eq!(names, vec!["user-agent", "accept"]);
+}
+
+#[test]
+fn a_header_that_could_not_be_sent_is_refused_without_saying_its_value() {
+    let secret = UrlMother::secret();
+    for (name, value) in [
+        ("x-key", format!("{secret}\r\nx-injected: 1")),
+        ("x-key", format!("{secret}\n")),
+        ("x-key", format!("{secret}\u{e9}")),
+        ("x-key", format!("{secret}\0")),
+        ("", secret.clone()),
+        ("x key", secret.clone()),
+        ("x:key", secret.clone()),
+    ] {
+        for secretly in [false, true] {
+            let request = HttpRequest::get(&catalog_url()).unwrap();
+            let error = if secretly {
+                request.secret(name, &value)
+            } else {
+                request.header(name, &value)
+            }
+            .unwrap_err();
+
+            assert_eq!(error.code(), "http_header_invalid", "{name:?}: {error:?}");
+            assert!(!error.to_string().contains(&secret), "{error}");
+            assert!(!format!("{error:?}").contains(&secret), "{error:?}");
+        }
+    }
+}
+
+#[test]
+fn a_request_shows_no_secret_it_sends() {
+    let secret = UrlMother::secret();
+    let request = HttpRequest::get(&catalog_url())
+        .unwrap()
+        .secret("x-api-key", &secret)
+        .unwrap()
+        .header("authorization", &format!("Bearer {secret}"))
+        .unwrap()
+        .header("accept", "application/json")
+        .unwrap();
+
+    let shown = format!("{request:?}");
+
+    assert!(!shown.contains(&secret), "{shown}");
+    assert!(shown.contains("x-api-key: <secret>"), "{shown}");
+    assert!(shown.contains("accept: application/json"), "{shown}");
+}
+
+#[test]
+fn a_response_keeps_only_the_headers_core_reads_named_in_lowercase() {
+    let response = HttpResponse::new(
+        200,
+        [
+            ("Content-Type", "application/json"),
+            ("ETag", "\"v1\""),
+            ("Set-Cookie", "session=s3cret"),
+            ("X-RateLimit-Remaining", "59"),
+            ("Retry-After", " 120 "),
+        ],
+        Vec::new(),
+    );
+
+    assert_eq!(
+        response.headers(),
+        &BTreeMap::from([
+            (
+                String::from("content-type"),
+                String::from("application/json")
+            ),
+            (String::from("etag"), String::from("\"v1\"")),
+            (String::from("retry-after"), String::from("120")),
+        ])
+    );
+    assert_eq!(response.header("Content-TYPE"), Some("application/json"));
+    assert_eq!(response.header("set-cookie"), None);
+}
+
+#[test]
+fn a_header_sent_twice_is_kept_as_one_list() {
+    let response = HttpResponse::new(
+        200,
+        [
+            ("link", "<https://a.example.com/2>; rel=\"next\""),
+            ("Link", "<https://a.example.com/9>; rel=\"last\""),
+        ],
+        Vec::new(),
+    );
+
+    assert_eq!(
+        response.header("link"),
+        Some("<https://a.example.com/2>; rel=\"next\", <https://a.example.com/9>; rel=\"last\"")
+    );
+}
+
+#[test]
+fn a_response_says_whether_it_is_a_success_or_a_redirect() {
+    for status in 100..600 {
+        let response = HttpResponse::new(status, Vec::<(&str, &str)>::new(), Vec::new());
+
+        assert_eq!(
+            response.is_success(),
+            (200..300).contains(&status),
+            "{status}"
+        );
+        assert_eq!(
+            response.is_redirect(),
+            [301, 302, 303, 307, 308].contains(&status),
+            "{status}"
+        );
+    }
+}
+
+#[test]
+fn a_response_shows_its_body_by_its_length() {
+    let body = random::bytes(random::between(100, 1000));
+    let response = HttpResponse::new(200, Vec::<(&str, &str)>::new(), body.clone());
+
+    assert!(
+        format!("{response:?}").contains(&format!("{} bytes", body.len())),
+        "{response:?}"
+    );
+    assert_eq!(response.body(), body.as_slice());
+}
+
+/// One of each variant of an HTTP error, about `url`, beside the code it
+/// gives.
+fn every_http_error(url: &str) -> Vec<(HttpError, &'static str)> {
+    let url = Redacted::new(url);
+    let detail = Redacted::new("refused");
+    vec![
+        (
+            HttpError::Url {
+                url: url.clone(),
+                detail: detail.clone(),
+            },
+            "http_url_invalid",
+        ),
+        (
+            HttpError::Credentials { url: url.clone() },
+            "http_url_credentialed",
+        ),
+        (
+            HttpError::Header {
+                name: String::from("x-key"),
+                detail: String::from("a line break"),
+            },
+            "http_header_invalid",
+        ),
+        (
+            HttpError::Connect {
+                url: url.clone(),
+                detail: detail.clone(),
+            },
+            "http_connect_failed",
+        ),
+        (
+            HttpError::TimedOut {
+                url: url.clone(),
+                after: Duration::from_secs(30),
+            },
+            "http_timed_out",
+        ),
+        (
+            HttpError::TooLarge {
+                url: url.clone(),
+                limit: HTTP_LIMIT,
+            },
+            "http_too_large",
+        ),
+        (HttpError::Fetch { url, detail }, "http_fetch_failed"),
+    ]
+}
+
+#[test]
+fn each_http_error_gives_its_own_code_listed_in_order() {
+    let every = every_http_error(&catalog_url());
+    let given: Vec<&str> = every.iter().map(|(_, code)| *code).collect();
+
+    for (error, code) in &every {
+        assert_eq!(error.code(), *code, "{error:?}");
+    }
+    assert_eq!(HttpError::CODES, given.as_slice());
+}
+
+/// Built from a URL somebody typed with a credential, every message says
+/// it as the redaction leaves it, once, and never the credential.
+#[test]
+fn no_http_error_says_a_credential_and_each_says_its_url_once() {
+    for typed in UrlMother::every_credentialed() {
+        for (error, _) in every_http_error(&typed.typed) {
+            let said = error.to_string();
+
+            assert!(!said.contains(&typed.secret), "{said}");
+            assert!(!format!("{error:?}").contains(&typed.secret), "{error:?}");
+            if !matches!(error, HttpError::Header { .. }) {
+                assert!(said.starts_with(&format!("{}: ", typed.clean)), "{said}");
+                assert_eq!(said.matches(typed.clean.as_str()).count(), 1, "{said}");
+            }
+        }
+    }
+}
+
+#[test]
+fn an_http_error_says_what_went_wrong_in_words_of_its_own() {
+    let url = "https://registry.example.com/v0/servers";
+    let said: Vec<String> = every_http_error(url)
+        .into_iter()
+        .map(|(error, _)| error.to_string())
+        .collect();
+
+    assert_eq!(
+        said,
+        vec![
+            format!("{url}: not a URL a catalog is read from: refused"),
+            format!(
+                "{url}: carries a credential, which is never sent in a URL: \
+                 it goes in a header of its own"
+            ),
+            String::from("`x-key`: not a header that can be sent: a line break"),
+            format!("{url}: cannot be reached: refused"),
+            format!("{url}: answered nothing whole within 30s"),
+            format!("{url}: answered more than the 8388608 bytes it may"),
+            format!("{url}: cannot be read: refused"),
+        ]
     );
 }

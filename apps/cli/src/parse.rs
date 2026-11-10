@@ -295,7 +295,8 @@ pub enum Command {
         name: String,
 
         /// Where it comes from, when two places offer that name: `workspace`,
-        /// a shelf source's URL, or a loaded workspace's path or name.
+        /// a shelf source's name (as `gather list` shows it) or URL, or a
+        /// loaded workspace's path or name.
         #[arg(long, value_name = "ORIGIN")]
         from: Option<String>,
 
@@ -828,7 +829,8 @@ pub enum WeaverCommand {
         name: Option<String>,
 
         /// Where it comes from, when two places offer that name: `workspace`,
-        /// a shelf source's URL, or a loaded workspace's path or name.
+        /// a shelf source's name (as `gather list` shows it) or URL, or a
+        /// loaded workspace's path or name.
         #[arg(long, value_name = "ORIGIN")]
         from: Option<String>,
 
@@ -920,6 +922,61 @@ pub enum WeaverCommand {
         /// what would be.
         #[arg(short, long)]
         yes: bool,
+    },
+
+    /// Write this workspace's own skills, rules and MCP servers into a
+    /// folder, laid out as a workspace of their own, which `mindweaver load`
+    /// offers again.
+    ///
+    /// A folder an earlier export made is brought up to date with the
+    /// library. Without --yes nothing there is changed or removed, and the
+    /// command says what would be.
+    Export {
+        /// The folder to write into, made if it is not there.
+        into: PathBuf,
+
+        /// Only this kind: `skills`, `rules` or `mcp`, given once for each
+        /// [default: every kind].
+        #[arg(long = "kind", value_name = "KIND")]
+        kinds: Vec<Kind>,
+
+        /// Change or remove what an earlier export wrote there. Without
+        /// this, nothing there is changed, and the command says what would
+        /// be.
+        #[arg(short, long)]
+        yes: bool,
+    },
+
+    /// Send this workspace's own skills, rules and MCP servers to a git
+    /// repository, laid out as `mindweaver export` writes them, in a commit
+    /// of their own.
+    ///
+    /// It checks the repository out, commits and pushes with the git on the
+    /// PATH, logged in as that git logs in (a credential helper, or ssh's
+    /// keys and agent) or with the token --token-env names. It never asks
+    /// for a credential.
+    Backup {
+        /// The repository: an https or ssh URL, or a path.
+        url: String,
+
+        /// The branch to commit to, started from the repository's own when
+        /// it has none of that name [default: the repository's own].
+        #[arg(long, value_name = "BRANCH")]
+        branch: Option<String>,
+
+        /// Only this kind: `skills`, `rules` or `mcp`, given once for each
+        /// [default: every kind].
+        #[arg(long = "kind", value_name = "KIND")]
+        kinds: Vec<Kind>,
+
+        /// What the commit says [default: Back up the library of <name>].
+        #[arg(short, long, value_name = "MESSAGE")]
+        message: Option<String>,
+
+        /// The environment variable holding a token to log in with over
+        /// https, read for this run and never kept.
+        #[arg(long, value_name = "VARIABLE")]
+        token_env: Option<String>,
     },
 
     /// Change which agents work in a project, and carry what is installed
@@ -1487,6 +1544,14 @@ pub enum GatherCommand {
         /// A branch or tag to take, instead of the repository's default.
         #[arg(long = "ref", value_name = "REF")]
         reference: Option<String>,
+
+        /// What to call the source, instead of its owner and repository
+        /// (`acme-skills`): what `gather list` shows and `--from` takes.
+        ///
+        /// Letters, digits, `.`, `_` and `-`. Given for a source gathered
+        /// before, it is called this from now on.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
     },
 
     /// List what can be installed from the shelf and from loaded workspaces,

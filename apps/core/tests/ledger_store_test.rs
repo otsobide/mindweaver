@@ -29,7 +29,7 @@ use mindweaver_core::mother::{
     McpMother, OriginMother, ProjectIdMother, RedactedMother, RevisionMother, TargetMother,
     UrlMother,
 };
-use mindweaver_core::value::{ArtifactName, Origin, Redacted};
+use mindweaver_core::value::{ArtifactName, Origin, Redacted, SourceName};
 use mindweaver_core::{Agent, Clock, Kind, Ledger, ProjectId, SourceKind, LEDGER_FILE};
 use tempfile::TempDir;
 
@@ -208,6 +208,8 @@ every_store![
     no_credential_typed_into_a_url_comes_back_from_the_store,
     a_url_typed_with_a_credential_and_without_it_is_one_source,
     nothing_stored_through_the_port_is_left_to_scrub,
+    every_spelling_of_one_repository_is_one_source,
+    a_source_is_found_by_its_name_and_takes_another_when_renamed,
     a_project_is_known_by_its_id_at_the_route_it_was_last_seen_at,
     an_id_seen_at_another_route_moves_there_unless_it_was_last_seen_at_a_stale_one,
     a_route_seen_holding_another_id_forgets_the_one_it_held,
@@ -1476,9 +1478,13 @@ fn a_source_is_registered_once_and_found_by_its_coordinate(mut store: Store) {
 
 fn every_coordinate_is_a_source_of_its_own_with_a_folder_of_its_own(mut store: Store) {
     // Every form of URL, and one URL at two branches and in two folders:
-    // many reduce to one readable name, and none may share a folder.
+    // many reduce to one readable name, and none may share a folder. A
+    // form that spells another's repository is that one's source
+    // ([`every_spelling_of_one_repository_is_one_source`]), and left out.
+    let mut identities = BTreeSet::new();
     let mut coordinates: Vec<(String, Option<String>, String)> = UrlMother::every_clean()
         .into_iter()
+        .filter(|url| identities.insert(mindweaver_core::url::canonical(url)))
         .map(|url| (url, None, String::from("skills")))
         .collect();
     let url = UrlMother::https();
@@ -1932,17 +1938,93 @@ fn nothing_stored_through_the_port_is_left_to_scrub(mut store: Store) {
     store.reopen();
     assert_eq!(store.tainted_sources().unwrap(), []);
     for kept in &registered {
-        assert_eq!(store.scrub_source(kept.id).unwrap(), None, "{kept:?}");
+        store.scrub_source(kept.id).unwrap();
     }
     let never = registered.iter().map(|s| s.id).max().unwrap() + 1;
-    assert_eq!(store.scrub_source(never).unwrap(), None);
+    store.scrub_source(never).unwrap();
     assert_eq!(store.scrub_log().unwrap(), 0);
 
     store.reopen();
+    // A form that spells another's repository registered into it.
+    let mut ids = BTreeSet::new();
+    registered.retain(|source| ids.insert(source.id));
     registered.sort_by(|a, b| {
         (&a.url, &a.reference, &a.subdirectory).cmp(&(&b.url, &b.reference, &b.subdirectory))
     });
     assert_eq!(store.sources().unwrap(), registered);
+}
+
+fn every_spelling_of_one_repository_is_one_source(mut store: Store) {
+    let (owner, repository) = (random::word(), random::word());
+    let first = format!("https://github.com/{owner}/{repository}");
+    let spellings = [
+        format!("git@github.com:{owner}/{repository}.git"),
+        format!("ssh://git@github.com/{owner}/{repository}"),
+        format!(
+            "https://github.com/{}/{repository}.git/",
+            owner.to_uppercase()
+        ),
+        format!("{owner}/{repository}"),
+    ];
+
+    let registered = store
+        .source_for(SourceKind::Git, &first, None, "skills")
+        .unwrap();
+
+    store.reopen();
+    // Registered as it was first typed, and named for its repository.
+    assert_eq!(registered.url, first.as_str());
+    assert_eq!(registered.name, format!("{owner}-{repository}"));
+    for spelling in &spellings {
+        assert_eq!(
+            store
+                .source(SourceKind::Git, spelling, None, "skills")
+                .unwrap()
+                .as_ref(),
+            Some(&registered),
+            "{spelling}"
+        );
+        assert_eq!(
+            store
+                .source_for(SourceKind::Git, spelling, None, "skills")
+                .unwrap(),
+            registered,
+            "{spelling}"
+        );
+    }
+    // At a branch, the remote's HEAD being one too, it is a place of its own.
+    let main = store
+        .source_for(SourceKind::Git, &spellings[0], Some("main"), "skills")
+        .unwrap();
+    assert_ne!(main.id, registered.id);
+    assert_eq!(main.name, format!("{owner}-{repository}-2"));
+    store.reopen();
+    assert_eq!(store.sources().unwrap().len(), 2);
+}
+
+fn a_source_is_found_by_its_name_and_takes_another_when_renamed(mut store: Store) {
+    let first = source(&store, &UrlMother::https());
+    let second = source(&store, &UrlMother::https());
+    let name = SourceName::parse(&format!("{}-{}", random::word(), random::word())).unwrap();
+
+    store.rename_source(first.id, &name).unwrap();
+
+    store.reopen();
+    let renamed = Source {
+        name: name.clone(),
+        ..first.clone()
+    };
+    assert_eq!(store.source_named(&name).unwrap(), Some(renamed.clone()));
+    assert_eq!(store.source_named(&first.name).unwrap(), None);
+    assert_eq!(
+        store.source_named(&second.name).unwrap(),
+        Some(second.clone())
+    );
+    // A name two sources would hold is refused, and the store is as it was.
+    let refused = store.rename_source(second.id, &name).unwrap_err();
+    assert_eq!(refused.code(), "ledger_query_failed");
+    store.reopen();
+    assert_eq!(store.source_named(&name).unwrap(), Some(renamed));
 }
 
 // ---------------------------------------------------------------------------
