@@ -263,29 +263,34 @@ pub enum Task {
     /// `mindweaver workspaces`: the workspaces this machine knows, the one in
     /// use marked, to read.
     Workspaces,
-    /// `mindweaver gather search --json <query>`: the skill directories
-    /// the workspace enables asked what they find, read back from the JSON
-    /// the line prints, for a front end to list and take one from with a
-    /// [`Gather`](Task::Gather) of its repository and its folder (#108).
+    /// `mindweaver gather search [--finder-url <finder>=<url>]... --json
+    /// <query>`: the skill directories the workspace enables asked what
+    /// they find, read back from the JSON the line prints, for a front end
+    /// to list and take one from with a [`Gather`](Task::Gather) of its
+    /// repository and its folder (#108).
     ///
     /// No token, nor the name of a variable holding one: a front end hands
     /// none over (D-16), so the line asks no finder that needs one, GitHub's
     /// code search, and says so. JSON, since what a front end takes is what
     /// it reads, by the names the envelope's `data` gives each result, never
-    /// a table's columns read back.
+    /// a table's columns read back. Each finder at its own address, unless
+    /// the front end was told another where it was started ([`Catalogs`]):
+    /// the task names none.
     SearchSkills { query: String },
-    /// `mindweaver gather mcp search --json <query>`: the official MCP
-    /// Registry asked for the servers whose name holds the query, read
-    /// back from the JSON the line prints, by the names the envelope's
-    /// `data` gives each server, for a front end to list and add one from
-    /// with an [`ImportServer`](Task::ImportServer) (#107).
+    /// `mindweaver gather mcp search [--registry <url>] --json <query>`:
+    /// the official MCP Registry asked for the servers whose name holds the
+    /// query, read back from the JSON the line prints, by the names the
+    /// envelope's `data` gives each server, for a front end to list and add
+    /// one from with an [`ImportServer`](Task::ImportServer) (#107).
     ///
-    /// The official registry alone, as the command asks unless told
-    /// another: a front end names no registry, so a browser sends no
+    /// The official registry, as the command asks unless told another, or
+    /// the mirror the front end was told where it was started
+    /// ([`Catalogs`]): a task names no registry, so a browser sends no
     /// address for a line to ask and take a program from.
     SearchServers { query: String },
-    /// `mindweaver gather mcp add [--version <version>] [--yes] <server>`:
-    /// the official registry's server, by the name it gives it, written
+    /// `mindweaver gather mcp add [--registry <url>] [--version <version>]
+    /// [--yes] <server>`: the official registry's server, or the front
+    /// end's mirror's ([`Catalogs`]), by the name it gives it, written
     /// into the workspace's library as a definition with `yes`; without
     /// it the dry run, which writes nothing and says what an agent would
     /// run or reach, what a front end shows before it asks for the yes.
@@ -673,7 +678,10 @@ impl Task {
     /// exception, a read that builds the screen `mindweaver install` opens rather
     /// than a line run, and a refresh changes nothing.
     pub fn commands(&self) -> Vec<Vec<String>> {
-        self.commands_saving_in(&WeaverWorkspace::scratch_route_under(Names::Mindweaver))
+        self.lines(
+            &WeaverWorkspace::scratch_route_under(Names::Mindweaver),
+            &Catalogs::default(),
+        )
     }
 
     /// [`commands`](Self::commands), as they run in `workspace`: a save's
@@ -681,11 +689,23 @@ impl Task {
     /// ([`WeaverWorkspace::scratch_route`]), which one a Mindflayer build
     /// made keeps in its `.mindflayer`, where the text for it is put.
     pub fn commands_in(&self, workspace: &WeaverWorkspace) -> Vec<Vec<String>> {
-        self.commands_saving_in(&workspace.scratch_route())
+        self.commands_asking(workspace, &Catalogs::default())
     }
 
-    /// The lines, a save's text read from the scratch folder at `scratch`.
-    fn commands_saving_in(&self, scratch: &str) -> Vec<Vec<String>> {
+    /// [`commands_in`](Self::commands_in), each search and add asking the
+    /// catalogs `catalogs` names in place of each command's own: what the
+    /// panel's backend runs, as `mindweaver ui` was told them.
+    pub fn commands_asking(
+        &self,
+        workspace: &WeaverWorkspace,
+        catalogs: &Catalogs,
+    ) -> Vec<Vec<String>> {
+        self.lines(&workspace.scratch_route(), catalogs)
+    }
+
+    /// The lines, a save's text read from the scratch folder at `scratch`,
+    /// and each search and add asking the catalogs `catalogs` names.
+    fn lines(&self, scratch: &str, catalogs: &Catalogs) -> Vec<Vec<String>> {
         match self {
             Task::InitWorkspace => vec![words(&["mindweaver", "init"], &[])],
             Task::InitProject => vec![words(&["mind", "init"], &[])],
@@ -796,17 +816,23 @@ impl Task {
                     .map_or_else(Vec::new, |batch| batch.commands())
             }
             Task::Shelf => vec![words(&["mindweaver", "gather", "list"], &[])],
+            // Where a catalog is asked first, as it is the first thing the
+            // line was told, then what it is asked.
             Task::SearchSkills { query } => {
-                vec![words(
-                    &["mindweaver", "gather", "search", "--json"],
-                    &[query],
-                )]
+                let mut head = owned(&["mindweaver", "gather", "search"]);
+                for finder in &catalogs.finders {
+                    head.extend(option("--finder-url", finder));
+                }
+                head.push(String::from("--json"));
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[query])]
             }
             Task::SearchServers { query } => {
-                vec![words(
-                    &["mindweaver", "gather", "mcp", "search", "--json"],
-                    &[query],
-                )]
+                let mut head = owned(&["mindweaver", "gather", "mcp", "search"]);
+                head.extend(catalogs.registered());
+                head.push(String::from("--json"));
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[query])]
             }
             // `--yes` before the server, as `remove` has it before the name.
             Task::ImportServer {
@@ -815,6 +841,7 @@ impl Task {
                 yes,
             } => {
                 let mut head = owned(&["mindweaver", "gather", "mcp", "add"]);
+                head.extend(catalogs.registered());
                 if let Some(version) = version {
                     head.extend(option("--version", version));
                 }
@@ -1018,7 +1045,10 @@ impl Task {
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[])]
             }
-            Task::ApplyInstall { changes } => changes.iter().flat_map(Task::commands).collect(),
+            Task::ApplyInstall { changes } => changes
+                .iter()
+                .flat_map(|change| change.lines(scratch, catalogs))
+                .collect(),
             Task::OpenInstall => vec![words(&["mindweaver", "install"], &[])],
             Task::Refresh => Vec::new(),
         }
@@ -1749,6 +1779,36 @@ fn at(holder: &Holder, command: &[&str], positionals: &[&str]) -> Vec<String> {
     let mut head: Vec<&str> = start.iter().map(String::as_str).collect();
     head.extend_from_slice(command);
     words(&head, positionals)
+}
+
+/// Where a front end's searches ask in place of each command's own
+/// addresses: the MCP registry a `search_servers` or an `import_server`
+/// line names with `--registry`, and each skill directory a
+/// `search_skills` line names with `--finder-url`, as `mindweaver ui` was
+/// told them when it was started.
+///
+/// Whoever starts the front end's, never a task's: a browser sends no
+/// address a line would ask, nor take a program from, so a task has no
+/// field for one, as it has none for a token or a `-W`; and every line
+/// asking one names it, so what the panel previews and the transcript
+/// keeps reach the same catalog pasted at a terminal. None by default: the
+/// official registry, and each finder at its own address.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Catalogs {
+    /// The registry, as `--registry` takes it.
+    pub registry: Option<String>,
+    /// Each finder's address, `FINDER=URL` as `--finder-url` takes it.
+    pub finders: Vec<String>,
+}
+
+impl Catalogs {
+    /// `--registry` and the registry, when one is named.
+    fn registered(&self) -> Vec<String> {
+        self.registry
+            .as_deref()
+            .map(|registry| option("--registry", registry))
+            .unwrap_or_default()
+    }
 }
 
 /// `line`, naming the workspace at `root` with `-W`, right after the

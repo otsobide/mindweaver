@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use common::contract;
 use common::*;
 use mindweaver_cli::backend::{Outcome, PanelBackend, Query, Switch};
-use mindweaver_cli::task::{naming, shell, Caution};
+use mindweaver_cli::task::{naming, shell, Catalogs, Caution};
 use mindweaver_core::watch;
 use mindweaver_server::{Backend, Grounds, Own, Preview, Ran, Refusal, Underway, API};
 use serde_json::{json, Value};
@@ -3814,4 +3814,132 @@ fn a_backup_is_refused_a_repository_or_a_token_s_variable_the_policy_does_not_al
         assert_eq!(refused.code, code, "{folder:?}");
     }
     drop(elsewhere);
+}
+
+// ---------------------------------------------------------------------------
+// Searching the catalogs (#114)
+// ---------------------------------------------------------------------------
+
+/// A workspace at `root`, made, whose `weaver.toml` lists skills.sh in
+/// `finders`, as a person writes the key in by hand having read its terms:
+/// no command writes it.
+fn finding(root: &Path) {
+    weaver(root, &["init"]).unwrap();
+    let marker = root.join(WEAVER_DIR).join(WEAVER_CONFIG);
+    let text = fs::read_to_string(&marker).unwrap().replacen(
+        "loaded = []\n",
+        "loaded = []\nfinders = [\"skills.sh\"]\n",
+        1,
+    );
+    fs::write(&marker, text).unwrap();
+}
+
+/// The backend over the workspace at `root`, its searches and adds asking
+/// `registry` and `directory` as `mindweaver ui --registry --finder-url`
+/// launches it.
+fn asking(
+    root: &Path,
+    registry: &common::mcp_registry::Registry,
+    directory: &common::finder::SkillsSh,
+) -> Checked {
+    Checked(
+        PanelBackend::launch(root, &Lookup::default())
+            .unwrap()
+            .asking(Catalogs {
+                registry: Some(registry.url()),
+                finders: vec![directory.finder_url()],
+            }),
+    )
+}
+
+/// The envelope a run's only line printed, read back as JSON.
+fn printed(outcome: &Outcome) -> Value {
+    assert!(outcome.ok, "{outcome:?}");
+    serde_json::from_str(&outcome.runs[0].stdout)
+        .unwrap_or_else(|error| panic!("{error}: {}", outcome.runs[0].stdout))
+}
+
+/// What the panel searches and adds from asks the catalogs its launch
+/// named, each named on the line it previews, and a browser names none:
+/// the registry on loopback is asked, and the official one never could be.
+#[test]
+fn the_panels_searches_and_adds_ask_the_catalogs_its_launch_names_on_each_line() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    finding(root);
+    let registry = common::mcp_registry::Registry::recorded();
+    let directory = common::finder::SkillsSh::answering(&[]);
+    let backend = asking(root, &registry, &directory);
+    let named = |line: &str| format!("mindweaver -W {} {line}", root.display());
+
+    let searched = task(json!({"type": "search_servers", "query": "clawfetch"}));
+    let dry = task(
+        json!({"type": "import_server", "server": "ai.clawfetch/mcp", "version": "0.4.0", "yes": false}),
+    );
+    let skills = task(json!({"type": "search_skills", "query": "pdf"}));
+    let url = registry.url();
+    let finder = directory.finder_url();
+    assert_eq!(
+        backend.preview(&searched).unwrap().lines,
+        [named(&format!(
+            "gather mcp search --registry {url} --json clawfetch"
+        ))]
+    );
+    assert_eq!(
+        backend.preview(&dry).unwrap().lines,
+        [named(&format!(
+            "gather mcp add --registry {url} --version 0.4.0 ai.clawfetch/mcp"
+        ))]
+    );
+    let preview = backend.preview(&skills).unwrap();
+    assert_eq!(
+        preview.lines,
+        [named(&format!(
+            "gather search --finder-url {finder} --json pdf"
+        ))]
+    );
+    assert!(preview.cancellable);
+
+    let listing = printed(&backend.run(searched).unwrap());
+    assert_eq!(listing["data"]["servers"][0]["name"], "ai.clawfetch/mcp");
+    let found = printed(&backend.run(skills).unwrap());
+    assert_eq!(found["data"]["asked"], json!(["skills.sh"]));
+    assert_eq!(registry.paths()[0], "/v0.1/servers");
+    assert_eq!(directory.asked().len(), 1, "{:?}", directory.asked());
+}
+
+/// An add from the registry is its dry run, which says what an agent would
+/// run and writes nothing, until the same task is sent told yes, which
+/// writes the definition into the library and is kept in the transcript.
+#[test]
+fn an_add_from_the_registry_writes_nothing_until_it_is_sent_again_told_yes() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    finding(root);
+    let registry = common::mcp_registry::Registry::recorded();
+    let directory = common::finder::SkillsSh::answering(&[]);
+    let backend = asking(root, &registry, &directory);
+    let add = |yes: bool| {
+        task(
+            json!({"type": "import_server", "server": "ai.clawfetch/mcp", "version": null, "yes": yes}),
+        )
+    };
+    let library = root.join(WEAVER_DIR).join("library").join("mcp");
+
+    let dry = backend.run(add(false)).unwrap();
+    assert!(dry.ok, "{dry:?}");
+    assert!(
+        dry.runs[0]
+            .stdout
+            .contains("runs: npx -y @clawfetch/mcp@0.4.0"),
+        "{}",
+        dry.runs[0].stdout
+    );
+    assert!(!library.exists());
+    assert_eq!(backend.transcript(), "");
+
+    let yes = backend.run(add(true)).unwrap();
+    assert!(yes.ok, "{yes:?}");
+    assert!(library.join("clawfetch-mcp.toml").is_file());
+    assert!(backend.transcript().contains("gather mcp add --registry"));
 }

@@ -2608,3 +2608,102 @@ fn a_search_of_the_skill_directories_is_its_json_line_with_no_token() {
     assert_eq!(task.refusal(), None);
     assert!(task.cautions().is_empty());
 }
+
+/// The catalogs a front end was started with are named by each line that
+/// asks one, `--registry` by a search of the registry and an add from it,
+/// `--finder-url` by a search of the skill directories; every other line
+/// is the one it is without them, a take's gather among them, which asks
+/// the repository.
+#[test]
+fn the_catalogs_a_front_end_was_started_with_are_named_by_each_line_asking_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = WeaverWorkspace::unmade(dir.path()).unwrap();
+    let catalogs = Catalogs {
+        registry: Some(String::from("http://127.0.0.1:4100")),
+        finders: vec![
+            String::from("skills.sh=http://127.0.0.1:4200"),
+            String::from("claude-plugins.dev=https://mirror.example"),
+        ],
+    };
+    let finders = "--finder-url skills.sh=http://127.0.0.1:4200 \
+                   --finder-url claude-plugins.dev=https://mirror.example";
+
+    let asked = |task: &Task| task.commands_asking(&workspace, &catalogs);
+    assert_eq!(
+        asked(&Task::SearchSkills {
+            query: String::from("pdf")
+        }),
+        [line(&format!(
+            "mindweaver gather search {finders} --json pdf"
+        ))]
+    );
+    assert_eq!(
+        asked(&Task::SearchServers {
+            query: String::from("clawfetch")
+        }),
+        [line(
+            "mindweaver gather mcp search --registry http://127.0.0.1:4100 --json clawfetch"
+        )]
+    );
+    assert_eq!(
+        asked(&Task::ImportServer {
+            server: String::from("ai.clawfetch/mcp"),
+            version: Some(String::from("0.4.0")),
+            yes: true,
+        }),
+        [line(
+            "mindweaver gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 --yes \
+             ai.clawfetch/mcp"
+        )]
+    );
+    for value in VALUES {
+        for task in every(value) {
+            if matches!(
+                task,
+                Task::SearchSkills { .. } | Task::SearchServers { .. } | Task::ImportServer { .. }
+            ) {
+                continue;
+            }
+            assert_eq!(asked(&task), task.commands_in(&workspace), "{task:?}");
+        }
+    }
+}
+
+/// A catalog's address starting with a dash still reaches its option as
+/// its value, joined to it by `=`, as every value does: `--yes` as a
+/// registry's address says no yes.
+#[test]
+fn a_catalog_s_address_starting_with_a_dash_is_still_its_option_s_value() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = WeaverWorkspace::unmade(dir.path()).unwrap();
+    let catalogs = Catalogs {
+        registry: Some(String::from("--yes")),
+        finders: vec![String::from("--json")],
+    };
+    let mut parsers = Parsers::new();
+    let given = |read: &Read, id: &str| -> Option<Vec<String>> {
+        read.iter()
+            .flat_map(|(_, given)| given)
+            .find(|given| given.id == id)
+            .map(|given| given.values.clone())
+    };
+
+    let search = Task::SearchSkills {
+        query: String::from("pdf"),
+    };
+    let read = parsers.read(&search.commands_asking(&workspace, &catalogs)[0]);
+    assert_eq!(given(&read, "at"), Some(vec![String::from("--json")]));
+    let servers = Task::SearchServers {
+        query: String::from("pdf"),
+    };
+    let read = parsers.read(&servers.commands_asking(&workspace, &catalogs)[0]);
+    assert_eq!(given(&read, "registry"), Some(vec![String::from("--yes")]));
+    let dry = Task::ImportServer {
+        server: String::from("ai.clawfetch/mcp"),
+        version: None,
+        yes: false,
+    };
+    let read = parsers.read(&dry.commands_asking(&workspace, &catalogs)[0]);
+    assert_eq!(given(&read, "registry"), Some(vec![String::from("--yes")]));
+    assert_eq!(given(&read, "yes"), None, "{read:?}");
+}

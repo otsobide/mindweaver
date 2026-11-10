@@ -105,7 +105,7 @@ use crate::commands::project::{scan_warned, worth_linking};
 use crate::commands::{run_line, Ran};
 use crate::progress;
 use crate::routes;
-use crate::task::{self, cautioned, followed, shell, Caution, Holder, MindsChange, Task};
+use crate::task::{self, cautioned, followed, shell, Catalogs, Caution, Holder, MindsChange, Task};
 use crate::tui::state::{transcript, Done};
 use crate::{CliError, Lookup, Warning};
 
@@ -627,6 +627,9 @@ pub struct PanelBackend {
     changed: Arc<Mutex<Vec<Run>>>,
     /// Where it says how long each line took, if anywhere.
     log: Option<Log>,
+    /// Where its searches and adds ask in place of each command's own, as
+    /// the launch was told: every such line it runs names them.
+    catalogs: Catalogs,
 }
 
 /// By hand, for the log, which is a function: whether there is one.
@@ -638,6 +641,7 @@ impl std::fmt::Debug for PanelBackend {
             .field("lookup", &self.lookup)
             .field("changed", &self.changed)
             .field("log", &self.log.is_some())
+            .field("catalogs", &self.catalogs)
             .finish()
     }
 }
@@ -660,7 +664,21 @@ impl PanelBackend {
             lookup: lookup.clone(),
             changed: Arc::default(),
             log: None,
+            catalogs: Catalogs::default(),
         })
+    }
+
+    /// Ask the catalogs `catalogs` names in place of each command's own, in
+    /// every search and add it runs: the MCP registry and the skill
+    /// directories' addresses `ui --registry` and `--finder-url` were told,
+    /// each named by every line that asks it, so the line previewed and
+    /// kept in the transcript reaches the same one pasted at a terminal.
+    ///
+    /// The launch's alone, as its home and agent homes are: a task names no
+    /// address, so nothing a browser sends changes where a search asks.
+    pub fn asking(mut self, catalogs: Catalogs) -> Self {
+        self.catalogs = catalogs;
+        self
     }
 
     /// Say in `log`, once each line it runs has run, how long it took and
@@ -756,7 +774,7 @@ impl PanelBackend {
             Some(root) => lines.iter().map(|line| task::naming(line, root)).collect(),
             None => lines,
         };
-        let lines = admitted.commands_in(&workspace);
+        let lines = admitted.commands_asking(&workspace, &self.catalogs);
         // As the TUI does: a change to the default before it is made makes
         // it first, by a line of its own, rather than leave the change to
         // find a workspace above home while it walks up from the root. Not

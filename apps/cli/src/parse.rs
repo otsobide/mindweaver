@@ -1158,6 +1158,22 @@ pub struct UiOptions {
     // for: a line a request is too many for a terminal somebody is using.
     #[arg(long)]
     pub log: bool,
+
+    /// The MCP registry the panel's searches and adds ask, in place of the
+    /// official one: an address serving its API, over https, or http on
+    /// this machine. Every line of the panel's asking it names it.
+    //
+    // Whoever starts the panel's, never a browser's: a task names no
+    // registry, since what one answers is a program agents start.
+    #[arg(long, value_name = "URL")]
+    pub registry: Option<String>,
+
+    /// Ask a skill directory the panel's searches ask at another address
+    /// that speaks its API, over https or http on this machine, as `gather
+    /// search --finder-url` does: `skills.sh=https://mirror.example`; once
+    /// for each. Every search the panel runs names it.
+    #[arg(long = "finder-url", value_name = "FINDER=URL")]
+    pub finder_urls: Vec<String>,
 }
 
 /// How `edit` changes an artifact, at either level: in an editor, by
