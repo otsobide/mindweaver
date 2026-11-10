@@ -304,5 +304,42 @@
       "type": "remove_source",
       "yes": true
     }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update src-acme-skills"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update src-acme-skills"
+      ],
+      "outcome": {
+        "ok": false,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather update src-acme-skills",
+            "error": null,
+            "ok": false,
+            "stderr": [
+              {
+                "code": "gather_cancelled",
+                "text": "warning: src-acme-skills: cancelled, with nothing put on the shelf"
+              }
+            ],
+            "stdout": ""
+          }
+        ]
+      }
+    },
+    "task": {
+      "names": [
+        "src-acme-skills"
+      ],
+      "type": "update_sources"
+    }
   }
 ]

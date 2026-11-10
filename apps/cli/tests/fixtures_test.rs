@@ -2074,8 +2074,9 @@ fn write_the_snapshot_of_a_workspace_filled_from_sources() {
 /// backend answers: `acme-tools` added, its dry run first, then gathered,
 /// then gathered and stopped at its first step, before anything is placed;
 /// `src-acme-skills` gathered again, then every source; `src-acme-skills`
-/// renamed, then renamed to a name `team-rules` has, which is refused; and
-/// `team-rules` forgotten, its dry run first.
+/// renamed, then renamed to a name `team-rules` has, which is refused;
+/// `team-rules` forgotten, its dry run first; and `src-acme-skills`
+/// gathered again and stopped at its first step.
 #[test]
 fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
     let tools = |dir: &Path| {
@@ -2091,19 +2092,18 @@ fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
     let rename = |to: &str| json!({"type": "rename_source", "from": "src-acme-skills", "to": to});
     let remove = |yes: bool| json!({"type": "remove_source", "name": "team-rules", "yes": yes});
     // Each task, and whether its run asks itself to stop at its first step.
-    let sent: [(&dyn Fn(&Path) -> Value, bool); 9] = [
+    let again = |_: &Path| json!({"type": "update_sources", "names": ["src-acme-skills"]});
+    let sent: [(&dyn Fn(&Path) -> Value, bool); 10] = [
         (&|dir| gather(dir, true), false),
         (&|dir| gather(dir, false), false),
         (&|dir| gather(dir, false), true),
-        (
-            &|_| json!({"type": "update_sources", "names": ["src-acme-skills"]}),
-            false,
-        ),
+        (&again, false),
         (&|_| json!({"type": "update_sources", "names": []}), false),
         (&|_| rename("acme-skills"), false),
         (&|_| rename("team-rules"), false),
         (&|_| remove(false), false),
         (&|_| remove(true), false),
+        (&again, true),
     ];
 
     let mut answers = Vec::new();
@@ -2173,6 +2173,14 @@ fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
         said(8).starts_with("forgot the source team-rules"),
         "{}",
         answers[8]
+    );
+    // Stopped, it says so of the source it stopped at, by the gather's code.
+    assert_eq!(run(9)["error"], Value::Null, "{}", answers[9]);
+    assert_eq!(
+        run(9)["stderr"][0]["code"],
+        "gather_cancelled",
+        "{}",
+        answers[9]
     );
     let json = serde_json::to_string_pretty(&written).unwrap() + "\n";
     write("gathered", &json);
