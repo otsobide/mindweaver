@@ -4,11 +4,11 @@
 //! `port::Token`, since core never reads the environment and never runs
 //! `gh`. Neither is printed, and nothing here asks a person for anything.
 //!
-//! Only a command typed in a shell gets here: no task a front end without a
-//! terminal sends carries either option, and the lines that would are
-//! refused there ([`crate::task::Refusal::Credential`]), since read on the
-//! panel's server they would hand its environment, or its account's `gh`,
-//! to whoever named the URL.
+//! A gather's token comes from a command typed in a shell alone: no task a
+//! front end sends for a gather carries a token, the name of a variable or
+//! `--gh`, so its lines never spell either option. A backup's task may name
+//! a variable, never the token, held to core's rule for one
+//! (`policy::token_variable`), and its line reads it here as any other.
 
 use std::io;
 use std::process::{Command, Stdio};

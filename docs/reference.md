@@ -947,8 +947,8 @@ $ mindweaver gather git git@github.com:acme/private-skills.git --token-env GITHU
 error: git@github.com:acme/private-skills.git: reached over ssh, which logs in with keys of its own, so a token would be for nothing: leave --token-env and --gh out, or gather its https URL
 ```
 
-Both are the command line's: the TUI and the panel enter no credential, and
-the panel refuses to run a gather line that carries either (`reads_credential`).
+Both are the command line's: a gather from the TUI or the panel hands over
+no token, and logs in as git config's helpers and ssh do.
 
 Mindweaver itself never stops to ask for a username or a password, so a
 source that needs one nobody handed over fails, and says what to set up:

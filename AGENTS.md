@@ -607,11 +607,9 @@ These are easy to break from a single file without noticing.
   no terminal does not run is one list, `task::Refusal`, read off the
   parsed command by a match with no wildcard (`Refusal::of_mind`,
   `of_weaver`), so a new command says whether it is refused before it
-  compiles; a task is refused for its lines (`Task::refusal`). A gather
-  handing over a token (`--token-env`, `--gh`) is refused
-  (`Refusal::Credential`), since read on the server it would be the
-  server's own, and no task spells either option: a front end with no
-  terminal enters no credential. `edit` is
+  compiles; a task is refused for its lines (`Task::refusal`). A gather's
+  task carries no token, no variable's name and no `--gh`, so its lines
+  hand none over: a gather's token comes from a shell alone. `edit` is
   refused in an editor and with `--contents -`, standard input, and run
   with `--contents FILE` (`Refusal::of_edit`); the one task that builds
   that line, the panel's save (`Task::Save`, its text and the hash it was

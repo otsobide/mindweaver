@@ -3422,10 +3422,13 @@ URL names, run with no standard input and its prompt off, and what it prints
 never shown. Nothing writes it down: the ledger stores the URL redacted and
 never sees the token, the clone's config and reflogs hold the URL `gix` was
 given, which carries none, and every error is redacted as before. Only a
-shell hands either option over: no task carries one, and a front end with no
-terminal refuses a gather line that does (`task::Refusal::Credential`,
-`reads_credential`), since on the panel's server it would send the server's
-own environment, or its account's `gh`, to a host a browser named.
+shell hands either option over: a gather's task carries no token, no
+variable's name and no `--gh` (its fields are the URL, the folder and the
+branch, and one more is refused), so its lines spell neither, and a gather
+from the TUI or the panel logs in as the helpers and ssh do. Were one to
+name a variable, as a backup's task may, it would be held to the rule
+backup's is (`policy::token_variable`), since what the variable holds is
+sent to the host the request names.
 
 The callback's tests stand in a cascade whose prompt panics. One with a token
 runs `gix`'s own handshake over a transport of the test's at an https URL,
@@ -5891,13 +5894,6 @@ is sent would run one the list never named. `gather git` was on it, as the
 network for as long as it takes, until #112 brought the server the progress
 and the cancel only a screen had; its code, `gather_unwatched`, went with
 it, given to nothing else, as no code is ever given to another condition.
-A gather that hands over a token (`--token-env`, `--gh`) is on it still
-(`task::Refusal::Credential`, `reads_credential`), an arm before the
-gather's own: read where the line runs, that token would be the server's
-environment, or its account's `gh`, sent to a host a browser named, and a
-front end with no terminal enters no credential
-([D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)). No
-task spells either option, so it keeps out a line built some other way.
 
 Beside it, and read the same way, is what a line takes away
 (`task::Caution`, `task::cautions`): `remove --yes` deletes, `uninstall`
