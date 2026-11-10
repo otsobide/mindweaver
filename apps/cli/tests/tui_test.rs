@@ -1262,7 +1262,10 @@ fn a_gather_already_placing_says_a_cancel_is_too_late_and_finishes() {
     let mut app = tui_in(dir.path());
     let (go, gate) = mpsc::channel();
     app.runner = Some(placing_gather(gate));
-    start_gather(&mut app, Progress::Gather(Gather::Placing { done: 0, total: 3 }));
+    start_gather(
+        &mut app,
+        Progress::Gather(Gather::Placing { done: 0, total: 3 }),
+    );
     let drawn = tui_drawn(&app);
     assert!(drawn.contains("placing on the shelf 0/3"), "{drawn}");
     // No key offered that would change nothing.
@@ -3076,7 +3079,10 @@ fn placing_gather(go: mpsc::Receiver<()>) -> Runner {
 /// Ask for the slow gather from the gather form, and let it get as far as
 /// reading its first folder.
 fn start_slow_gather(app: &mut App) {
-    start_gather(app, Progress::Gather(Gather::Harvesting { done: 0, total: 3 }));
+    start_gather(
+        app,
+        Progress::Gather(Gather::Harvesting { done: 0, total: 3 }),
+    );
 }
 
 /// Ask for a gather from the gather form, and let it get as far as `step`.
@@ -4109,5 +4115,323 @@ fn a_projects_rows_show_its_mcp_servers_installed_and_somebodys() {
         "mcp   theirs  foreign  CC",
     ] {
         assert!(drawn.contains(row), "{row}\n{drawn}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Exporting and backing up the library
+// ---------------------------------------------------------------------------
+
+/// A workspace whose library holds the skill `deploy`.
+fn library_with_a_skill() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    weaver(dir.path(), &["add", "skill", "deploy", "Ship it"]).unwrap();
+    dir
+}
+
+#[test]
+fn x_exports_the_library_into_a_folder_as_weaver_export_does() {
+    let dir = library_with_a_skill();
+    let elsewhere = TempDir::new().unwrap();
+    let folder = elsewhere.path().join("backup");
+    let typed = folder.to_str().unwrap().to_owned();
+    let mut app = tui_in(dir.path());
+
+    press_key(&mut app, KeyCode::Char('x'));
+    type_text(&mut app, &typed);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("Export the library into a folder"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains(&format!("mindweaver export {typed}")),
+        "{drawn}"
+    );
+    let task = press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        task,
+        Some(Task::Export {
+            folder: typed.clone(),
+            kinds: Vec::new(),
+            yes: false,
+        })
+    );
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(
+        reader
+            .lines
+            .iter()
+            .any(|(_, line)| line.contains("added  skill  deploy")),
+        "{:?}",
+        reader.lines
+    );
+    assert!(folder
+        .join(".mindweaver/library/skills/deploy/SKILL.md")
+        .is_file());
+    assert!(app
+        .transcript()
+        .contains(&format!("$ mindweaver export {typed}\n")));
+}
+
+#[test]
+fn the_export_form_names_the_kinds_ticked_and_asks_before_it_may_take_away() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    press_key(&mut app, KeyCode::Char('x'));
+    type_text(&mut app, "/srv/backup");
+
+    // Down to `skills` and unticked: the others are named, and only they.
+    press_key(&mut app, KeyCode::Tab);
+    press_key(&mut app, KeyCode::Char(' '));
+    assert!(tui_drawn(&app).contains("mindweaver export --kind rules --kind mcp /srv/backup"));
+    // Down past `rules` and `mcp` to the yes, ticked.
+    for _ in 0..3 {
+        press_key(&mut app, KeyCode::Tab);
+    }
+    press_key(&mut app, KeyCode::Char(' '));
+    assert!(tui_drawn(&app).contains("mindweaver export --kind rules --kind mcp --yes /srv/backup"));
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    let Mode::Confirming(confirm) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        confirm.task,
+        Task::Export {
+            folder: String::from("/srv/backup"),
+            kinds: vec![Kind::Rule, Kind::Mcp],
+            yes: true,
+        }
+    );
+    assert!(confirm.question[0].contains("/srv/backup"), "{confirm:?}");
+
+    // No, and back in the form as it was left.
+    press_key(&mut app, KeyCode::Char('n'));
+    let Mode::Exporting(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(form.yes);
+}
+
+#[test]
+fn the_export_form_wants_a_folder_and_a_kind() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    press_key(&mut app, KeyCode::Char('x'));
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    let Mode::Exporting(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some("a folder to export into is needed")
+    );
+
+    type_text(&mut app, "/srv/backup");
+    for _ in 0..3 {
+        press_key(&mut app, KeyCode::Tab);
+        press_key(&mut app, KeyCode::Char(' '));
+    }
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    let Mode::Exporting(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.error.as_deref(), Some("tick at least one kind"));
+}
+
+#[test]
+fn b_backs_the_library_up_from_a_form_that_names_a_token_by_its_variable() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+
+    press_key(&mut app, KeyCode::Char('b'));
+    type_text(&mut app, "https://github.com/you/library.git");
+    press_key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "library");
+    press_key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "- weekly");
+    press_key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "GITHUB_TOKEN");
+    // Down to `rules`, unticked.
+    press_key(&mut app, KeyCode::Tab);
+    press_key(&mut app, KeyCode::Tab);
+    press_key(&mut app, KeyCode::Char(' '));
+
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("Back the library up to a git repository"),
+        "{drawn}"
+    );
+    // The line it runs, as far as the box has room for.
+    assert!(
+        drawn.contains("runs         mindweaver backup --branch library --kind skills --kind mcp"),
+        "{drawn}"
+    );
+    let TuiStep::Run(task) = press_key(&mut app, KeyCode::Enter) else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        task,
+        Task::Backup {
+            url: String::from("https://github.com/you/library.git"),
+            branch: Some(String::from("library")),
+            kinds: vec![Kind::Skill, Kind::Mcp],
+            message: Some(String::from("- weekly")),
+            token_env: Some(String::from("GITHUB_TOKEN")),
+        }
+    );
+    assert!(task.runs_apart());
+}
+
+#[test]
+fn the_backup_form_wants_a_repository() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    press_key(&mut app, KeyCode::Char('b'));
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+
+    let Mode::Backing(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.error.as_deref(), Some("a repository URL is needed"));
+}
+
+/// The repository the slow backup is asked for, which it never reaches.
+const SLOWLY: &str = "https://example.com/library.git";
+
+/// A stand-in for `mindweaver backup` that takes as long as the test
+/// wants: it says it checks out and exports, and goes on to commit and push
+/// only when `go` says so. A cancel before then stops it, as one stops a
+/// real backup before it pushes; one after is too late.
+fn slow_backup(go: mpsc::Receiver<()>) -> Runner {
+    let go = Mutex::new(go);
+    Runner::new(move |words, _, _, watch| {
+        let go = go.lock().unwrap();
+        let command = tui::state::shell(words);
+        watch.report(Progress::Backup(Backup::CheckingOut));
+        watch.report(Progress::Backup(Backup::Exporting));
+        loop {
+            if watch.is_cancelled() {
+                return Done::failed(
+                    command,
+                    "the backup was cancelled before anything was pushed: the repository is as it was",
+                );
+            }
+            match go.recv_timeout(Duration::from_millis(5)) {
+                // A test that has gone is not waited for.
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        }
+        watch.report(Progress::Backup(Backup::Committing));
+        watch.report(Progress::Backup(Backup::Pushing));
+        // Past the last check: it finishes whatever is asked.
+        let _ = go.recv();
+        Done {
+            command,
+            stdout: String::from("pushed 0123abc to main\n"),
+            stderr: Vec::new(),
+            error: None,
+            ok: true,
+        }
+    })
+}
+
+/// Ask for the slow backup from the backup form, and let it get as far as
+/// `step`.
+fn start_backup(app: &mut App, step: Backup) {
+    press_key(app, KeyCode::Char('b'));
+    type_text(app, SLOWLY);
+    let TuiStep::Run(task) = press_key(app, KeyCode::Enter) else {
+        panic!("{:?}", app.mode);
+    };
+    tui::step(app, task);
+    settle_until(app, |app| reported(app) == Some(Progress::Backup(step)));
+}
+
+#[test]
+fn a_backup_runs_apart_with_its_steps_drawn_and_esc_stops_it_before_it_pushes() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    let (_go, gate) = mpsc::channel();
+    app.runner = Some(slow_backup(gate));
+    start_backup(&mut app, Backup::Exporting);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains(&format!("mindweaver backup {SLOWLY}")),
+        "{drawn}"
+    );
+    assert!(drawn.contains("exporting the library"), "{drawn}");
+    assert!(drawn.contains("esc cancels"), "{drawn}");
+
+    assert_eq!(press_key(&mut app, KeyCode::Esc), TuiStep::Stay);
+
+    assert!(tui_drawn(&app).contains("cancelling, before anything is pushed"));
+    settle_until(&mut app, |app| app.running.is_none());
+    // Back in the form it was started from, with why it stopped.
+    let Mode::Backing(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some("the backup was cancelled before anything was pushed: the repository is as it was")
+    );
+    assert!(app
+        .transcript()
+        .contains(&format!("$ mindweaver backup {SLOWLY}\nerror: ")));
+}
+
+#[test]
+fn a_backup_already_pushing_says_a_cancel_is_too_late_and_finishes() {
+    let dir = library_with_a_skill();
+    let mut app = tui_in(dir.path());
+    let (go, gate) = mpsc::channel();
+    app.runner = Some(slow_backup(gate));
+    start_backup(&mut app, Backup::Exporting);
+    go.send(()).unwrap();
+    settle_until(&mut app, |app| {
+        reported(app) == Some(Progress::Backup(Backup::Pushing))
+    });
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("pushing"), "{drawn}");
+    assert!(!drawn.contains("esc cancels"), "{drawn}");
+    assert!(drawn.contains("too late to cancel: pushing"), "{drawn}");
+
+    assert_eq!(press_key(&mut app, KeyCode::Esc), TuiStep::Stay);
+
+    let drawn = tui_drawn(&app);
+    assert!(!drawn.contains("cancelling"), "{drawn}");
+    go.send(()).unwrap();
+    settle_until(&mut app, |app| app.running.is_none());
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(reader.lines[0].1, "pushed 0123abc to main");
+}
+
+#[test]
+fn x_and_b_on_a_project_on_its_own_say_they_are_a_workspace_s() {
+    let dir = TempDir::new().unwrap();
+    mind(dir.path(), &["init"]).unwrap();
+    let mut app = mind_tui_in(dir.path());
+
+    for key in ['x', 'b'] {
+        assert_eq!(press_key(&mut app, KeyCode::Char(key)), TuiStep::Stay);
+
+        assert!(matches!(app.mode, Mode::Browse), "{key}: {:?}", app.mode);
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|message| message.text.contains("that is a workspace's")),
+            "{key}: {:?}",
+            app.message
+        );
     }
 }

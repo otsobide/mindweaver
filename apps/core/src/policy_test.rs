@@ -458,17 +458,14 @@ fn a_token_is_named_by_a_variable_a_shell_can_set_named_for_a_token() {
         .map(|(_, text)| format!("{text}_{TOKEN_SUFFIX}"))
         .filter(|text| !crate::value::VariableName::from(text.as_str()).is_portable())
         .collect();
-    refused.extend(
-        [
-            String::from("HOME"),
-            String::from("AWS_SECRET_ACCESS_KEY"),
-            String::from("github_token"),
-            format!("{TOKEN_SUFFIX}_{word}"),
-            format!("-{TOKEN_SUFFIX}"),
-            String::new(),
-        ]
-        .into_iter(),
-    );
+    refused.extend([
+        String::from("HOME"),
+        String::from("AWS_SECRET_ACCESS_KEY"),
+        String::from("github_token"),
+        format!("{TOKEN_SUFFIX}_{word}"),
+        format!("-{TOKEN_SUFFIX}"),
+        String::new(),
+    ]);
     for given in refused {
         let said = token_variable(&given);
 

@@ -190,3 +190,56 @@ fn a_switch_is_told_to_every_stream_with_how_many_have_been_taken() {
         );
     }
 }
+
+/// A backup from the API is previewed as a run that takes a cancel, and
+/// told step by step as it goes, in the words a terminal draws each in,
+/// each cancellable until it pushes, until its commit is on the branch.
+#[test]
+fn a_backup_is_told_step_by_step_until_its_commit_is_on_the_branch() {
+    let scenario = linking(&["api"]);
+    scenario.remote("~/backups/library.git");
+    let served = scenario.serve("~/Projects");
+    let mut stream = served.events();
+    stream.opened();
+    let backup = json!({"type": "backup", "url": "/home/you/backups/library.git",
+                        "branch": null, "kinds": [], "message": null, "token_env": null});
+    let lines = json!(["mindweaver -W /home/you/Projects backup /home/you/backups/library.git"]);
+
+    served
+        .post("/tasks/preview", backup.clone())
+        .answers(json!({"lines": lines, "confirm": [], "cancellable": true}));
+    served
+        .post("/tasks", backup)
+        .is(200)
+        .answers_at("/outcome/ok", json!(true));
+
+    let told: Vec<Value> = stream
+        .until(is("command_finished"))
+        .into_iter()
+        .filter(|event| event["type"] != "changed")
+        .collect();
+    let step = |stage: &str, said: &str, cancellable: bool| {
+        json!({"type": "progress", "run": 1, "progress": {
+            "stage": stage, "done": null, "total": null,
+            "said": said, "cancellable": cancellable,
+        }})
+    };
+    assert_eq!(
+        told,
+        [
+            json!({"type": "command_started", "run": 1, "lines": lines, "cancellable": true}),
+            step("checking_out", "checking the repository out", true),
+            step("exporting", "exporting the library", true),
+            step("committing", "committing", true),
+            step("pushing", "pushing", false),
+            json!({"type": "command_finished", "run": 1, "lines": lines}),
+        ]
+    );
+    assert_eq!(
+        scenario.files_on("~/backups/library.git", "main"),
+        [
+            ".mindweaver/library/skills/review/SKILL.md",
+            ".mindweaver/weaver.toml",
+        ]
+    );
+}
