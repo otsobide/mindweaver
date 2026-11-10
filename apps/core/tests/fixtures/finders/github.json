@@ -1,0 +1,56 @@
+{
+  "total_count": 3,
+  "incomplete_results": false,
+  "items": [
+    {
+      "name": "SKILL.md",
+      "path": "skills/pdf/SKILL.md",
+      "sha": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      "url": "https://api.github.com/repositories/1/contents/skills/pdf/SKILL.md?ref=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      "html_url": "https://github.com/acme/skills/blob/4b825dc642cb6eb9a060e54bf8d69288fbee4904/skills/pdf/SKILL.md",
+      "repository": {
+        "id": 1,
+        "name": "skills",
+        "full_name": "acme/skills",
+        "private": false,
+        "owner": { "login": "acme", "id": 1, "type": "Organization" },
+        "html_url": "https://github.com/acme/skills",
+        "description": "Acme's skills",
+        "fork": false
+      },
+      "score": 1.0
+    },
+    {
+      "name": "SKILL.md",
+      "path": "SKILL.md",
+      "sha": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      "html_url": "https://github.com/acme/pdf-tools/blob/4b825dc642cb6eb9a060e54bf8d69288fbee4904/SKILL.md",
+      "repository": {
+        "id": 2,
+        "name": "pdf-tools",
+        "full_name": "acme/pdf-tools",
+        "private": false,
+        "owner": { "login": "acme", "id": 1, "type": "Organization" },
+        "html_url": "https://github.com/acme/pdf-tools",
+        "fork": false
+      },
+      "score": 0.9
+    },
+    {
+      "name": "skill.md",
+      "path": "docs/skill.md",
+      "sha": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      "html_url": "https://github.com/acme/notes/blob/4b825dc642cb6eb9a060e54bf8d69288fbee4904/docs/skill.md",
+      "repository": {
+        "id": 3,
+        "name": "notes",
+        "full_name": "acme/notes",
+        "private": false,
+        "owner": { "login": "acme", "id": 1, "type": "Organization" },
+        "html_url": "https://github.com/acme/notes",
+        "fork": false
+      },
+      "score": 0.5
+    }
+  ]
+}
