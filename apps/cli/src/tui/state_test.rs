@@ -166,6 +166,7 @@ fn page(count: usize) -> Reader {
             .collect(),
         scroll: 0,
         searches: false,
+        writes: None,
     }
 }
 

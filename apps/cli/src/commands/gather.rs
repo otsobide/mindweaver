@@ -164,6 +164,7 @@ pub(crate) fn run_gather(
                 None => super::search::run_search(&asked, *json, directory, lookup, watch),
             }
         }
+        GatherCommand::Mcp(command) => super::registry::run_registry(command, directory, lookup),
     }
 }
 

@@ -16,6 +16,7 @@ use mindweaver_core::finder::SearchError;
 use mindweaver_core::gather::GatherError;
 use mindweaver_core::ledger::LedgerError;
 use mindweaver_core::marketplace::MarketplaceError;
+use mindweaver_core::mcp_registry::{ImportError, RegistryError};
 use mindweaver_core::sources::SourceError;
 use mindweaver_core::{
     codes, ArtifactError, CreateError, Kind, LifecycleError, Reason, ResolveError, TemplateError,
@@ -113,6 +114,10 @@ pub enum CliError {
     Search(#[from] SearchError),
     #[error(transparent)]
     Marketplace(#[from] MarketplaceError),
+    #[error(transparent)]
+    Registry(#[from] RegistryError),
+    #[error(transparent)]
+    Import(#[from] ImportError),
     #[error(
         "${0} holds no token: set it for this command, or leave --token-env out to log in as git does"
     )]
@@ -336,6 +341,8 @@ codes!(CliError {
     Self::Source(error) => error,
     Self::Search(error) => error,
     Self::Marketplace(error) => error,
+    Self::Registry(error) => error,
+    Self::Import(error) => error,
     Self::Ledger(error) => error,
     Self::Install(error) => error,
     Self::Create(error) => error,

@@ -160,3 +160,29 @@ fn an_address_is_said_as_it_is() {
 
     assert_eq!(said, "https://example.com/mcp?a=1&b=2");
 }
+
+/// What a definition no agent holds yet starts or reaches, as it writes
+/// it: each input between its braces, which a shell line shows quoted,
+/// since an agent fills it in only once its own entry spells it.
+#[test]
+fn a_definition_s_transport_is_what_it_writes_each_input_between_braces() {
+    use crate::mcp::McpDefinition;
+    use crate::mother::McpMother;
+
+    let stdio = McpDefinition::parse(&McpMother::stdio("acme")).unwrap();
+    let streamed = McpDefinition::parse(&McpMother::http("acme")).unwrap();
+
+    assert_eq!(
+        Runs::of_transport(&stdio.transport).to_string(),
+        "npx -y @example/server --workspace '{workspace}'"
+    );
+    let Transport::Http(endpoint) = &streamed.transport else {
+        panic!("{:?}", streamed.transport);
+    };
+    assert_eq!(
+        Runs::of_transport(&streamed.transport),
+        Runs::Address {
+            url: endpoint.url.to_string()
+        }
+    );
+}

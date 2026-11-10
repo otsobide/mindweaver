@@ -19,10 +19,11 @@ use super::minds::{self, Minds};
 use super::state::{
     AddField, AddForm, App, BackupForm, Confirm, ExportForm, Focus, GatherForm, Input, Item,
     LinkForm, LoadForm, MarketplaceForm, Member, Mode, PluginsScreen, Reader, RenameForm, Results,
-    Running, Scope, SearchForm, SettingsForm, SourcesScreen, TargetsForm, Task, Tone, View,
-    Workspace, BACKUP_FIELDS, GATHER_FIELDS, MARKETPLACE_FIELDS,
+    Running, Scope, SearchForm, Searched, ServerResults, SettingsForm, SourcesScreen, TargetsForm,
+    Task, Tone, View, Workspace, BACKUP_FIELDS, GATHER_FIELDS, MARKETPLACE_FIELDS,
 };
 use crate::commands::project::worth_linking;
+use crate::commands::registry::rows as server_rows;
 use crate::commands::search::rows;
 use crate::install::ui::{centred, pane, selected};
 use crate::progress::said;
@@ -57,6 +58,7 @@ pub fn draw(app: &App, frame: &mut Frame) {
             Mode::Results(screen) => results(screen, frame, area),
             Mode::Marketplace(form) => marketplace(form, frame, area),
             Mode::Plugins(screen) => plugins(screen, frame, area),
+            Mode::Servers(screen) => servers(screen, frame, area),
             Mode::Minds(screen) => minds_screen(app, screen, frame, area),
             Mode::Settings(form) => setting(app, form, frame, area),
             Mode::Targets(form) => targeting(app, form, frame, area),
@@ -1323,7 +1325,9 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
         .map(|(tone_of, text)| Line::from(Span::styled(clean(text), tone(*tone_of))))
         .collect();
     let keys = if reader.searches {
-        " ↑↓ scroll   f search the skill directories   m list a marketplace   esc close "
+        " ↑↓ scroll   f search the skill directories   r search the MCP Registry   m list a marketplace   esc close "
+    } else if reader.writes.is_some() {
+        " ↑↓ scroll   y write it into the library   esc close "
     } else {
         " ↑↓ scroll   esc close "
     };
@@ -1342,18 +1346,24 @@ fn reading(reader: &Reader, frame: &mut Frame, area: Rect) {
     );
 }
 
-/// The search form: what to look for, which finders it asks, and the line
-/// it runs.
+/// The search form: what to look for, what it asks, and the line it runs.
 fn searching(form: &SearchForm, frame: &mut Frame, area: Rect) {
-    let inner = popup(frame, area, "Search the skill directories", 78, 7);
+    let (title, asks) = match form.of {
+        Searched::Skills => (
+            "Search the skill directories",
+            "asks the finders weaver.toml enables; github needs a token",
+        ),
+        Searched::Servers => (
+            "Search the MCP Registry",
+            "asks the official registry for servers whose name holds it",
+        ),
+    };
+    let inner = popup(frame, area, title, 78, 7);
     let rows = lines(inner, 5);
     input(frame, rows[0], "query", &form.query, true);
     let hint = Line::from(vec![
         Span::raw(" ".repeat(usize::from(LABEL))),
-        Span::styled(
-            "asks the finders weaver.toml enables; github needs a token",
-            dim(),
-        ),
+        Span::styled(asks, dim()),
     ]);
     frame.render_widget(Paragraph::new(hint), rows[1]);
     runs(frame, rows[2], form.task().as_ref());
@@ -1430,6 +1440,85 @@ fn results(screen: &Results, frame: &mut Frame, area: Rect) {
         return;
     }
     let items: Vec<ListItem> = table(&rows(&screen.hits))
+        .lines()
+        .map(|row| ListItem::new(Line::from(row.to_owned())))
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(screen.pick));
+    let list = List::new(items)
+        .highlight_style(selected(true))
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, parts[0], &mut state);
+}
+
+/// What a search of the MCP Registry found, over everything below the
+/// header: each server as the command lays it out, the one picked lit,
+/// what it is for under them, what the search said, and the line enter
+/// runs, which says what adding it would write and writes nothing.
+fn servers(screen: &ServerResults, frame: &mut Frame, area: Rect) {
+    let below = 1.min(area.height);
+    let box_ = Rect {
+        y: area.y + below,
+        height: area.height - below,
+        ..area
+    };
+    frame.render_widget(Clear, box_);
+    let block = Block::bordered()
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(format!(
+            " What the MCP Registry lists for `{}` ",
+            printable(&screen.query)
+        ))
+        .title_bottom(
+            Line::from(" ↑↓ pick   enter say what adding it writes   r search again   esc close ")
+                .right_aligned(),
+        );
+    let inner = block.inner(box_);
+    frame.render_widget(block, box_);
+
+    // Sized without `clamp`, which panics on a screen too short for its
+    // floor, as the skill directories' results are.
+    let said = u16::try_from(screen.said.len())
+        .unwrap_or(u16::MAX)
+        .min(inner.height / 3);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(2),
+            Constraint::Length(said),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let lines: Vec<Line> = screen
+        .said
+        .iter()
+        .map(|line| Line::from(Span::styled(printable(line), warn())))
+        .collect();
+    frame.render_widget(Paragraph::new(lines), parts[2]);
+    runs(frame, parts[3], screen.task().as_ref());
+
+    let Some(picked) = screen.servers.get(screen.pick) else {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!(
+                    "the registry lists no server whose name holds `{}`; r searches for something else",
+                    printable(&screen.query)
+                ),
+                dim(),
+            ))
+            .wrap(Wrap { trim: true }),
+            parts[0],
+        );
+        return;
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(printable(&picked.description), dim()))
+            .wrap(Wrap { trim: true }),
+        parts[1],
+    );
+    let items: Vec<ListItem> = table(&server_rows(&screen.servers))
         .lines()
         .map(|row| ListItem::new(Line::from(row.to_owned())))
         .collect();

@@ -111,6 +111,23 @@ pub enum Way {
     },
 }
 
+impl Way {
+    /// The word a front end says it by: a package's registry type as the
+    /// registry writes it (`npm`, `oci`), and a remote's transport as a
+    /// definition writes its `type`, `http` for streamable HTTP and `sse`,
+    /// or as the registry wrote one this build does not know.
+    pub fn word(&self) -> &str {
+        match self {
+            Way::Package { registry_type, .. } => registry_type,
+            Way::Remote { transport, .. } => match transport.as_str() {
+                "streamable-http" => "http",
+                other => other,
+            },
+            Way::Unreadable { .. } => "unreadable",
+        }
+    }
+}
+
 /// A definition made of a registry's server, not written yet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Imported {
@@ -216,7 +233,9 @@ pub enum ImportError {
     },
     #[error("`{name}` names no package and no remote, so nothing says how to start or reach it")]
     Wayless { name: UpstreamName },
-    #[error("`{name}` lists {ways} way(s) to start or reach it, so there is no way {way}")]
+    /// `way` is its place among [`Entry::ways`], from 0, and said from 1,
+    /// as a person counts them and `gather mcp add --way` takes one.
+    #[error("`{name}` lists {} to start or reach it, so there is no way {}", ways_said(*.ways), .way + 1)]
     NoSuchWay {
         name: UpstreamName,
         way: usize,
@@ -243,6 +262,14 @@ codes!(ImportError {
     Self::Manual { .. } => "mcp_registry_import_manual",
     Self::Unfit { .. } => "mcp_registry_import_unfit",
 });
+
+/// How many ways a server lists, as a sentence says it.
+fn ways_said(ways: usize) -> String {
+    match ways {
+        1 => String::from("1 way"),
+        ways => format!("{ways} ways"),
+    }
+}
 
 /// A way as it reads.
 enum Parsed {

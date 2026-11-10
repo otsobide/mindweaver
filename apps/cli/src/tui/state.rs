@@ -16,6 +16,7 @@ use crate::progress::{Progress, Watch};
 use mindweaver_core::create;
 use mindweaver_core::finder::Hit;
 use mindweaver_core::marketplace::{Entry, Listing};
+use mindweaver_core::mcp_registry::Summary;
 use mindweaver_core::scan;
 use mindweaver_core::view::ShelfSource;
 use mindweaver_core::{
@@ -556,7 +557,8 @@ pub enum Mode {
     /// The sources the shelf is filled from, one picked to gather again or
     /// forget: `S`.
     Sources(SourcesScreen),
-    /// The skill directories about to be searched: `f` on the shelf's page.
+    /// The skill directories about to be searched, `f` on the shelf's page,
+    /// or the MCP Registry, `r` there.
     Searching(SearchForm),
     /// What a search of the skill directories found, one picked to take.
     Results(Results),
@@ -565,6 +567,8 @@ pub enum Mode {
     Marketplace(MarketplaceForm),
     /// What a marketplace's catalog lists, the plugins to gather ticked.
     Plugins(PluginsScreen),
+    /// What a search of the MCP Registry found, one picked to add.
+    Servers(ServerResults),
     /// The install screen, embedded as it is.
     Installing(InstallScreen),
     /// Which minds the workspace manages, ticked, to change in one pass.
@@ -811,6 +815,7 @@ impl App {
             Mode::Sources(screen) => self.in_sources(screen, key),
             Mode::Searching(form) => searching(form, key),
             Mode::Results(screen) => results(screen, key),
+            Mode::Servers(screen) => servers(screen, key),
             Mode::Marketplace(form) => marketplace(form, key),
             Mode::Plugins(screen) => plugins(screen, key),
             Mode::Installing(screen) => self.installing(screen, key),
@@ -1837,6 +1842,7 @@ impl App {
             | (
                 Task::Gather { .. }
                 | Task::GatherPlugins { .. }
+                | Task::ImportServer { yes: true, .. }
                 | Task::Export { .. }
                 | Task::Backup { .. }
                 | Task::Settings { .. }
@@ -1862,6 +1868,29 @@ impl App {
                     Ok(screen) => self.mode = Mode::Plugins(screen),
                     Err(error) => self.message = Some(Message::bad(error)),
                 }
+            }
+            (Task::SearchServers { query }, None) => match ServerResults::of(query, &dones) {
+                Ok(results) => self.mode = Mode::Servers(results),
+                Err(error) => self.message = Some(Message::bad(error)),
+            },
+            // What would be written, read in full, with the key that writes
+            // it: the dry run is what the yes is given to, as the install
+            // screen shows each agent's line before it applies.
+            (
+                Task::ImportServer {
+                    server,
+                    version,
+                    yes: false,
+                },
+                None,
+            ) => {
+                let mut reader = Reader::of(&dones);
+                reader.writes = Some(Task::ImportServer {
+                    server: server.clone(),
+                    version: version.clone(),
+                    yes: true,
+                });
+                self.mode = Mode::Reading(reader);
             }
             (_, Some(error)) => {
                 // A form stays open with the reason in it, so a typo is fixed
@@ -2077,8 +2106,9 @@ fn gathering(mut form: GatherForm, key: KeyEvent) -> (Mode, Step) {
     (Mode::Gathering(form), Step::Stay)
 }
 
-/// The search form's keys: typing the query, and enter searches, the line
-/// running apart as a gather does, stopped by `esc` between two finders.
+/// The search form's keys: typing the query, and enter searches: the skill
+/// directories' line running apart as a gather does, stopped by `esc`
+/// between two finders, and the registry's as any other line.
 fn searching(mut form: SearchForm, key: KeyEvent) -> (Mode, Step) {
     form.error = None;
     match key.code {
@@ -2158,6 +2188,7 @@ fn results(mut screen: Results, key: KeyEvent) -> (Mode, Step) {
             let form = SearchForm {
                 query: Input::with(&screen.query),
                 error: None,
+                of: Searched::Skills,
             };
             return (Mode::Searching(form), Step::Stay);
         }
@@ -2169,6 +2200,33 @@ fn results(mut screen: Results, key: KeyEvent) -> (Mode, Step) {
         _ => {}
     }
     (Mode::Results(screen), Step::Stay)
+}
+
+/// The registry's results' keys: `↑↓` picks one, enter says what adding it
+/// would write, which the page it opens writes on `y`, `r` searches again,
+/// what was looked for already typed, and `esc` leaves.
+fn servers(mut screen: ServerResults, key: KeyEvent) -> (Mode, Step) {
+    let count = screen.servers.len();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => return (Mode::Browse, Step::Stay),
+        KeyCode::Up | KeyCode::Char('k') => screen.pick = screen.pick.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') if screen.pick + 1 < count => screen.pick += 1,
+        KeyCode::Char('r') => {
+            let form = SearchForm {
+                query: Input::with(&screen.query),
+                error: None,
+                of: Searched::Servers,
+            };
+            return (Mode::Searching(form), Step::Stay);
+        }
+        KeyCode::Enter => {
+            if let Some(task) = screen.task() {
+                return (Mode::Servers(screen), Step::Run(task));
+            }
+        }
+        _ => {}
+    }
+    (Mode::Servers(screen), Step::Stay)
 }
 
 /// The export form's keys: typing on the folder's line, a space on a kind's
@@ -2272,6 +2330,19 @@ fn reading(mut reader: Reader, key: KeyEvent) -> (Mode, Step) {
         }
         KeyCode::Char('m') if reader.searches => {
             return (Mode::Marketplace(MarketplaceForm::default()), Step::Stay);
+        }
+        KeyCode::Char('r') if reader.searches => {
+            return (
+                Mode::Searching(SearchForm::of(Searched::Servers)),
+                Step::Stay,
+            );
+        }
+        // Back to browsing while it runs, as a confirmation goes back to
+        // where it was asked from: what it says lands in a page of its own.
+        KeyCode::Char('y') if reader.writes.is_some() => {
+            if let Some(task) = reader.writes.take() {
+                return (Mode::Browse, Step::Run(task));
+            }
         }
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => return (Mode::Browse, Step::Stay),
         KeyCode::Up | KeyCode::Char('k') => reader.scroll = reader.scroll.saturating_sub(1),
@@ -2552,21 +2623,46 @@ impl GatherForm {
     }
 }
 
-/// The skill directories about to be searched for what `query` finds: what
-/// `f` opens on the shelf's page.
+/// What a search form looks in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Searched {
+    /// The skill directories the workspace enables: `f` on the shelf's page.
+    #[default]
+    Skills,
+    /// The official MCP Registry: `r` on the shelf's page.
+    Servers,
+}
+
+/// The skill directories, or the MCP Registry, about to be searched for
+/// what `query` finds: what `f` and `r` open on the shelf's page.
 #[derive(Debug, Clone, Default)]
 pub struct SearchForm {
     pub query: Input,
     pub error: Option<String>,
+    pub of: Searched,
 }
 
 impl SearchForm {
+    /// An empty form searching what `of` names.
+    pub fn of(of: Searched) -> Self {
+        SearchForm {
+            of,
+            ..SearchForm::default()
+        }
+    }
+
     /// What it would run, if it were submitted now: nothing with no query,
-    /// which no finder answers.
+    /// which nothing answers. A query the registry finds too short is the
+    /// line's to refuse, in core's words.
     pub fn task(&self) -> Option<Task> {
         let query = self.query.text().trim();
-        (!query.is_empty()).then(|| Task::SearchSkills {
-            query: query.to_owned(),
+        if query.is_empty() {
+            return None;
+        }
+        let query = query.to_owned();
+        Some(match self.of {
+            Searched::Skills => Task::SearchSkills { query },
+            Searched::Servers => Task::SearchServers { query },
         })
     }
 }
@@ -2624,6 +2720,57 @@ impl Results {
             folder: hit.folder().to_owned(),
             reference: hit.reference.clone(),
             kind: Kind::Skill,
+        })
+    }
+}
+
+/// What a search of the MCP Registry found, one of it picked to add: the
+/// screen a search from the shelf opens once it is over.
+#[derive(Debug, Clone)]
+pub struct ServerResults {
+    /// What was looked for.
+    pub query: String,
+    /// Each server, as core listed it.
+    pub servers: Vec<Summary>,
+    /// What the search said beside them, a line each: a server that did
+    /// not read, and why the listing stopped short.
+    pub said: Vec<String>,
+    /// Which server is picked.
+    pub pick: usize,
+}
+
+impl ServerResults {
+    /// What the search for `query` printed, read back: its servers from
+    /// the JSON the line printed, by the names the envelope's `data` gives
+    /// them, and what it said on stderr; or why it could not be read.
+    pub fn of(query: &str, dones: &[Done]) -> Result<Self, String> {
+        let unreadable = || String::from("the registry search's answer could not be read");
+        let done = dones.last().ok_or_else(unreadable)?;
+        let envelope: serde_json::Value =
+            serde_json::from_str(&done.stdout).map_err(|_| unreadable())?;
+        let servers = envelope
+            .pointer("/data/servers")
+            .cloned()
+            .ok_or_else(unreadable)?;
+        let servers: Vec<Summary> = serde_json::from_value(servers).map_err(|_| unreadable())?;
+        Ok(ServerResults {
+            query: query.to_owned(),
+            servers,
+            said: done.stderr.clone(),
+            pick: 0,
+        })
+    }
+
+    /// What adding the server picked would write, at the version listed,
+    /// so what was read is what is added however the registry has moved
+    /// on since: `mindweaver gather mcp add`, a dry run, whose page writes
+    /// it on `y`.
+    pub fn task(&self) -> Option<Task> {
+        let server = self.servers.get(self.pick)?;
+        Some(Task::ImportServer {
+            server: server.name.to_string(),
+            version: Some(server.version.clone()),
+            yes: false,
         })
     }
 }
@@ -3170,9 +3317,13 @@ pub struct Reader {
     pub lines: Vec<(Tone, String)>,
     /// The first line shown.
     pub scroll: usize,
-    /// Whether `f` on it searches the skill directories: the shelf's page,
-    /// where what is not on the shelf yet is looked for.
+    /// Whether `f` on it searches the skill directories and `r` the MCP
+    /// Registry: the shelf's page, where what is not on the shelf yet is
+    /// looked for.
     pub searches: bool,
+    /// What `y` on it runs: what adding a registry's server writes, on the
+    /// page saying what it would write.
+    pub writes: Option<Task>,
 }
 
 impl Reader {
@@ -3204,6 +3355,7 @@ impl Reader {
             lines,
             scroll: 0,
             searches: false,
+            writes: None,
         }
     }
 
@@ -3313,11 +3465,13 @@ impl Reader {
             ),
             (
                 "s",
-                "what is on the shelf; f there searches the skill directories, enter on a result gathers it; m lists a Claude Code marketplace's plugins, enter gathers those ticked",
+                "what is on the shelf; f there searches the skill directories, enter on a result gathers it; r searches the MCP Registry, enter on a server says what adding it writes, y there writes it; m lists a Claude Code marketplace's plugins, enter gathers those ticked",
                 &[
                     "mindweaver gather list",
                     "mindweaver gather search --json <query>",
                     "mindweaver gather git [--path <folder>] [--ref <branch>] <url>",
+                    "mindweaver gather mcp search --json <query>",
+                    "mindweaver gather mcp add [--version <version>] [--yes] <server>",
                     "mindweaver gather marketplace --list --json [--ref <branch>] <source>",
                     "mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>",
                 ],
@@ -3396,6 +3550,7 @@ impl Reader {
             lines,
             scroll: 0,
             searches: false,
+            writes: None,
         }
     }
 }

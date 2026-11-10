@@ -534,6 +534,52 @@
       ]
     },
     {
+      "description": "`mindweaver gather mcp search --json <query>`: the official MCP\nRegistry asked for the servers whose name holds the query, read\nback from the JSON the line prints, by the names the envelope's\n`data` gives each server, for a front end to list and add one from\nwith an [`ImportServer`](Task::ImportServer) (#107).\n\nThe official registry alone, as the command asks unless told\nanother: a front end names no registry, so a browser sends no\naddress for a line to ask and take a program from.",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "search_servers"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "query"
+      ]
+    },
+    {
+      "description": "`mindweaver gather mcp add [--version <version>] [--yes] <server>`:\nthe official registry's server, by the name it gives it, written\ninto the workspace's library as a definition with `yes`; without\nit the dry run, which writes nothing and says what an agent would\nrun or reach, what a front end shows before it asks for the yes.\nNothing is started either way. The latest version unless `version`\nnames one.",
+      "type": "object",
+      "properties": {
+        "server": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "import_server"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "yes": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "server",
+        "yes"
+      ]
+    },
+    {
       "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
       "type": "object",
       "properties": {

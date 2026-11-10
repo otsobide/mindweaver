@@ -552,6 +552,13 @@ mindweaver gather remove <NAME> [--yes]
 mindweaver gather search <QUERY> [--finder F]... [--token-env VAR|--gh] [--finder-url F=URL]... [--take N|--json]
                            # the skills the directories weaver.toml enables
                            # find; --take gathers one
+mindweaver gather mcp search <QUERY> [--registry URL] [--json]
+                           # the MCP servers the registry lists whose name
+                           # holds QUERY, with their versions and status
+mindweaver gather mcp add <SERVER> [--version V] [--name N] [--way N] [--registry URL] [--yes]
+                           # say what a registry's server would be written as
+                           # and an agent would run; with --yes, write it into
+                           # the library; nothing is started either way
 mindweaver install         # a screen for putting skills, rules and MCP
                            # servers into its projects
 mindweaver install (-p PROJECT)...|--all-projects <NAME> [--from ORIGIN] [--force] [--yes]
@@ -1738,8 +1745,8 @@ plugins; `space` ticks those to gather and `enter` gathers them, as
                   updated it, if it did
   lock            held by a command while it changes the workspace
   cache/<source>/ the clone, kept so a gather can be looked at afterwards
-  cache/http/     what the skill directories answered a search, kept ten
-                  minutes
+  cache/http/     what the skill directories and the MCP Registry
+                  answered, kept ten minutes
   skills/<source>/<name>/SKILL.md
   rules/<source>/<route>.md
                   what was gathered, by the source it came from
@@ -2456,8 +2463,9 @@ with its `code` and `message`.
 The commands that report what is there take `--json`, at either level:
 `list`, `show`, `validate`, `templates`, `status` and `doctor`, and `mindweaver
 workspaces`, `mindweaver scan`, `mindweaver gather list`, `mindweaver
-gather sources`, `mindweaver gather search` and `mindweaver gather
-marketplace --list`. Each prints what it read in
+gather sources`, `mindweaver gather search`, `mindweaver gather mcp
+search` and `mindweaver gather marketplace --list`. Each prints what it
+read in
 one envelope, the same for every command, so a script or an agent reads
 them all one way, and reads what a workspace holds, its own artifacts and
 each project's, their templates, what it can install from elsewhere and
@@ -2543,6 +2551,15 @@ warning: /home/you/Projects/collapse/skills/broken/SKILL.md: the file does not s
   counts them, and the `finders` that found it; the finders `asked`, those
   `skipped` for want of a token, and each finder that failed and each result
   dropped in `failures`, each with its `code` and `message`.
+- `gather mcp search`: the `query`, and each server found in `servers`, by
+  the `name` `gather mcp add` takes, its `version`, `title` and
+  `description`, its `status` (`active` or `deprecated`, or a word this
+  Mindweaver does not know, as the registry wrote it) and `status_message`,
+  when it was `updated_at`, and the `ways` it is started or reached, each by
+  its word (`npm`, `pypi`, `oci`, `http`, `sse` and the like) in the order
+  `--way` counts them; `as_of`, the newest time the registry gave anything
+  listed, and `whole`, false when the listing stopped short, which a
+  warning says.
 - `status`, `workspaces` and `scan`: the reports shown in [what each project
   has](#what-each-project-has), [the weavers this machine
   knows](#the-weavers-this-machine-knows) and [commands](#commands).
@@ -2930,7 +2947,7 @@ Every key runs a command you could have typed, through the same parser:
 | `x` | export the library into a folder, a kind at a time when some are unticked; ticking `replace` lets it change or remove what an earlier export wrote there, once you say yes | `mindweaver export [--kind <kind>]... [--yes] <folder>` |
 | `b` | back the library up to a git repository, on a branch, with a message and the variable a token is read from when you type them, showing each step; `esc` stops it, until it starts pushing | `mindweaver backup [--branch <branch>] [--kind <kind>]... [--message <message>] [--token-env <variable>] <url>` |
 | `L` | load another workspace's own skills and rules; enter on a loaded one unloads it | `mindweaver load <path>`, `mindweaver unload <path>` |
-| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder; `m` lists the plugins a Claude Code marketplace's catalog lists, `space` ticks those to gather and `enter` gathers them | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>`; `mindweaver gather marketplace --list --json [--ref <branch>] <source>`, and with `enter`, `mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>` |
+| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder; `r` searches the MCP Registry, `enter` on a server shows what adding it would write, and `y` there writes it into the library; `m` lists the plugins a Claude Code marketplace's catalog lists, `space` ticks those to gather and `enter` gathers them | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>`; `mindweaver gather mcp search --json <query>`, then `mindweaver gather mcp add --version <version> <server>`, and with `y`, the same with `--yes`; `mindweaver gather marketplace --list --json [--ref <branch>] <source>`, and with `enter`, `mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>` |
 | `S` | the sources the shelf is filled from: `u` gathers the one picked again and `U` every one, each showing how far it has got, `esc` stopping it until it starts placing; `d` forgets the one picked, once you say yes; `m` lists the plugins of the marketplace picked, or of the one a plugin picked is listed by | `mindweaver gather update <name>`, `mindweaver gather update --all`, `mindweaver gather remove --yes <name>` |
 | `w` | the weavers this machine knows, the one in use marked | `mindweaver workspaces` |
 | `i` | install skills, rules and MCP servers from the workspace's own, a loaded workspace, or the shelf; `tab` switches between them, and `v` turns the screen round to every project for one of them | `mindweaver install` opens it; `a` runs `mindweaver install -p <project>... --from <origin> <kind:name>`, with `--yes` for an MCP server from elsewhere than the library once `a` has shown what each agent would run, and `mindweaver uninstall -p <project>... <kind:name>` |
@@ -4594,6 +4611,166 @@ A project an older Mindweaver made keeps none either: one a `mind.toml`
 marks whatever folders it has, and one a `settings.json` marks unless its
 `directories` name a folder for them, as somebody may have written there by
 hand. Adding one to either otherwise points at `mind migrate` first.
+
+### From the MCP Registry
+
+The official [MCP Registry](https://registry.modelcontextprotocol.io) lists
+servers as their publishers describe them. `gather mcp search` lists those
+whose name holds what you look for, three characters or more, each by the
+name the registry gives it, its latest version, its status and each way
+it is started or reached, a package by its registry (`npm`, `pypi`, `oci`,
+`nuget`, `mcpb`) and a server already running by its transport (`http`,
+`sse`):
+
+```
+$ mindweaver gather mcp search airtable
+ai.waystation/airtable                           0.3.1   active  http, sse
+com.airtable/mcp                                 0.1.0   active  http
+com.insightfulpipe/airtable                      1.0.0   active  http
+com.mcparmory/airtable                           1.0.3   active  pypi, oci
+io.github.Automations-Project/airtable-user-mcp  2.1.1   active  npm
+io.github.domdomegg/airtable-mcp-server          1.14.0  active  npm, oci, mcpb
+io.github.mrfentmen/airtable-mcp                 1.1.0   active  npm
+io.github.pipeworx-io/airtable                   0.2.1   active  npm, http
+```
+
+`--json` adds each one's title and description ([machine-readable
+output](#machine-readable-output)). A search reads the registry a page at a
+time, and one as wide as `mcp` stops after two thousand servers and says
+so, with what it read. A query shorter than three characters asks nothing:
+
+```
+$ mindweaver gather mcp search ab
+error: `ab` is too short to search for: the registry takes 3 characters or more
+```
+
+`gather mcp add` makes one of them a definition of the library's, by its
+name and, with `--version`, a version other than the latest. Without
+`--yes` it writes nothing and says what it would write: the server's
+version and status, what an agent would run or the address it would
+reach, each variable it reads where the agents run, and where it would go:
+
+```
+$ mindweaver gather mcp add io.github.buildkite/buildkite-mcp-server
+io.github.buildkite/buildkite-mcp-server 0.7.0, active
+  runs: docker run -i --rm -e BUILDKITE_API_TOKEN ghcr.io/buildkite/buildkite-mcp-server:0.7.0
+  reads $BUILDKITE_API_TOKEN (a secret) where the agents run
+would create mcp buildkite-mcp-server at /home/you/Projects/.mindweaver/library/mcp/buildkite-mcp-server.toml
+nothing written: add --yes to go ahead
+$ mindweaver gather mcp add io.github.buildkite/buildkite-mcp-server --yes
+io.github.buildkite/buildkite-mcp-server 0.7.0, active
+  runs: docker run -i --rm -e BUILDKITE_API_TOKEN ghcr.io/buildkite/buildkite-mcp-server:0.7.0
+  reads $BUILDKITE_API_TOKEN (a secret) where the agents run
+created mcp buildkite-mcp-server at /home/you/Projects/.mindweaver/library/mcp/buildkite-mcp-server.toml
+```
+
+Nothing is started, then or ever by Mindweaver: the definition is what an
+agent starts once `install` gives it to a project, as any server of the
+library. It is written as `add` writes one, held to the same rules, and
+says where it came from:
+
+```toml
+# An MCP server imported from an MCP registry: each agent's own entry
+# for it is written from this file, and `show` says how each agent is
+# given it.
+format = 1
+name = "buildkite-mcp-server"
+description = "MCP server exposing Buildkite API data (pipelines, builds, jobs, tests) to AI tooling and editors."
+
+# How an agent starts it: the program, what it is started with, and what
+# its environment is given beside the agent's own.
+[transport]
+type = "stdio"
+command = "docker"
+args = ["run", "-i", "--rm", "-e", "BUILDKITE_API_TOKEN", "ghcr.io/buildkite/buildkite-mcp-server:0.7.0"]
+env = { BUILDKITE_API_TOKEN = "{BUILDKITE_API_TOKEN}" }
+
+# What is supplied when an agent starts it, each written between braces
+# where it goes and read from the environment variable it names: no value
+# is written here, and a secret never.
+[[inputs]]
+name = "BUILDKITE_API_TOKEN"
+kind = "env"
+description = "Buildkite API token for authentication. Get one from https://buildkite.com/user/api-access-tokens"
+required = true
+secret = true
+env_var = "BUILDKITE_API_TOKEN"
+
+# Where it came from: the registry, what it names the server, and the
+# version imported.
+[provenance]
+registry = "https://registry.modelcontextprotocol.io"
+upstream_name = "io.github.buildkite/buildkite-mcp-server"
+version = "0.7.0"
+fetched_at = 2026-11-10T12:00:00Z
+```
+
+A package is started by its registry's command, pinned to its version:
+`npx -y <package>@<version>` for npm, `uvx <package>==<version>` for PyPI,
+`dnx <package>@<version>` for NuGet, and `docker run -i --rm` for an image,
+each of its variables passed into the container with `-e`. What the
+registry leaves to whoever runs the server is read from an environment
+variable, and a secret's value is never written, whatever the registry
+holds there; one it calls optional is left out, and said. It is named
+after its owner and its own name, `--name` naming it otherwise. A server
+listing more than one way is written from the first an agent reaches with
+nothing installed, a server over streamable HTTP, then a package, then
+one over server-sent events, and `--way` writes another, by its place
+from 1:
+
+```
+$ mindweaver gather mcp add ai.biel/biel-ai
+ai.biel/biel-ai 2.0.0, active
+  way 1 of 2 (http); --way writes another: 2 sse
+  reaches: https://mcp.biel.ai/v2/{project_slug}/mcp
+  reads $BIEL_AI_PROJECT_SLUG where the agents run
+would create mcp biel-ai at /home/you/Projects/.mindweaver/library/mcp/biel-ai.toml
+nothing written: add --yes to go ahead
+$ mindweaver gather mcp add ai.biel/biel-ai --way 2
+ai.biel/biel-ai 2.0.0, active
+  way 2 of 2 (sse); --way writes another: 1 http
+  reaches: https://mcp.biel.ai/sse?project_slug={project_slug}&domain={domain}
+  reads $BIEL_AI_PROJECT_SLUG and $BIEL_AI_DOMAIN where the agents run
+would create mcp biel-ai at /home/you/Projects/.mindweaver/library/mcp/biel-ai.toml
+nothing written: add --yes to go ahead
+note: https://mcp.biel.ai/sse?project_slug={project_slug}&domain={domain}: reached over server-sent events, which the MCP specification has replaced, and which Codex and OpenCode do not take
+```
+
+A `note:` says what you may want to know before writing it, and fails
+nothing: a server its publisher deprecated, with why, is added all the
+same.
+
+```
+$ mindweaver gather mcp add ai.agentlookups/greenlight --yes
+ai.agentlookups/greenlight 1.0.0, deprecated
+  reaches: https://solar.agentlookups.ai/mcp
+created mcp agentlookups-greenlight at /home/you/Projects/.mindweaver/library/mcp/agentlookups-greenlight.toml
+note: deprecated by its publisher: GreenLight closed on 2026-09-28 because its answers could not be kept correct; the server answers 410 Gone. Notice: https://solar.agentlookups.ai/
+```
+
+What no command of its registry's starts is never guessed: an MCP bundle,
+a Rust crate, a registry this Mindweaver does not know, or a package that
+serves over HTTP once started is a step to take by hand, said with what to
+do, and nothing is written. Neither is a server deleted from the registry,
+a version it does not hold, nor one of a name the library holds already,
+whose file is left as it is:
+
+```
+$ mindweaver gather mcp add app.internetmonitor/internet-monitor --yes
+error: `app.internetmonitor/internet-monitor` is started or reached in no way Mindweaver writes; by hand: an MCP bundle at https://github.com/andrscrrn/internet-monitor-mcp/releases/download/v1.0.2/internet-monitor.mcpb (SHA-256 6414b553daf4ab512828dcc53143c1170bfdb30fde001388731329e6acf3df52), which Mindweaver does not install: download it, check it against its SHA-256, and install it in each agent by hand
+$ mindweaver gather mcp add ai.clawfetch/mcp --version 9.9.9 --yes
+error: the registry holds no version 9.9.9 of `ai.clawfetch/mcp`
+$ mindweaver gather mcp add ai.clawfetch/mcp --yes
+error: /home/you/Projects/.mindweaver/library/mcp/clawfetch-mcp.toml: already exists, and is left alone
+```
+
+`--registry` asks a mirror serving the registry's API instead, over https,
+or plain http on this machine alone, since what it answers is a program
+agents will start. What the registry answered is kept in the workspace's
+`cache/http` for ten minutes, once the workspace is made, so a search and
+an add made soon after it ask once. In the TUI, `r` on the shelf's page
+searches the official registry, `enter` on a server shows what adding it
+would write, and `y` there writes it.
 
 ## Upgrading
 

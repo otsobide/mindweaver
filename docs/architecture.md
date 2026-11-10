@@ -2585,6 +2585,14 @@ type derives `Serialize` from the start:
   search's results. An entry the catalog lists that could not be read is
   a warning, the envelope's, never data. Names added, which move neither
   `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Listed by #107**: what a search of an MCP registry found
+  (`mcp_registry::Listing`), which `mindweaver gather mcp search --json`
+  prints, by hand, each entry as its `Summary`, since an entry keeps its
+  packages and remotes as the registry wrote them, for an import alone;
+  a `Summary` derived both ways, its status by the registry's word
+  (`mcp_registry::Status`, by hand, a word this build does not know kept
+  as written) and each way by its word, so the TUI reads it back as it
+  went out. Handed to no view, and so given no TypeScript.
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -4313,8 +4321,9 @@ official MCP Registry,
 (`API`), which the registry froze as stable while it is in preview, and
 makes one of its servers into a definition of the library's ([what an MCP
 server's definition declares](#what-an-mcp-servers-definition-declares)).
-Nothing calls it from a command yet, and nothing in it writes a file:
-`mindweaver gather mcp` (#107) is the first front end to.
+Nothing in it writes a file: `mindweaver gather mcp` (#107) writes what it
+makes through `add`'s own path ([bringing a server into the
+library](#bringing-a-server-into-the-library)).
 
 **Reading it.** A `Registry` is an address and an `http::Client`:
 `Registry::official`, or `Registry::at` for a mirror serving the same API,
@@ -4359,7 +4368,8 @@ it can be, so two are ordered once read (`mcp_registry/time.rs`, with no
 date library, as the ledger keeps its times) rather than as text, where
 `.7Z` sorts after `.72Z`. An answer is cached as every catalog's is, when
 the client was given a cache; a listing is the front end's to hold and
-refresh, for as long as it runs (the TUI's search, #107). Lenient, as every
+refresh, for as long as it runs, which none does yet (an [open
+question](#open-questions)). Lenient, as every
 read is: a server's fields core reads are typed and every other one read
 past (`wire.rs`), a list Go writes as `null` reads as empty, a server in a
 page that does not read is a warning beside the rest
@@ -4495,6 +4505,99 @@ inputs, every one of which somebody would then have to set, or Claude, by
 its docs, reads no server of the file; and a copy of the whole registry
 kept and refreshed, tens of thousands of servers, which a search narrow
 enough to choose from never needs.
+
+### Bringing a server into the library
+
+`mindweaver gather mcp` (#107) is the first front end of [the official MCP
+Registry](#the-official-mcp-registry): `search QUERY` lists what
+`Registry::search` finds, and `add SERVER` writes what `Registry::import`
+makes of one version into the workspace's library, a dry run until it is
+told `--yes`. Both ask the official registry unless `--registry` names a
+mirror, which is how every test asks one on loopback. Nothing either does
+starts a server, nor asks one anything: a definition is text until
+`install` gives it to a project's agents.
+
+**A search lists each server by its summary**
+(`mcp_registry::Summary`): the name `add` takes, its version, its status by
+the registry's word and each way it is started or reached by its word
+(`Way::word`: a package's registry type, a remote's transport as a
+definition writes its `type`), in the order `--way` counts them. Its
+`--json` is the listing (`Listing`, serialized by hand, each entry as its
+summary, since an entry keeps its packages and remotes as the registry
+wrote them, for an import to read), which reads back as it went out, so
+the TUI's results are read from the line's JSON as the skill
+directories' are. The table leaves the description to `--json`: a
+publisher's description is free text a column a line cannot hold, and
+`add`'s dry run says what the server is. A search that stops before it
+reads anything, a query the registry refuses among it, is refused; one
+that stops after is a warning beside what it read.
+
+**An add is `add`'s.** The text an import makes is written through
+`lifecycle::add`, from a definition given whole (`Start::Definition`),
+its name and description set as a template's are, every other byte kept,
+so what sits beside it in the folder, a file already where it goes and
+whatever `validate` refuses are judged by the function that judges every
+server added, with the codes it refuses with (`add_exists`,
+`add_name_unfit`, `add_mcp_unfit`), and a stale record under the name is
+dropped as `add` drops one. The dry run is `lifecycle::would_add`, every
+check `add` makes before it writes and then whether something is where
+it would go, so the line without `--yes` refuses what the line with it
+would and writes nothing, not even the library's folder. Writing the
+text from the import with a writer of its own was the other way, and is
+rejected: it would be a second place deciding what a server added is held
+to.
+
+What the line says is what a person consents to: the server's name, its
+version and its status, the way written when the registry lists more
+than one, what an agent would run or the address it would reach as the
+definition writes it (`Runs::of_transport`, each input between its
+braces, since what each agent is given is its own renderer's, said by
+`install`), each variable it reads and where it would be written. What the
+import says beside it (`Note`: deprecated, unversioned, over server-sent
+events, what was left out) is a `note:` with its code, which fails
+nothing; what the cache could not do is a warning, which does. Its
+`--version` is the server's: the subcommand takes no `--version` of its
+own, which `propagate_version` would give it and clap refuses beside it.
+
+**Over https, away from this machine.** `Registry::at` refuses plain
+http to anywhere but loopback (`mcp_registry_base_insecure`), as a skill
+directory's address is held (`finder::Search::at`): what a registry
+answers is a program every agent of a project will start, which nothing
+on the way should be able to change. Its answers are kept in the
+workspace's HTTP cache for `FRESH_FOR`, ten minutes, once it is made, so a
+search and an add soon after it ask the registry once.
+
+**Not followed.** A search asks a page at a time, which one narrow enough
+to choose from reads in one request, and an add asks for one version; core
+reports no step of either and takes no cancel, so neither line is in
+`task::Followed`, and each runs where a read of the disk runs, the TUI's
+own thread and the panel's writer (an [open question](#open-questions)).
+Neither is refused a front end without a terminal: nothing prompts, and
+an add writes only with `--yes`, which takes nothing away, so no
+`Caution` either.
+
+**The TUI** searches from the shelf's page: `r` opens the form
+(`Searched::Servers`), whose task (`Task::SearchServers`) is `mindweaver
+gather mcp search --json <query>`; `enter` on a server runs
+`Task::ImportServer` of its name and the version listed, the dry run, shown
+as a page whose `y` runs the same task told yes, so a definition is
+written only once what it would be has been read, as the install screen
+shows each agent's line before it applies. Neither task names a
+registry: a front end asks the official one, so a browser sends no
+address a line would take a program from. The panel has no page for it
+yet; its server runs either task as any other.
+
+**Tested** with no network: the CLI's suites serve [#106's recorded
+answers](#the-official-mcp-registry) from a server each test starts on
+127.0.0.1 (`tests/common/mcp_registry.rs`), a version by its recording, a
+latest by the version recorded as latest, the search for `airtable` by its
+three pages, and any other search by one page of the recorded latest
+versions whose name holds it, each as it was recorded.
+`mcp_registry_test.rs` runs the lines in process, the add without `--yes`
+writing nothing among them; the end-to-end suite (`e2e/importing.rs`)
+holds the binary to the reference's output, a PATH of programs that would
+say they ran among it; and the TUI's suite drives `r`, `enter` and `y`,
+holding each line it hands over and running it against the same registry.
 
 ### Why the ledger is SQLite
 
@@ -12966,7 +13069,9 @@ the library written only with `--yes`, on the command line and from the
 install screen alike. #106 makes a server the official registry lists into
 one ([the official MCP Registry](#the-official-mcp-registry)), the
 registry's subset of `server.json` this format was shaped as, with the
-registry as its provenance, and writes nothing yet.
+registry as its provenance, and #107 writes it into the library through
+`add`'s own path ([bringing a server into the
+library](#bringing-a-server-into-the-library)), never starting it.
 
 Checking it, #18 added MCP checks to `scripts/agent-probe`, run by hand.
 Claude Code's and OpenCode's ran on 2026-11-05; Codex's were not run, since
@@ -13164,6 +13269,8 @@ lasts.
 #106 reads the MCP Registry through it ([the official MCP
 Registry](#the-official-mcp-registry)), retrying nothing either: a rate
 limit ends a listing as any failure does, said beside what was read.
+#107's commands read it with the workspace's cache, and refuse a
+registry over plain http away from this machine.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -13637,7 +13744,20 @@ repository, stays on `gix`.
 - **The panel has no search yet.** Its server runs a `search_skills` task,
   and reports the finder asked, but no page sends one or lists what it
   found: what the TUI's results screen shows waits for a page of the
-  shelf's to show it.
+  shelf's to show it. So does a search of the MCP Registry and an add from
+  it (`search_servers`, `import_server`), which its server runs too.
+- **A registry search is not followed.** `gather mcp search` and `add`
+  report no step and take no cancel, so they run where a read of the disk
+  runs, the TUI's own thread and the panel's writer, for as long as the
+  registry takes to answer, within the HTTP client's timeout a page. A
+  narrow search reads one page; one as wide as `mcp` reads up to twenty.
+  Following one, a page at a time and stopped between two, waits for a
+  search somebody finds slow.
+- **No front end holds a registry's listing.** `Registry::refresh` asks
+  only what changed since a listing, but the TUI runs the search's line
+  again rather than hold what it read, the line's answers kept in the
+  HTTP cache for ten minutes; the panel, holding a listing for as long as
+  a page is open, would be the first to refresh one.
 
 - **What ssh asks during a backup.** `git` is told never to prompt, but the
   ssh it runs for an ssh URL asks for a key's passphrase or a host key on

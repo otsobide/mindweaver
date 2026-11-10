@@ -35,7 +35,9 @@ use mindweaver_core::{codes, hash, Agent, Kind, Names, Share, WeaverWorkspace, Q
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{Cli, Command, Editing, GatherCommand, Given, WeaverCli, WeaverCommand};
+use crate::{
+    Cli, Command, Editing, GatherCommand, Given, RegistryCommand, WeaverCli, WeaverCommand,
+};
 
 /// What an `agents` line says, as the toggles have it.
 ///
@@ -272,6 +274,28 @@ pub enum Task {
     /// it reads, by the names the envelope's `data` gives each result, never
     /// a table's columns read back.
     SearchSkills { query: String },
+    /// `mindweaver gather mcp search --json <query>`: the official MCP
+    /// Registry asked for the servers whose name holds the query, read
+    /// back from the JSON the line prints, by the names the envelope's
+    /// `data` gives each server, for a front end to list and add one from
+    /// with an [`ImportServer`](Task::ImportServer) (#107).
+    ///
+    /// The official registry alone, as the command asks unless told
+    /// another: a front end names no registry, so a browser sends no
+    /// address for a line to ask and take a program from.
+    SearchServers { query: String },
+    /// `mindweaver gather mcp add [--version <version>] [--yes] <server>`:
+    /// the official registry's server, by the name it gives it, written
+    /// into the workspace's library as a definition with `yes`; without
+    /// it the dry run, which writes nothing and says what an agent would
+    /// run or reach, what a front end shows before it asks for the yes.
+    /// Nothing is started either way. The latest version unless `version`
+    /// names one.
+    ImportServer {
+        server: String,
+        version: Option<String>,
+        yes: bool,
+    },
     /// `mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]
     /// <url>`.
     ///
@@ -801,6 +825,28 @@ impl Task {
                     &[query],
                 )]
             }
+            Task::SearchServers { query } => {
+                vec![words(
+                    &["mindweaver", "gather", "mcp", "search", "--json"],
+                    &[query],
+                )]
+            }
+            // `--yes` before the server, as `remove` has it before the name.
+            Task::ImportServer {
+                server,
+                version,
+                yes,
+            } => {
+                let mut head = owned(&["mindweaver", "gather", "mcp", "add"]);
+                if let Some(version) = version {
+                    head.extend(option("--version", version));
+                }
+                if *yes {
+                    head.push(String::from("--yes"));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[server])]
+            }
             Task::Workspaces => vec![words(&["mindweaver", "workspaces"], &[])],
             Task::Gather {
                 url,
@@ -1048,6 +1094,7 @@ impl Task {
                 | Task::Gather { .. }
                 | Task::ListMarketplace { .. }
                 | Task::GatherPlugins { .. }
+                | Task::ImportServer { yes: true, .. }
                 | Task::UpdateSources { .. }
                 | Task::RemoveSource { yes: true, .. }
                 | Task::Export { .. }
@@ -1264,6 +1311,14 @@ impl Followed {
                     | GatherCommand::Rename { .. }
                     | GatherCommand::Remove { .. },
                 )
+                // An MCP registry, asked a page at a time, which a search
+                // narrow enough to choose from reads in one request, and
+                // one server's version for an add: core reports no step of
+                // either and takes no cancel, so neither is followed, and
+                // each runs as a read of the disk does (an open question).
+                | WeaverCommand::Gather(GatherCommand::Mcp(
+                    RegistryCommand::Search { .. } | RegistryCommand::Add { .. },
+                ))
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1453,6 +1508,12 @@ impl Refusal {
                     | GatherCommand::Rename { .. }
                     | GatherCommand::Remove { .. },
                 )
+                // An MCP registry over the network, which asks nothing of
+                // a terminal, and the library, written only with `--yes`
+                // through `add`'s own path; nothing either line starts.
+                | WeaverCommand::Gather(GatherCommand::Mcp(
+                    RegistryCommand::Search { .. } | RegistryCommand::Add { .. },
+                ))
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1639,6 +1700,11 @@ impl Caution {
                 | GatherCommand::Rename { .. }
                 | GatherCommand::Search { .. },
             )) => Vec::new(),
+            // An add only adds: it refuses a file already where it would
+            // write, as `add` does, so a yes takes nothing away.
+            Some(WeaverCommand::Gather(GatherCommand::Mcp(
+                RegistryCommand::Search { .. } | RegistryCommand::Add { .. },
+            ))) => Vec::new(),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Vec::new(),
             None

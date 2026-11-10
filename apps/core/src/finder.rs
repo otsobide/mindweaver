@@ -895,7 +895,7 @@ fn names_folder(url: &str) -> bool {
 }
 
 /// Whether `url`'s scheme is `scheme`, in any case.
-fn scheme_is(url: &str, scheme: &str) -> bool {
+pub(crate) fn scheme_is(url: &str, scheme: &str) -> bool {
     url.split_once("://")
         .is_some_and(|(given, _)| given.eq_ignore_ascii_case(scheme))
 }
@@ -920,7 +920,7 @@ fn host_of(url: &str) -> Option<String> {
 
 /// Whether `url` is asked of this machine: `localhost`, or a loopback
 /// address, as a test's finder and a person's own are.
-fn on_this_machine(url: &str) -> bool {
+pub(crate) fn on_this_machine(url: &str) -> bool {
     host_of(url).is_some_and(|host| {
         host == "localhost"
             || host == "[::1]"

@@ -631,7 +631,7 @@ fn edited(project: &MindProject, target: &Target, changed: bool) -> Outcome {
 /// A record that could not be changed is a warning rather than an error, as
 /// core reports it: the change it was about has already been made, and
 /// reporting it as not made would be false.
-fn recorded(
+pub(crate) fn recorded(
     outcome: &mut Outcome,
     record: Result<Record, InstallError>,
     why: impl Fn(Record) -> Option<String>,
@@ -653,7 +653,7 @@ fn recorded(
 
 /// What to say of a record of an install under the name a change wrote,
 /// whose copy had gone, and which the change dropped.
-fn stale(record: Record) -> Option<String> {
+pub(crate) fn stale(record: Record) -> Option<String> {
     (record == Record::Dropped).then(|| {
         String::from(
             "an old record said `mindweaver install` had put one of that name here; it is gone",
