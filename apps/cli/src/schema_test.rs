@@ -415,9 +415,23 @@ impl Fixtures {
             "library" | "scan" | "plans" | "updates" | "drafts" | "servers" => {
                 self.each(name, fixture, Self::asked);
             }
-            "commands" | "applied" | "loads" | "updated" | "authored" | "served" | "gathered" => {
+            "commands" | "applied" | "loads" | "updated" | "authored" | "served" => {
                 self.each(name, fixture, Self::ran);
             }
+            // And what a marketplace's listing printed, which the page of
+            // sources reads back as the envelope it is.
+            "gathered" => self.each(name, fixture, |fixtures, at, ran| {
+                fixtures.ran(at, ran);
+                if ran["task"]["type"] == "list_marketplace" {
+                    let printed = ran["ran"]["outcome"]["runs"][0]["stdout"].as_str();
+                    let envelope: Value = serde_json::from_str(printed.unwrap()).unwrap();
+                    fixtures.is(
+                        &format!("{at}/ran/outcome/runs/0/stdout/data"),
+                        "MarketplaceListing",
+                        &envelope["data"],
+                    );
+                }
+            }),
             // A task previewed, and run where running it reaches no
             // repository: one previewed alone holds no run.
             "kept" => self.each(name, fixture, |fixtures, at, kept| {

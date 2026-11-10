@@ -1978,6 +1978,42 @@ const ACME_TOOLS: [(&str, &str); 2] = [
     ),
 ];
 
+/// What `tools-market`, the Claude Code marketplace [`sourcing`] gathers a
+/// plugin of, holds: its catalog, calling itself `acme-tools`, and two
+/// plugins of its own, `formatter`, with hooks beside its skill, and
+/// `review`, one skill at its root, beside one from npm, which no gather
+/// takes.
+fn tools_market() -> Vec<(String, String)> {
+    let catalog = json!({
+        "name": "acme-tools",
+        "owner": {"name": "Acme"},
+        "metadata": {"description": "Acme's tools for Claude Code"},
+        "plugins": [
+            {"name": "formatter", "source": "./plugins/formatter", "description": "Tidy the code", "version": "1.2.0", "license": "Apache-2.0"},
+            {"name": "review", "source": "./plugins/review", "description": "Read a change"},
+            {"name": "from-npm", "source": {"source": "npm", "package": "@acme/x"}, "description": "A package from npm"},
+        ],
+    });
+    vec![
+        (
+            String::from(".claude-plugin/marketplace.json"),
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        ),
+        (
+            String::from("plugins/formatter/skills/tidy/SKILL.md"),
+            skill_file("tidy", "Tidy the code"),
+        ),
+        (
+            String::from("plugins/formatter/hooks/hooks.json"),
+            String::from("{}\n"),
+        ),
+        (
+            String::from("plugins/review/SKILL.md"),
+            skill_file("review", "Read a change"),
+        ),
+    ]
+}
+
 /// A repository at `you/src/<name>` under `home`, holding `files` in one
 /// commit made at a fixed time, so its id is the same at every run: its
 /// path, as a person on this machine types it.
@@ -2002,7 +2038,10 @@ fn commit_of(path: &str) -> String {
 ///   `src-acme-skills`, from its path;
 /// - `src/team-rules`, [`TEAM_RULES`], gathered as rules from `rules`,
 ///   called `team-rules` and pinned to its commit;
-/// - `src/acme-tools`, [`ACME_TOOLS`], which nothing gathered yet.
+/// - `src/acme-tools`, [`ACME_TOOLS`], which nothing gathered yet;
+/// - `src/tools-market`, a Claude Code marketplace ([`tools_market`]),
+///   called `acme-tools` after its catalog, its plugin `formatter`
+///   gathered under it, `acme-tools.formatter`.
 fn sourcing(home: &Path) -> PathBuf {
     let root = home.join("Sources");
     fs::create_dir_all(&root).unwrap();
@@ -2032,6 +2071,18 @@ fn sourcing(home: &Path) -> PathBuf {
     .unwrap();
     assert!(gathered.ok, "{gathered:?}");
     source_at(home, "acme-tools", &ACME_TOOLS);
+    let files = tools_market();
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
+    let market = source_at(home, "tools-market", &files);
+    let gathered = weaver(
+        &root,
+        &["gather", "marketplace", "--plugin", "formatter", &market],
+    )
+    .unwrap();
+    assert!(gathered.ok, "{gathered:?}");
 
     pin_times(&root);
     root
@@ -2057,7 +2108,17 @@ fn write_the_snapshot_of_a_workspace_filled_from_sources() {
         .iter()
         .map(|source| source["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["src-acme-skills", "team-rules"], "{json}");
+    assert_eq!(
+        names,
+        [
+            "src-acme-skills",
+            "team-rules",
+            "acme-tools",
+            "acme-tools.formatter"
+        ],
+        "{json}"
+    );
+    assert_eq!(snapshot["sources"][3]["parent"], "acme-tools", "{json}");
     assert!(snapshot["sources"][1]["pin"].is_string(), "{json}");
     assert_eq!(
         snapshot["sources"][0]["licences"],
@@ -2075,8 +2136,9 @@ fn write_the_snapshot_of_a_workspace_filled_from_sources() {
 /// then gathered and stopped at its first step, before anything is placed;
 /// `src-acme-skills` gathered again, then every source; `src-acme-skills`
 /// renamed, then renamed to a name `team-rules` has, which is refused;
-/// `team-rules` forgotten, its dry run first; and `src-acme-skills`
-/// gathered again and stopped at its first step.
+/// `team-rules` forgotten, its dry run first; `src-acme-skills` gathered
+/// again and stopped at its first step; and the plugins of the marketplace
+/// `acme-tools` listed, then its `review` gathered.
 #[test]
 fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
     let tools = |dir: &Path| {
@@ -2093,7 +2155,11 @@ fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
     let remove = |yes: bool| json!({"type": "remove_source", "name": "team-rules", "yes": yes});
     // Each task, and whether its run asks itself to stop at its first step.
     let again = |_: &Path| json!({"type": "update_sources", "names": ["src-acme-skills"]});
-    let sent: [(&dyn Fn(&Path) -> Value, bool); 10] = [
+    let market = |dir: &Path| {
+        let path = dir.join("you").join("src").join("tools-market");
+        path.to_str().unwrap().to_owned()
+    };
+    let sent: [(&dyn Fn(&Path) -> Value, bool); 12] = [
         (&|dir| gather(dir, true), false),
         (&|dir| gather(dir, false), false),
         (&|dir| gather(dir, false), true),
@@ -2104,6 +2170,19 @@ fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
         (&|_| remove(false), false),
         (&|_| remove(true), false),
         (&again, true),
+        (
+            &|dir| json!({"type": "list_marketplace", "source": market(dir), "reference": null}),
+            false,
+        ),
+        (
+            &|dir| {
+                json!({
+                    "type": "gather_plugins", "source": market(dir), "reference": null,
+                    "plugins": ["review"],
+                })
+            },
+            false,
+        ),
     ];
 
     let mut answers = Vec::new();
@@ -2182,6 +2261,14 @@ fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
         "{}",
         answers[9]
     );
+    // The catalog, as JSON in the envelope, `formatter` said gathered and
+    // the npm package not gathered; then `review` gathered.
+    let listed: Value = serde_json::from_str(&said(10)).unwrap();
+    let entries = listed["data"]["catalog"]["entries"].as_array().unwrap();
+    assert_eq!(entries[0]["gathered"], "acme-tools.formatter", "{listed}");
+    assert_eq!(entries[2]["gatherable"], false, "{listed}");
+    assert_eq!(answers[11]["preview"]["cancellable"], true);
+    assert!(said(11).contains("acme-tools.review"), "{}", answers[11]);
     let json = serde_json::to_string_pretty(&written).unwrap() + "\n";
     write("gathered", &json);
 }

@@ -34,6 +34,20 @@
   "history": [
     {
       "action": "gather",
+      "at": 1792850640,
+      "detail": "3 listed, 1 chosen, 1 gathered, 0 failed",
+      "outcome": "ok",
+      "target": "/home/you/src/tools-market"
+    },
+    {
+      "action": "gather",
+      "at": 1792850580,
+      "detail": "1 added, 0 updated, 0 unchanged, 0 failed",
+      "outcome": "ok",
+      "target": "/home/you/src/tools-market"
+    },
+    {
+      "action": "gather",
       "at": 1792850520,
       "detail": "2 added, 0 updated, 0 unchanged, 0 failed",
       "outcome": "ok",
@@ -105,6 +119,13 @@
     },
     {
       "kind": "skill",
+      "name": "tidy",
+      "origin": "/home/you/src/tools-market",
+      "place": "shelf",
+      "summary": "Tidy the code"
+    },
+    {
+      "kind": "skill",
       "name": "triage",
       "origin": "/home/you/src/acme-skills",
       "place": "shelf",
@@ -153,6 +174,33 @@
       },
       "summary": "Format the code the way the team does",
       "upstream_path": "skills/format"
+    },
+    {
+      "content_hash": "f8b22de70cd7e1c9af218251a28adfc80dc746cf96eb946dab5eaf8cf16c7ece",
+      "gathered_at": 1792850400,
+      "kind": "skill",
+      "licence": {
+        "from": "plugin",
+        "text": "Apache-2.0"
+      },
+      "name": "tidy",
+      "origin": "/home/you/src/tools-market",
+      "path": ".mindweaver/skills/home-you-src-tools-market.formatter/tidy",
+      "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+      "source": {
+        "directory": "home-you-src-tools-market.formatter",
+        "entry": "formatter",
+        "kind": "git",
+        "name": "acme-tools.formatter",
+        "parent": "acme-tools",
+        "pin": null,
+        "reference": null,
+        "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+        "subdirectory": "plugins/formatter",
+        "url": "/home/you/src/tools-market"
+      },
+      "summary": "Tidy the code",
+      "upstream_path": "plugins/formatter/skills/tidy"
     },
     {
       "content_hash": "740097a154001395cf8607b555628eec6c65d9fa74d4ce9e58e8bb927660973e",
@@ -295,6 +343,48 @@
       ],
       "subdirectory": "rules",
       "url": "/home/you/src/team-rules"
+    },
+    {
+      "directory": "home-you-src-tools-market",
+      "entry": null,
+      "gathered_at": null,
+      "kind": "marketplace",
+      "licences": [],
+      "name": "acme-tools",
+      "origin": "/home/you/src/tools-market",
+      "parent": null,
+      "pin": null,
+      "reference": null,
+      "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+      "shelved": [],
+      "subdirectory": ".",
+      "url": "/home/you/src/tools-market"
+    },
+    {
+      "directory": "home-you-src-tools-market.formatter",
+      "entry": "formatter",
+      "gathered_at": 1792850400,
+      "kind": "git",
+      "licences": [
+        {
+          "count": 1,
+          "licence": "Apache-2.0"
+        }
+      ],
+      "name": "acme-tools.formatter",
+      "origin": "/home/you/src/tools-market",
+      "parent": "acme-tools",
+      "pin": null,
+      "reference": null,
+      "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+      "shelved": [
+        {
+          "count": 1,
+          "kind": "skill"
+        }
+      ],
+      "subdirectory": "plugins/formatter",
+      "url": "/home/you/src/tools-market"
     }
   ],
   "states": [
@@ -405,7 +495,7 @@
     "shelf": {
       "kinds": [
         {
-          "count": 2,
+          "count": 3,
           "kind": "skill"
         },
         {
@@ -447,7 +537,7 @@
           "state": "authored"
         }
       ],
-      "total": 4
+      "total": 5
     },
     "stale": 0
   },
