@@ -676,7 +676,8 @@ fn a_url_with_a_token_in_it_is_refused_and_the_token_is_kept_nowhere() {
         error.to_string(),
         "https://example.com/acme/skills: a password, a token or, over http(s), a user name in \
          the URL is refused, because gathering stores and shows the URL: gather it without one, \
-         and configure a git credential helper that has it"
+         and hand the token over with --token-env or --gh, or configure a git credential helper \
+         that has it"
     );
     // Nothing was registered, and nothing was fetched into the cache.
     assert!(ledger
@@ -860,9 +861,10 @@ impl mindweaver_core::Remote for Forge {
         pin: Option<&Pin>,
         into: &std::path::Path,
         watch: &Watch,
+        token: Option<&mindweaver_core::port::Token>,
     ) -> Result<mindweaver_core::port::Cloned, mindweaver_core::port::GitError> {
         self.asked.lock().unwrap().push(url.to_owned());
-        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, pin, into, watch)
+        mindweaver_core::adapter::gix::Gix.fetch(&self.from, reference, pin, into, watch, token)
     }
 
     fn scrub(&self, clone: &std::path::Path) -> Result<bool, mindweaver_core::port::GitError> {

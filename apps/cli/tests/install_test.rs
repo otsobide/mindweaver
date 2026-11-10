@@ -925,8 +925,8 @@ fn token_in_the_shelf(workspace: &WeaverWorkspace) {
 }
 
 const SCRUBBED: &str = "note: https://example.com/acme/skills: the user name, password or \
-     token an older Mindweaver stored in this URL is taken out; gathering it again needs a git \
-     credential helper that has it";
+     token an older Mindweaver stored in this URL is taken out; gathering it again needs it from --token-env, --gh or a git \
+     credential helper";
 
 /// How many sources still hold a credential in the file, which a read hands
 /// back without it.

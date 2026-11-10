@@ -20,10 +20,13 @@ use std::thread;
 use std::time::Duration;
 
 use credentials::{Shortfall, Shortfalls};
+use gix::credentials::helper::Action;
+use gix::credentials::protocol;
 use gix::progress::{self as gix_progress, tree};
+use gix::prompt;
 
 use crate::gather::{Progress, Watch};
-use crate::port::{Cloned, GitError, Remote};
+use crate::port::{Cloned, GitError, Remote, Token};
 use crate::url::redacted;
 use crate::value::{Pin, Revision};
 use crate::workspace::{replace_file, WorkspaceError};
@@ -46,16 +49,37 @@ impl Remote for Gix {
         pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
+        let login = Login {
+            offered: credentials::Offered::for_url(token, url),
+            helpers: credentials::configured,
+            overrides: &[],
+        };
         match pin {
-            None => clone(url, Wanted::Branch(reference), into, watch, &[]),
-            Some(pin) => pinned(url, reference, pin, into, watch, &[]),
+            None => clone(url, Wanted::Branch(reference), into, watch, &login),
+            Some(pin) => pinned(url, reference, pin, into, watch, &login),
         }
     }
 
     fn scrub(&self, clone: &Path) -> Result<bool, GitError> {
         scrub(clone)
     }
+}
+
+/// How a clone logs in, and what it is configured with beside the
+/// machine's: the token a front end handed over, offered where it is asked
+/// for (`offered`); the credential helpers built for each connection from
+/// the repository it configures, which give the rest (`helpers`), handed in
+/// so that a test can stand in a cascade whose prompt panics and still
+/// clone over a real transport; and `overrides`, none but a test's, which
+/// turns protocol v2 off for a server to refuse a commit asked for by its
+/// id. One value, since every clone a fetch makes, the fallback of a pin's
+/// included, logs in the same way.
+struct Login<'a, H> {
+    offered: Option<credentials::Offered>,
+    helpers: fn(gix::Repository) -> H,
+    overrides: &'a [&'a str],
 }
 
 /// What a clone checks out: whatever a branch or tag is at, the remote's
@@ -76,37 +100,42 @@ enum Wanted<'a> {
 /// way is a branch's whole history. Only a fetch the server turned down
 /// is tried the other way: a credential nobody has, a cancel, or a URL or
 /// a folder that will not do is the same failure whichever is fetched.
-/// `overrides` is configuration the clone is given beside the machine's,
-/// none but a test's, which turns protocol v2 off to be refused so.
-fn pinned(
+fn pinned<H>(
     url: &str,
     reference: Option<&str>,
     pin: &Pin,
     into: &Path,
     watch: &Watch,
-    overrides: &[&str],
-) -> Result<Cloned, GitError> {
-    match clone(url, Wanted::Commit(pin), into, watch, overrides) {
-        Err(GitError::Fetch { .. }) => reaching(url, reference, pin, into, watch, overrides),
+    login: &Login<'_, H>,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
+    match clone(url, Wanted::Commit(pin), into, watch, login) {
+        Err(GitError::Fetch { .. }) => reaching(url, reference, pin, into, watch, login),
         cloned => cloned,
     }
 }
 
 /// Clone `url` into `into`, at what is `wanted`, replacing whatever was
-/// there, telling `watch` what `gix` counts as it goes.
+/// there, telling `watch` what `gix` counts as it goes, and logging in as
+/// `login` says.
 ///
 /// A fetch into the existing clone is the obvious optimisation and is
 /// deliberately not done: the clone is shallow, so re-cloning costs about what
 /// a fetch would, and it is one code path rather than three (clone, fetch,
 /// reconcile a checkout that someone may have edited). Gathering is not
 /// something anybody runs in a loop.
-fn clone(
+fn clone<H>(
     url: &str,
     wanted: Wanted<'_>,
     into: &Path,
     watch: &Watch,
-    overrides: &[&str],
-) -> Result<Cloned, GitError> {
+    login: &Login<'_, H>,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
     // Before the clone already there is removed, which a cancel should not
     // cost.
     if watch.is_cancelled() {
@@ -115,7 +144,7 @@ fn clone(
     emptied(into)?;
 
     let shortfalls = Shortfalls::default();
-    let mut prepare = prepared(url, into, &shortfalls, overrides)?
+    let mut prepare = prepared(url, into, &shortfalls, login)?
         // Depth 1: the history is not what is being gathered, the files are.
         .with_shallow(gix::remote::fetch::Shallow::DepthAtRemote(
             NonZeroU32::new(1).expect("1 is not zero"),
@@ -214,20 +243,23 @@ fn clone(
 /// and the pin is most often older. A pin none of it holds is refused
 /// ([`GitError::PinUnreachable`]), and the clone made to look is removed,
 /// as a fetch that fails leaves nothing.
-fn reaching(
+fn reaching<H>(
     url: &str,
     reference: Option<&str>,
     pin: &Pin,
     into: &Path,
     watch: &Watch,
-    overrides: &[&str],
-) -> Result<Cloned, GitError> {
+    login: &Login<'_, H>,
+) -> Result<Cloned, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
     if watch.is_cancelled() {
         return Err(GitError::Cancelled);
     }
     emptied(into)?;
     let shortfalls = Shortfalls::default();
-    let mut prepare = prepared(url, into, &shortfalls, overrides)?;
+    let mut prepare = prepared(url, into, &shortfalls, login)?;
     if let Some(reference) = reference {
         prepare = prepare
             .with_ref_name(Some(reference))
@@ -385,20 +417,24 @@ fn emptied(into: &Path) -> Result<(), GitError> {
 }
 
 /// A clone of `url` into `into` made ready to fetch, never prompting for a
-/// credential, what is missing noted in `shortfalls`, and given
-/// `overrides` beside the machine's configuration.
-fn prepared(
+/// credential, logging in as `login` says, what is missing noted in
+/// `shortfalls`, and given `login`'s overrides beside the machine's
+/// configuration.
+fn prepared<H>(
     url: &str,
     into: &Path,
     shortfalls: &Shortfalls,
-    overrides: &[&str],
-) -> Result<gix::clone::PrepareFetch, GitError> {
+    login: &Login<'_, H>,
+) -> Result<gix::clone::PrepareFetch, GitError>
+where
+    H: FnMut(Action, prompt::Options) -> protocol::Result + 'static,
+{
     Ok(gix::prepare_clone(url, into)
         .map_err(|error| GitError::Url {
             url: redacted(url).into_owned(),
             detail: said(error),
         })?
-        .with_in_memory_config_overrides(overrides.iter().copied())
+        .with_in_memory_config_overrides(login.overrides.iter().copied())
         // Every connection `gix` lets the clone configure, not only the
         // first: a shallow clone connects once to find the branch and again
         // to fetch it, and either one may be asked for a credential. The one
@@ -407,10 +443,12 @@ fn prepared(
         // docs/architecture.md keeps it among the open questions.
         .configure_connection({
             let shortfalls = shortfalls.clone();
+            let offered = login.offered.clone();
+            let helpers = login.helpers;
             move |connection| {
                 let repository = connection.remote().repo().clone();
                 connection.set_credentials(credentials::never_prompting(
-                    credentials::configured(repository),
+                    credentials::offering(offered.clone(), helpers(repository)),
                     shortfalls.clone(),
                 ));
                 Ok(())

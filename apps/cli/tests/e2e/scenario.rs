@@ -129,6 +129,33 @@ impl Scenario {
         self
     }
 
+    /// A program at `at`, a shell script holding `script`, as a person
+    /// installs one: what a command runs in place of the real one, `gh`
+    /// among them, found on the PATH [`run_on_path`](Self::run_on_path)
+    /// gives it.
+    pub fn program(&self, at: &str, script: &str) -> &Self {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        self.file(at, script);
+        fs::set_permissions(self.at(at), fs::Permissions::from_mode(0o755))
+            .expect("make the program runnable");
+        self
+    }
+
+    /// [`run_with`](Self::run_with), its PATH the folders `path` names
+    /// (spelled from `~` or `/home`) and nothing else: what a program a
+    /// command runs is found among, a real one of the developer's never.
+    pub fn run_on_path(&self, at: &str, line: &str, env: &[(&str, &str)], path: &[&str]) -> Ran {
+        let mut command = self.command(at, line, env);
+        let folders: Vec<PathBuf> = path.iter().map(|folder| self.at(folder)).collect();
+        command.env(
+            "PATH",
+            std::env::join_paths(folders).expect("folders a PATH can hold"),
+        );
+        let output = command.output().expect("run the binary");
+        self.ran(at, line, output)
+    }
+
     /// A git repository at `at` holding `files` in one commit: a source to
     /// gather from, as a team's repository of skills is.
     pub fn source(&self, at: &str, files: &[(&str, &str)]) -> &Self {

@@ -38,6 +38,7 @@ impl Remote for Unreached {
         _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
+        _token: Option<&Token>,
     ) -> Result<crate::port::Cloned, GitError> {
         *self.asked.lock().unwrap() += 1;
         Err(GitError::Cancelled)
@@ -127,7 +128,7 @@ fn a_request_fetches_through_the_remote_it_is_handed() {
 
     let _ = request
         .remote
-        .fetch("u", None, None, Path::new("/nowhere"), &request.watch);
+        .fetch("u", None, None, Path::new("/nowhere"), &request.watch, None);
 
     assert_eq!(*remote.asked.lock().unwrap(), 1);
 }
@@ -901,6 +902,18 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
             "credentials_in_url",
         ),
         (
+            GatherError::TokenOverSsh {
+                url: String::from("git@example.com:acme/skills.git"),
+            },
+            "gather_token_over_ssh",
+        ),
+        (
+            GatherError::TokenNotHttps {
+                url: String::from("http://example.com/acme/skills"),
+            },
+            "gather_token_not_https",
+        ),
+        (
             GatherError::NoSuchFolder {
                 subdirectory: String::from("skills"),
                 url: UrlMother::https(),
@@ -1096,4 +1109,114 @@ fn removing_the_folders_of_a_source_that_has_none_is_no_failure() {
     );
 
     assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+/// A token drawn for one test, as a front end hands one over.
+fn a_token() -> Token {
+    Token::new(random::hex(40))
+}
+
+/// A token handed over for a repository it would not be sent to is a
+/// mistake to say, before anything is registered or fetched, by a gather
+/// and its dry run alike: over ssh, which logs in with its own keys, and
+/// over anything else but https, which would carry it in the clear or to
+/// nobody.
+#[test]
+fn a_token_for_a_url_it_is_not_sent_over_is_refused_before_the_remote_is_asked() {
+    let (_dir, workspace) = WorkspaceMother::empty();
+    let ledger = Ledger::in_memory().unwrap();
+    let token = a_token();
+    let refused: Vec<String> = UrlMother::every_clean()
+        .into_iter()
+        .filter(|url| crate::url::token_host(url).is_none())
+        .collect();
+    assert!(refused.iter().any(|url| over_ssh(url)), "{refused:?}");
+    assert!(refused.iter().any(|url| !over_ssh(url)), "{refused:?}");
+    for url in refused {
+        let remote = Arc::new(Unreached::default());
+        let request = Request::git(url.clone())
+            .with_token(Some(token.clone()))
+            .through(remote.clone());
+
+        for refusal in [
+            gather(&workspace, &ledger, &request).unwrap_err(),
+            dry_run(&workspace, &ledger, &request).unwrap_err(),
+        ] {
+            let code = if over_ssh(&url) {
+                "gather_token_over_ssh"
+            } else {
+                "gather_token_not_https"
+            };
+            assert_eq!(refusal.code(), code, "{url}: {refusal}");
+            assert!(
+                refusal.to_string().starts_with(&format!("{url}: ")),
+                "{refusal}"
+            );
+            assert!(!format!("{refusal:?}").contains(token.reveal()));
+        }
+        assert_eq!(*remote.asked.lock().unwrap(), 0, "{url}");
+    }
+    assert!(ledger.sources().unwrap().is_empty());
+}
+
+/// What a person types for a GitHub repository, its folder's address or
+/// `owner/repo@ref` among them, is a token for github.com: what `--gh` asks
+/// `gh` for.
+#[test]
+fn a_token_for_a_gather_is_for_the_host_of_the_repository_it_fetches() {
+    for (typed, host) in [
+        ("acme/skills", "github.com"),
+        ("acme/skills@v1", "github.com"),
+        (
+            "https://github.com/acme/skills/tree/main/skills",
+            "github.com",
+        ),
+        ("https://GitLab.com/acme/skills", "gitlab.com"),
+        (
+            "https://ghe.example.com:8443/acme/skills",
+            "ghe.example.com",
+        ),
+    ] {
+        assert_eq!(token_host(typed).unwrap(), host, "{typed}");
+    }
+}
+
+#[test]
+fn a_token_for_a_gather_is_for_no_host_of_a_url_it_would_not_take_one_for() {
+    for typed in [
+        "git@github.com:acme/skills.git",
+        "ssh://git@github.com/acme/skills",
+    ] {
+        assert_eq!(
+            token_host(typed).unwrap_err().code(),
+            "gather_token_over_ssh"
+        );
+    }
+    for typed in [
+        "http://github.com/acme/skills",
+        "./acme/skills",
+        "/srv/git/skills",
+    ] {
+        assert_eq!(
+            token_host(typed).unwrap_err().code(),
+            "gather_token_not_https"
+        );
+    }
+    let typed = UrlMother::credentialed();
+    let refused = token_host(&typed.typed).unwrap_err();
+    assert_eq!(refused.code(), "credentials_in_url");
+    assert!(!refused.to_string().contains(&typed.secret), "{refused}");
+}
+
+#[test]
+fn a_request_says_its_token_nowhere() {
+    let token = a_token();
+    let request = Request::git(UrlMother::https()).with_token(Some(token.clone()));
+
+    assert!(
+        !format!("{request:?}").contains(token.reveal()),
+        "{request:?}"
+    );
+    assert_eq!(request.token, Some(token));
+    assert_eq!(Request::git(UrlMother::https()).token, None);
 }

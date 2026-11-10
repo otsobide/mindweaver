@@ -302,7 +302,9 @@ under `apps/` with its own `Makefile`:
   `src/error.rs` holds `CliError` and `CODES`, every code the CLI gives of
   its own, and `src/homes.rs` decides the default home and the agent
   homes, and gathers them with `-W` and `$MINDWEAVER_WORKSPACE` into a
-  `Lookup`. `src/task.rs` holds `Task`, work a front end asks for as the
+  `Lookup`. `src/token.rs` reads the token a command logs in with for one
+  run, from the variable `--token-env` names or from `gh auth token` for a
+  host (`--gh`), a gather's and a backup's alike. `src/task.rs` holds `Task`, work a front end asks for as the
   command lines it is, every front end's rather than the TUI's alone,
   `Refusal`, what a front end with no terminal does not run,
   `Caution`, what a line takes away, which such a front end asks about
@@ -610,7 +612,9 @@ These are easy to break from a single file without noticing.
   no terminal does not run is one list, `task::Refusal`, read off the
   parsed command by a match with no wildcard (`Refusal::of_mind`,
   `of_weaver`), so a new command says whether it is refused before it
-  compiles; a task is refused for its lines (`Task::refusal`). `edit` is
+  compiles; a task is refused for its lines (`Task::refusal`). A gather's
+  task carries no token, no variable's name and no `--gh`, so its lines
+  hand none over: a gather's token comes from a shell alone. `edit` is
   refused in an editor and with `--contents -`, standard input, and run
   with `--contents FILE` (`Refusal::of_edit`); the one task that builds
   that line, the panel's save (`Task::Save`, its text and the hash it was
@@ -1287,7 +1291,17 @@ These are easy to break from a single file without noticing.
   runs the git-config credential helpers with `gix`'s prompt and askpass
   turned off. A credential none of them has is `GitError::Credentials`, never
   a question on a terminal the TUI owns or a server lacks. Anything new that
-  connects to a remote takes the same callback. Two gaps are open questions in
+  connects to a remote takes the same callback. A token the front end hands
+  over for one gather (`gather::Request::token`, a `port::Token`, handed to
+  `Remote::fetch`) answers there before the helpers, as `x-access-token`,
+  only a `Get` of the host `url::token_host` gives for the URL typed, over
+  https alone, and the `Store` or `Erase` after it never reaches a helper
+  (`credentials::offering`); a gather handed one for a URL it would not go
+  over is refused before anything is fetched (`gather_token_over_ssh`,
+  `gather_token_not_https`). Core never reads it from anywhere: the CLI
+  does (`src/token.rs`), from `--token-env`, or from `gh auth token
+  --hostname <host>` with `--gh`, the host `gather::token_host` says, `gh`
+  given no standard input and what it prints shown nowhere. Two gaps are open questions in
   the architecture doc: what the system ssh asks on the terminal, and `gix`'s
   retry after a remote branch named `HEAD`, a connection the callback cannot
   reach. Nor does a backup, the one thing sent with the system's `git`
@@ -1835,7 +1849,9 @@ These are easy to break from a single file without noticing.
   folders and its lines from `~` or `/home`. Each command is the built
   binary as a process, with an environment holding only `PATH` and that
   home, and no option added to the line: a variable a use case is about
-  is given to that command alone (`run_with`). What a person or a git
+  is given to that command alone (`run_with`), and a program it runs, `gh`
+  among them, is a script of the test's on a PATH of nothing else
+  (`program`, `run_on_path`), never the developer's. What a person or a git
   server makes is made directly (`repository`, `file`, `source`, `change`,
   with gix, so no `git` binary), and Mindweaver's own state only through
   the commands (`given`), each held to exit 0 with nothing on stderr, but

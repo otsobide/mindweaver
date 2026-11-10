@@ -206,7 +206,8 @@ fn a_fetch_that_failed_names_the_url_and_what_the_remote_said() {
 }
 
 /// What to do about it is the message's: a gather never prompts, so the
-/// person reading it is told where a credential is looked for instead.
+/// person reading it is told where a credential is looked for instead, and
+/// how to hand one over for the run.
 #[test]
 fn a_remote_that_asks_who_is_fetching_says_where_a_credential_is_looked_for() {
     let error = GitError::Credentials {
@@ -216,7 +217,8 @@ fn a_remote_that_asks_who_is_fetching_says_where_a_credential_is_looked_for() {
     assert_eq!(
         error.to_string(),
         "https://example.com/acme/private.git: needs credentials, and gathering never \
-         prompts for them: configure a git credential helper, or use ssh-agent for an ssh URL"
+         prompts for them: configure a git credential helper, use ssh-agent for an ssh URL, or \
+         hand it a token with --token-env or --gh"
     );
 }
 

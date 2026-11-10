@@ -209,6 +209,8 @@ export type CoreCode =
   | "gathered_unhashed"
   | "gather_cancelled"
   | "credentials_in_url"
+  | "gather_token_over_ssh"
+  | "gather_token_not_https"
   | "gather_no_such_folder"
   | "gather_nothing_found"
   | "gather_path_outside"

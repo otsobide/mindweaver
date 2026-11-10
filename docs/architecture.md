@@ -516,8 +516,9 @@ project, an error's fields. Those join `value` as a rule is found for them,
 the same way.
 
 **Ports.** `port` holds what core needs of the world beyond its files, each
-a trait in core's own words: a `Remote` fetches a source into the cache and
-scrubs a clone of what a credential left in it, an `Http` asks a catalog for
+a trait in core's own words: a `Remote` fetches a source into the cache,
+offering a token a front end handed over for the run (`port::Token`) to the
+host it is for, and scrubs a clone of what a credential left in it, an `Http` asks a catalog for
 one `GET` and hands back whatever it answered (an `HttpRequest`, an
 `HttpResponse` holding only the headers core reads, and an `HttpError`, all
 the port's own), a `LedgerStore` keeps a
@@ -3463,30 +3464,92 @@ PATH, and core keeps doing its own I/O rather than supervising a process. The
 cost is that authentication for private repositories is ours to solve rather
 than inherited whole from `git`.
 
-Half of it is solved: a fetch **never prompts** for a credential. When a server
-asks who is fetching, `gix`'s own answer runs the credential helpers git config
-names and, when none of them has a credential, asks a person: an askpass
-program, then the terminal. The TUI owns the terminal while a gather runs, so
-that prompt is drawn over, its keys raced for, and the server that comes next
-has no terminal at all. So every connection `gix` lets a clone configure is
-given a credentials callback (`gather::credentials`) that runs the same helper
-cascade with the prompt and askpass turned off. A credential no helper has is
-`GitError::Credentials`: the URL without its credentials, and the two ways to
-provide one, a git credential helper or, for an ssh URL, ssh-agent. Over ssh,
-`gix` runs the system `ssh`, which authenticates with keys of its own and asks
-the helpers only for a user name, so a login ssh refuses is reported the same
-way. Whether a fetch went over ssh is read from the URL `gix` connected to, not
-the one typed: git config's `url.<base>.insteadOf` can turn a typed https URL
-into an ssh one, or the reverse. What ssh itself asks on the terminal is
-outside the callback's reach, and so is the one connection `gix` opens without
-letting the clone configure it; both are [open questions](#open-questions).
+One half of it is that a fetch **never prompts** for a credential. When a
+server asks who is fetching, `gix`'s own answer runs the credential helpers
+git config names and, when none of them has a credential, asks a person: an
+askpass program, then the terminal. The TUI owns the terminal while a gather
+runs, so that prompt is drawn over, its keys raced for, and the server has no
+terminal at all. So every connection `gix` lets a clone configure is given a
+credentials callback (`adapter/gix/credentials.rs`) that runs the same helper
+cascade with the prompt and askpass turned off. A credential nothing has is
+`GitError::Credentials`: the URL without its credentials, and the ways to
+provide one, a git credential helper, ssh-agent for an ssh URL, or a token
+handed over with `--token-env` or `--gh`. Over ssh, `gix` runs the system
+`ssh`, which authenticates with keys of its own and asks the helpers only for
+a user name, so a login ssh refuses is reported the same way. Whether a fetch
+went over ssh is read from the URL `gix` connected to, not the one typed: git
+config's `url.<base>.insteadOf` can turn a typed https URL into an ssh one, or
+the reverse. What ssh itself asks on the terminal is outside the callback's
+reach, and so is the one connection `gix` opens without letting the clone
+configure it; both are [open questions](#open-questions).
 
 The callback is set on the connection rather than asked for through git
 config (`gitoxide.credentials.terminalPrompt=false`), which would also stop
 the prompt: the guarantee then lives in code a test reaches, not in a string
-among the user's own settings, and the credential a front end supplies needs
-the callback to arrive through anyway. That other half is
-[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)'s.
+among the user's own settings, and the credential a front end supplies
+arrives through it.
+
+That is the other half,
+[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)'s,
+carried out by #110: a **token the front end hands over** for one run. A
+gather's request carries it (`gather::Request::token`, the `port::Token` a
+backup takes, with no `Display` and a `Debug` of `Token(..)`), and the
+`Remote` is handed it with each fetch, as an `Upstream` is. The callback
+answers with it, as the user GitHub takes any token with (`x-access-token`),
+a `Get` for the one host it is for, before any helper is asked, and keeps the
+`Store` or `Erase` that follows from the helpers, since a `store` or `cache`
+helper told of it would keep it. That host is the typed URL's, and the
+token goes to it over https alone (`url::token_host`): read off the `Get`'s
+URL, so a redirect or an `insteadOf` that takes the fetch to another host,
+to plain http or to ssh finds the helpers there instead, as it would with no
+token. A token for a URL it would not be sent over is refused before
+anything is registered or fetched (`gather_token_over_ssh`,
+`gather_token_not_https`), by a dry run too, rather than kept unused: one
+handed over for an ssh URL says the gather is not logging in the way
+somebody thinks. Plain http is refused even to this machine, since `gix`
+sends no credential over it at all, unless it is built with
+`http-client-insecure-credentials`, which nothing here asks for. Without a
+token the helpers answer, then ssh, as before.
+
+The front end reads the token, since core never reads the environment, and
+never runs `gh`: the CLI (`src/token.rs`) takes it from the variable
+`--token-env` names, refused when that holds nothing, or, with `--gh`, from
+`gh auth token --hostname <host>`, the host core says the token goes to
+(`gather::token_host`), so a GitHub token is never handed to another forge a
+URL names, run with no standard input and its prompt off, and what it prints
+never shown. Nothing writes it down: the ledger stores the URL redacted and
+never sees the token, the clone's config and reflogs hold the URL `gix` was
+given, which carries none, and every error is redacted as before. Only a
+shell hands either option over: a gather's task carries no token, no
+variable's name and no `--gh` (its fields are the URL, the folder and the
+branch, and one more is refused), so its lines spell neither, and a gather
+from the TUI or the panel logs in as the helpers and ssh do. Were one to
+name a variable, as a backup's task may, it would be held to the rule
+backup's is (`policy::token_variable`), since what the variable holds is
+sent to the host the request names.
+
+The callback's tests stand in a cascade whose prompt panics. One with a token
+runs `gix`'s own handshake over a transport of the test's at an https URL,
+which is asked to log in and notes the login it is given; a server on
+loopback is the other way, and is rejected for the token's case, since it
+would have to speak https with a certificate the machine trusts, which no
+test here can make it. One with none clones from a server on loopback that
+asks every request to log in, over `gix`'s real http transport.
+
+What a gather needs **outside the binary** is, then, only what logs it in:
+
+- **The system `ssh`**, for an ssh URL, found on the PATH as `gix` runs it,
+  with whatever keys, agent, `known_hosts` and configuration the account
+  gives it. Without one, an ssh URL cannot be fetched; an https URL needs
+  none.
+- **The credential helpers** git config names (`credential.helper`), which
+  `gix` runs itself, with no prompt: one named by a path or a `!` command
+  line, as `gh auth setup-git` writes one, runs as it is, and one named by a
+  short name, as `store`, `cache`, `osxkeychain` or `manager` are, runs as
+  `git credential-<name>`, as git runs it, so it needs the `git` it comes
+  with. `gix` also asks `git` once where the system's own config file is
+  (`gix-path`), and without a `git` reads no such file. A gather handed a
+  token needs neither for that host.
 
 `gix`'s error types are large and would become part of this crate's public API
 if they were carried, tying its version to gix's, so `GitError` keeps what they
@@ -3496,7 +3559,7 @@ A backup is the one exception, and the one thing Mindweaver sends: `gix`
 fetches and cannot push, so `mindweaver backup` runs the system's `git`,
 behind a port of its own
 ([D-27](#d-27-a-backup-is-an-export-pushed-with-the-systems-git)). Nothing
-else depends on one being installed.
+else depends on one being installed, but for the helpers above.
 
 ### Private repositories, as they were checked
 
@@ -3522,8 +3585,9 @@ and with no display, so no askpass could be shown:
   itself, which this machine's session did not run.
 
 So the callback keeps what was promised: a helper git config names still
-authenticates, and nothing asks. A token handed over for one run (D-16) is
-#110's.
+authenticates, and nothing asks. A token handed over for one run (D-16) came
+with #110, through the same callback, before the helpers ([why
+`gix`](#why-gix-rather-than-running-git)).
 
 ### A URL is kept without its credentials
 
@@ -3555,9 +3619,10 @@ dropped or a scheme lowercased, and cannot find a URL inside a sentence.
 A gather URL that carries a credential is **refused** before anything is
 registered or fetched, rather than used for that one fetch and stored without
 it: a token on the command line is already where `ps` and the shell history
-show it, and refusing is what points at a git credential helper, which keeps
-it off the command line altogether, as the front-end provider of
-[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt) will.
+show it, and refusing is what points at a git credential helper or a token
+handed over for the run (`--token-env`, `--gh`), the front end's provider of
+[D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt), each of
+which keeps it off the command line altogether.
 So is such a URL typed where the branch or the folder goes: the ledger keeps
 a source's branch and folder word for word, since neither is a URL, and a
 `GitError` would quote the branch, so a token typed there, found by the
@@ -12400,7 +12465,13 @@ and the server, so the never-prompting callback lands early (#26) and the
 providers later (#110), which also documents the ssh-binary and git-helper
 dependencies in [Why `gix`](#why-gix-rather-than-running-git). Rejected: HTTPS
 tokens only, which leaves ssh remotes out; and shelling out to `git`, which
-gives up what `gix` was chosen for. Unblocks #26 and #110.
+gives up what `gix` was chosen for. Unblocks #26 and #110. Carried out by
+both: #110's token is handed to core as a `port::Token` for one gather, read
+by the CLI from `--token-env` or from `gh auth token` for the repository's
+host (`--gh`), and offered by the callback to that host alone, over https,
+before the helpers; a token for an ssh URL, or any other that is not https,
+is refused rather than kept unused, and the panel and the TUI hand none
+over.
 
 ### D-17: The next front end is a local web panel
 
@@ -13898,32 +13969,27 @@ repository, stays on `gix`.
   depth, so harvesting one means deciding what its name is relative to: the
   same question `Catalog::take_files` answers inside a project, asked of a
   folder that is not one.
-- **Private repositories.** Mindweaver gives `gix` no credentials of its own,
-  so a private source gets through only when a git-config helper (or, for an
-  ssh URL, ssh itself) has them, and otherwise the gather fails and says how to
-  provide one, never at a prompt (see
-  [Why `gix`](#why-gix-rather-than-running-git)). A URL is stored, logged and
-  shown without credentials, and a gather URL that carries one is refused, so
-  a helper is also the only place a token typed into a URL can go (see
-  [A URL is kept without its
-  credentials](#a-url-is-kept-without-its-credentials)). What else it should
-  be given is decided in
-  [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt): a
-  provider the front end supplies, through that same callback. #110 carries it
-  out. #109 checked the helpers against a real private repository
-  ([as they were checked](#private-repositories-as-they-were-checked)):
-  they do get through, and nothing prompts. ssh's own questions are still open: a passphrase for a key the
-  agent does not hold, a password when the server accepts password
-  authentication, or whether to trust a host seen for the first time, is asked
-  by ssh on the terminal, out of the callback's reach. `BatchMode=yes` in
-  the ssh command would make those failures too. One connection never sees
-  the callback either: when the remote has a branch named `HEAD`, which
-  clashes with the `HEAD` a clone fetches to know what to check out, `gix`
-  0.87 retries on a new connection without calling `configure_connection`, and
-  that one runs the helpers and then prompts, as `gix` does by default. While
-  the helpers are the only source, it asks them what the first connections
-  already got answered; once #110 supplies a token through the callback, that
-  connection will not have it. An in-memory `gitoxide.credentials.terminalPrompt=false`
+- **What ssh asks, and the one connection `gix` opens alone.** How a private
+  repository is logged into is settled, which was the open question "Private
+  repositories": a helper git config names, ssh's own keys, or a token the
+  front end hands over for one run (`--token-env`, `--gh`), all through the
+  callback that never prompts ([why `gix`](#why-gix-rather-than-running-git),
+  [D-16](#d-16-credentials-come-from-the-front-end-never-from-a-prompt)), as
+  #109 checked against a real private repository for the helpers and ssh
+  ([as they were checked](#private-repositories-as-they-were-checked)) before
+  #110 added the token. Two gaps are left. ssh's own questions: a passphrase
+  for a key the agent does not hold, a password when the server accepts
+  password authentication, or whether to trust a host seen for the first
+  time, is asked by ssh on the terminal, out of the callback's reach.
+  `BatchMode=yes` in the ssh command would make those failures too. And one
+  connection never sees the callback: when the remote has a branch named
+  `HEAD`, which clashes with the `HEAD` a clone fetches to know what to check
+  out, `gix` 0.87 retries on a new connection without calling
+  `configure_connection`, and that one runs the helpers and then prompts, as
+  `gix` does by default. It asks the helpers what the first connections
+  already got answered, and is never offered a token handed over, so a gather
+  given one of such a repository logs in there with the helpers or not at
+  all. An in-memory `gitoxide.credentials.terminalPrompt=false`
   on the clone would keep that prompt off the terminal, though not an askpass
   named by `GIT_ASKPASS` or `SSH_ASKPASS`; a `gix` that configures the retry
   too would close it. In the TUI either prompt is worse than at the command

@@ -43,7 +43,8 @@ fn a_missing_credential_names_the_url_without_its_userinfo_and_the_ways_to_provi
     assert_eq!(
         error.to_string(),
         "https://example.com/acme/private.git: needs credentials, and gathering never \
-         prompts for them: configure a git credential helper, or use ssh-agent for an ssh URL"
+         prompts for them: configure a git credential helper, use ssh-agent for an ssh URL, or \
+         hand it a token with --token-env or --gh"
     );
 }
 
@@ -122,7 +123,11 @@ fn a_url_gix_cannot_parse_is_named_without_its_credentials_and_so_is_what_gix_sa
         Wanted::Branch(None),
         &cache.path().join("clone"),
         &Watch::new(),
-        &[],
+        &Login {
+            offered: None,
+            helpers: credentials::configured,
+            overrides: &[],
+        },
     )
     .unwrap_err();
 
@@ -258,6 +263,18 @@ fn the_step_read_off_gix_progress_is_the_latest_under_way() {
 /// off does.
 const NO_COMMIT_BY_ITS_ID: &[&str] = &["protocol.version=1"];
 
+/// How a clone of a test of a pin logs in: with no token, through the
+/// machine's own helpers, as a gather does, given `overrides`.
+fn plainly(
+    overrides: &'static [&'static str],
+) -> Login<'static, impl FnMut(Action, prompt::Options) -> protocol::Result + 'static> {
+    Login {
+        offered: None,
+        helpers: credentials::configured,
+        overrides,
+    }
+}
+
 /// A repository on the disk at its third commit, with a branch `side` left
 /// at the first, and the second, which no branch is at: its skill's file
 /// as it was then, and the commit, as a pin.
@@ -305,12 +322,20 @@ fn a_server_that_hands_out_no_commit_by_its_id_has_the_pin_found_on_its_branch_i
         Wanted::Commit(&pin),
         &into,
         &Watch::new(),
-        NO_COMMIT_BY_ITS_ID,
+        &plainly(NO_COMMIT_BY_ITS_ID),
     )
     .unwrap_err();
     assert_eq!(refused.code(), "git_fetch_failed", "{refused}");
 
-    let cloned = pinned(&url, None, &pin, &into, &Watch::new(), NO_COMMIT_BY_ITS_ID).unwrap();
+    let cloned = pinned(
+        &url,
+        None,
+        &pin,
+        &into,
+        &Watch::new(),
+        &plainly(NO_COMMIT_BY_ITS_ID),
+    )
+    .unwrap();
 
     assert_eq!(cloned.revision, Some(pin.revision()));
     assert_eq!(
@@ -339,7 +364,7 @@ fn a_pin_the_branch_does_not_reach_is_refused_when_no_commit_is_handed_out_by_it
         &ahead,
         &into,
         &Watch::new(),
-        NO_COMMIT_BY_ITS_ID,
+        &plainly(NO_COMMIT_BY_ITS_ID),
     )
     .unwrap_err();
 
@@ -358,7 +383,7 @@ fn a_pin_is_fetched_alone_where_the_server_hands_one_out_by_its_id() {
     let cache = tempfile::TempDir::new().unwrap();
     let into = cache.path().join("clone");
 
-    let cloned = pinned(&url, None, &pin, &into, &Watch::new(), &[]).unwrap();
+    let cloned = pinned(&url, None, &pin, &into, &Watch::new(), &plainly(&[])).unwrap();
 
     assert_eq!(cloned.revision, Some(pin.revision()));
     assert_eq!(
@@ -367,4 +392,324 @@ fn a_pin_is_fetched_alone_where_the_server_hands_one_out_by_its_id() {
     );
     // One commit, not the branch's history.
     assert!(into.join(".git").join("shallow").exists());
+}
+
+/// A private repository's server on loopback: every request it reads is
+/// asked to log in (`401`, `WWW-Authenticate: Basic`), whatever login it
+/// came with, and the `Authorization` each one sent is noted, `None` for a
+/// request that sent none. What a clone reaches over `gix`'s own http
+/// transport, as it reaches a forge, with no network.
+struct Guarded {
+    address: std::net::SocketAddr,
+    sent: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
+}
+
+impl Guarded {
+    fn listening() -> Self {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let address = listener.local_addr().expect("where it listens");
+        let sent = std::sync::Arc::<std::sync::Mutex<Vec<Option<String>>>>::default();
+        let noted = std::sync::Arc::clone(&sent);
+        thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => request.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&request).into_owned();
+                let authorization = request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("authorization")
+                        .then(|| value.trim().to_owned())
+                });
+                noted.lock().unwrap().push(authorization);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\n\
+                      WWW-Authenticate: Basic realm=\"private\"\r\n\
+                      Content-Length: 0\r\n\
+                      Connection: close\r\n\r\n",
+                );
+            }
+        });
+        Self { address, sent }
+    }
+
+    fn url(&self) -> String {
+        format!("http://{}/acme/private.git", self.address)
+    }
+
+    fn sent(&self) -> Vec<Option<String>> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+/// A cascade of no helper whose prompt panics, as the credentials tests
+/// stand one in: whatever a clone asks of the helpers, a person is never
+/// asked.
+// The cascade's error is `gix`'s, fixed by the callback's signature.
+#[allow(clippy::result_large_err)]
+fn no_helper_and_a_prompt_that_panics() -> impl FnMut(Action, prompt::Options) -> protocol::Result {
+    |action, options| {
+        if options.mode != prompt::Mode::Disable || options.askpass.is_some() {
+            panic!("the prompt was reached for {action:?}");
+        }
+        gix::credentials::helper::Cascade::default().invoke(action, options)
+    }
+}
+
+/// [`no_helper_and_a_prompt_that_panics`], as a clone builds its helpers for
+/// each connection.
+#[allow(clippy::result_large_err)]
+fn a_prompt_that_panics(
+    _: gix::Repository,
+) -> impl FnMut(Action, prompt::Options) -> protocol::Result {
+    no_helper_and_a_prompt_that_panics()
+}
+
+/// A private repository's transport, as `gix`'s handshake is handed one,
+/// at `url`: every handshake is asked who is fetching (what the http
+/// transport makes of a `401`), whatever login it was given, and each login
+/// it is given is noted.
+///
+/// A transport of the test's rather than a server on loopback: a token goes
+/// over https alone, which a server here would have to serve with a
+/// certificate the machine trusts, and `gix` sends no credential over plain
+/// http at all. The handshake that asks the callback, and sets what it
+/// answers on the transport, is `gix`'s own.
+struct Asking {
+    url: String,
+    logins: Vec<gix::sec::identity::Account>,
+}
+
+impl gix::protocol::transport::client::TransportWithoutIO for Asking {
+    fn set_identity(
+        &mut self,
+        identity: gix::sec::identity::Account,
+    ) -> Result<(), gix::protocol::transport::client::Error> {
+        self.logins.push(identity);
+        Ok(())
+    }
+
+    fn to_url(&self) -> Cow<'_, gix::bstr::BStr> {
+        Cow::Borrowed(self.url.as_str().into())
+    }
+
+    fn connection_persists_across_multiple_requests(&self) -> bool {
+        false
+    }
+
+    fn configure(
+        &mut self,
+        _: &dyn std::any::Any,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        Ok(())
+    }
+}
+
+impl gix::protocol::transport::client::blocking_io::Transport for Asking {
+    fn handshake<'a>(
+        &mut self,
+        _: gix::protocol::transport::Service,
+        _: &'a [(&'a str, Option<&'a str>)],
+    ) -> Result<
+        gix::protocol::transport::client::blocking_io::SetServiceResponse<'_>,
+        gix::protocol::transport::client::Error,
+    > {
+        Err(gix::protocol::transport::client::Error::Io(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "401 Unauthorized",
+        )))
+    }
+
+    fn request(
+        &mut self,
+        _: gix::protocol::transport::client::WriteMode,
+        _: gix::protocol::transport::client::MessageKind,
+        _: bool,
+    ) -> Result<
+        gix::protocol::transport::client::blocking_io::RequestWriter<'_>,
+        gix::protocol::transport::client::Error,
+    > {
+        unreachable!("nothing is fetched once the handshake fails")
+    }
+}
+
+/// `gix`'s handshake over an [`Asking`] transport at `url`, asking the
+/// callback a clone is given: `offered`, then a cascade of no helper whose
+/// prompt panics. What the transport was told, and what the callback noted.
+fn handshaken(
+    url: &str,
+    offered: Option<credentials::Offered>,
+) -> (Vec<gix::sec::identity::Account>, Option<Shortfall>) {
+    let mut transport = Asking {
+        url: url.to_owned(),
+        logins: Vec::new(),
+    };
+    let shortfalls = Shortfalls::default();
+    let callback = credentials::never_prompting(
+        credentials::offering(offered, no_helper_and_a_prompt_that_panics()),
+        shortfalls.clone(),
+    );
+    let shaken = gix::protocol::handshake(
+        &mut transport,
+        gix::protocol::transport::Service::UploadPack,
+        callback,
+        Vec::new(),
+        &mut gix::progress::Discard,
+    );
+    assert!(shaken.is_err(), "the transport lets nobody in");
+    (transport.logins, shortfalls.last())
+}
+
+/// Every file under `folder` that holds `text`, at any depth.
+fn holding(folder: &Path, text: &str) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let _ = files_under(folder, &mut files);
+    files
+        .into_iter()
+        .filter(|file| {
+            fs::read(file).is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(text))
+        })
+        .collect()
+}
+
+#[test]
+fn a_token_handed_over_is_what_the_handshake_logs_in_with_and_nothing_prompts() {
+    let token = Token::new(crate::mother::random::hex(40));
+    let url = "https://example.com/acme/private.git";
+
+    let (logins, shortfall) = handshaken(url, credentials::Offered::for_url(Some(&token), url));
+
+    assert_eq!(logins.len(), 1, "one login, after the first refusal");
+    assert_eq!(logins[0].username, "x-access-token");
+    assert_eq!(logins[0].password, token.reveal());
+    // Turned down, which is the server's answer to the token and no reason
+    // to ask for one.
+    assert_eq!(shortfall, Some(Shortfall::Refused));
+    let error = fetch_failed(url, shortfall, &"not accepted by the remote");
+    assert!(matches!(error, GitError::Fetch { .. }), "{error}");
+}
+
+#[test]
+fn without_a_token_the_handshake_logs_in_with_nothing_and_says_the_credential_is_missing() {
+    let url = "https://example.com/acme/private.git";
+
+    let (logins, shortfall) = handshaken(url, None);
+
+    assert_eq!(logins, []);
+    assert_eq!(shortfall, Some(Shortfall::Missing));
+    assert_eq!(
+        fetch_failed(url, shortfall, &"no credential").code(),
+        "git_credentials_needed"
+    );
+}
+
+#[test]
+fn a_token_the_cloned_url_would_carry_in_the_clear_is_never_handed_to_the_transport() {
+    let token = Token::new(crate::mother::random::hex(40));
+    for url in [
+        "http://example.com/acme/private.git",
+        "ssh://git@example.com/acme/private.git",
+    ] {
+        let (logins, _) = handshaken(url, credentials::Offered::for_url(Some(&token), url));
+
+        assert!(
+            logins.iter().all(|login| login.password != token.reveal()),
+            "{url}"
+        );
+    }
+}
+
+#[test]
+fn a_clone_a_token_was_handed_to_keeps_nothing_of_it_whatever_came_of_the_fetch() {
+    let server = Guarded::listening();
+    let token = Token::new(crate::mother::random::hex(40));
+    let cache = tempfile::TempDir::new().unwrap();
+
+    let error = clone(
+        &server.url(),
+        Wanted::Branch(None),
+        &cache.path().join("clone"),
+        &Watch::new(),
+        &Login {
+            offered: credentials::Offered::for_url(
+                Some(&token),
+                "https://example.com/acme/private.git",
+            ),
+            helpers: a_prompt_that_panics,
+            overrides: &[],
+        },
+    )
+    .unwrap_err();
+
+    for said in [error.to_string(), format!("{error:?}")] {
+        assert!(!said.contains(token.reveal()), "{said}");
+    }
+    assert_eq!(holding(cache.path(), token.reveal()), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn without_a_token_a_server_asking_for_a_login_is_a_missing_credential_and_nothing_prompts() {
+    let server = Guarded::listening();
+    let cache = tempfile::TempDir::new().unwrap();
+    let url = server.url();
+
+    let error = clone(
+        &url,
+        Wanted::Branch(None),
+        &cache.path().join("clone"),
+        &Watch::new(),
+        &Login {
+            offered: None,
+            helpers: a_prompt_that_panics,
+            overrides: &[],
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(server.sent(), [None]);
+    assert!(matches!(error, GitError::Credentials { .. }), "{error}");
+    assert_eq!(error.code(), "git_credentials_needed");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{url}: needs credentials, and gathering never prompts for them: configure a git \
+             credential helper, use ssh-agent for an ssh URL, or hand it a token with --token-env \
+             or --gh"
+        )
+    );
+}
+
+#[test]
+fn a_token_given_for_one_host_is_never_sent_to_another_a_fetch_reaches() {
+    let server = Guarded::listening();
+    let token = Token::new(crate::mother::random::hex(40));
+    let cache = tempfile::TempDir::new().unwrap();
+
+    // As `url.<base>.insteadOf` would have it: the token was handed over for
+    // the host typed, and the fetch went to another.
+    let error = clone(
+        &server.url(),
+        Wanted::Branch(None),
+        &cache.path().join("clone"),
+        &Watch::new(),
+        &Login {
+            offered: credentials::Offered::for_url(
+                Some(&token),
+                "https://example.com/acme/private.git",
+            ),
+            helpers: a_prompt_that_panics,
+            overrides: &[],
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(server.sent(), [None]);
+    assert!(matches!(error, GitError::Credentials { .. }), "{error}");
 }

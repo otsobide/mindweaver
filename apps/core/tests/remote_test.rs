@@ -19,7 +19,7 @@ use mindweaver_core::ledger::{Action, Outcome};
 use mindweaver_core::mother::{
     random, GitRepositoryMother, PinMother, RevisionMother, SkillMother, UrlMother, WorkspaceMother,
 };
-use mindweaver_core::port::{Cloned, GitError, Remote};
+use mindweaver_core::port::{Cloned, GitError, Remote, Token};
 use mindweaver_core::url::redacted;
 use mindweaver_core::value::{Pin, Revision};
 use mindweaver_core::{Kind, SourceKind, WeaverWorkspace};
@@ -122,6 +122,7 @@ impl Remote for Forge {
         pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        _token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         if watch.is_cancelled() {
             return Err(GitError::Cancelled);
@@ -407,7 +408,7 @@ fn a_fetch_writes_the_tree_where_it_was_asked_and_names_its_root_and_revision<U:
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, None, &into, &Watch::new())
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_eq!(
@@ -426,7 +427,7 @@ fn a_fetch_replaces_whatever_was_at_its_destination<U: Upstream>() {
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, None, &into, &Watch::new())
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_eq!(tree_of(&cloned.root), tree(&files));
@@ -445,7 +446,7 @@ fn a_fetch_into_a_folder_whose_parents_are_not_made_yet_makes_them<U: Upstream>(
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, None, &into, &Watch::new())
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_eq!(tree_of(&cloned.root), tree(&files));
@@ -457,7 +458,7 @@ fn a_fetch_after_a_new_commit_moves_the_revision_and_the_tree<U: Upstream>() {
     let (_cache, into) = destination();
     let remote = upstream.remote();
     let first = remote
-        .fetch(&upstream.url(), None, None, &into, &Watch::new())
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
     let changed = vec![
         (
@@ -472,7 +473,7 @@ fn a_fetch_after_a_new_commit_moves_the_revision_and_the_tree<U: Upstream>() {
 
     upstream.commit(&borrowed(&changed));
     let second = remote
-        .fetch(&upstream.url(), None, None, &into, &Watch::new())
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     assert_ne!(second.revision, first.revision, "{first:?}");
@@ -501,6 +502,7 @@ fn a_fetch_at_a_branch_takes_that_branch_rather_than_the_default<U: Upstream>() 
             None,
             &into.join("next"),
             &Watch::new(),
+            None,
         )
         .unwrap();
     let at_default = remote
@@ -510,6 +512,7 @@ fn a_fetch_at_a_branch_takes_that_branch_rather_than_the_default<U: Upstream>() 
             None,
             &into.join("default"),
             &Watch::new(),
+            None,
         )
         .unwrap();
 
@@ -533,6 +536,7 @@ fn a_fetch_leaves_the_repository_it_fetched_from_as_it_was<U: Upstream>() {
             None,
             &into.join("first"),
             &Watch::new(),
+            None,
         )
         .unwrap();
     let second = remote
@@ -542,6 +546,7 @@ fn a_fetch_leaves_the_repository_it_fetched_from_as_it_was<U: Upstream>() {
             None,
             &into.join("second"),
             &Watch::new(),
+            None,
         )
         .unwrap();
 
@@ -559,7 +564,14 @@ fn a_fetch_of_a_branch_the_repository_lacks_fails_with_a_code_and_leaves_nothing
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), Some(&branch), None, &into, &Watch::new())
+        .fetch(
+            &upstream.url(),
+            Some(&branch),
+            None,
+            &into,
+            &Watch::new(),
+            None,
+        )
         .unwrap_err();
 
     assert!(is_a_coded_failure(&error), "{branch}: {error:?}");
@@ -580,7 +592,14 @@ fn a_fetch_at_a_pin_takes_that_commit_whatever_its_branch_is_at_now<U: Upstream>
 
     let cloned = upstream
         .remote()
-        .fetch(&upstream.url(), None, Some(&pin), &into, &Watch::new())
+        .fetch(
+            &upstream.url(),
+            None,
+            Some(&pin),
+            &into,
+            &Watch::new(),
+            None,
+        )
         .unwrap();
 
     assert_eq!(cloned.revision, Some(pin.revision()));
@@ -597,7 +616,14 @@ fn a_fetch_at_a_pin_the_repository_lacks_fails_with_a_code_and_leaves_nothing<U:
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), None, Some(&pin), &into, &Watch::new())
+        .fetch(
+            &upstream.url(),
+            None,
+            Some(&pin),
+            &into,
+            &Watch::new(),
+            None,
+        )
         .unwrap_err();
 
     assert!(is_a_coded_failure(&error), "{pin}: {error:?}");
@@ -614,7 +640,7 @@ fn a_fetch_of_a_repository_that_is_not_there_fails_with_a_code_and_leaves_nothin
 
     let error = upstream
         .remote()
-        .fetch(&nowhere, None, None, &into, &Watch::new())
+        .fetch(&nowhere, None, None, &into, &Watch::new(), None)
         .unwrap_err();
 
     assert!(is_a_coded_failure(&error), "{nowhere}: {error:?}");
@@ -632,7 +658,7 @@ fn a_fetch_cancelled_before_it_starts_stops_and_leaves_its_destination_alone<U: 
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), None, None, &into, &watch)
+        .fetch(&upstream.url(), None, None, &into, &watch, None)
         .unwrap_err();
 
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
@@ -654,7 +680,7 @@ fn a_fetch_cancelled_at_its_first_step_stops_and_leaves_nothing_of_the_clone<U: 
 
     let error = upstream
         .remote()
-        .fetch(&upstream.url(), None, None, &into, &watch)
+        .fetch(&upstream.url(), None, None, &into, &watch, None)
         .unwrap_err();
 
     assert!(matches!(error, GitError::Cancelled), "{error:?}");
@@ -669,7 +695,7 @@ fn a_fetch_tells_its_watch_only_the_steps_of_a_fetch<U: Upstream>() {
 
     upstream
         .remote()
-        .fetch(&upstream.url(), None, None, &into, &watch)
+        .fetch(&upstream.url(), None, None, &into, &watch, None)
         .unwrap();
 
     let seen = seen.lock().unwrap();
@@ -697,7 +723,7 @@ fn a_fresh_clone_has_nothing_to_scrub_and_neither_has_a_folder_never_cloned<U: U
     let (cache, into) = destination();
     let remote = upstream.remote();
     remote
-        .fetch(&upstream.url(), None, None, &into, &Watch::new())
+        .fetch(&upstream.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
     let before = tree_of(&into);
 
@@ -758,6 +784,8 @@ fn a_gather_through_the_remote_shelves_every_skill_it_fetched<U: Upstream>() {
 struct Recording {
     inner: Arc<dyn Remote>,
     asked: Mutex<Vec<(String, Option<String>, PathBuf)>>,
+    /// The token each fetch was handed, in the order they were asked.
+    tokens: Mutex<Vec<Option<Token>>>,
 }
 
 impl Remote for Recording {
@@ -768,13 +796,15 @@ impl Remote for Recording {
         pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         self.asked.lock().unwrap().push((
             url.to_owned(),
             reference.map(str::to_owned),
             into.to_path_buf(),
         ));
-        self.inner.fetch(url, reference, pin, into, watch)
+        self.tokens.lock().unwrap().push(token.cloned());
+        self.inner.fetch(url, reference, pin, into, watch, token)
     }
 
     fn scrub(&self, clone: &Path) -> Result<bool, GitError> {
@@ -789,6 +819,7 @@ fn a_gather_hands_the_remote_its_url_its_branch_and_the_sources_cache_folder<U: 
     let recording = Arc::new(Recording {
         inner: upstream.remote(),
         asked: Mutex::new(Vec::new()),
+        tokens: Mutex::new(Vec::new()),
     });
     let (_dir, workspace, ledger) = gathering();
 
@@ -809,6 +840,58 @@ fn a_gather_hands_the_remote_its_url_its_branch_and_the_sources_cache_folder<U: 
             workspace.cache_dir().join(&report.directory),
         )]
     );
+    assert_eq!(*recording.tokens.lock().unwrap(), [None]);
+}
+
+/// Every file under `root`, `.git` and the ledger included, whose bytes
+/// hold `text`.
+fn holding(root: &Path, text: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if String::from_utf8_lossy(&fs::read(&path).unwrap()).contains(text) {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+/// A token a front end handed over reaches the remote with each fetch, a
+/// dry run's too, and nothing a gather writes or says holds it: not the
+/// ledger, the clone, the shelf nor the report.
+#[test]
+fn a_gather_hands_its_token_to_the_remote_and_keeps_none_of_it() {
+    let (names, files) = skills();
+    let forge = Fake::create(&borrowed(&files));
+    let recording = Arc::new(Recording {
+        inner: forge.remote(),
+        asked: Mutex::new(Vec::new()),
+        tokens: Mutex::new(Vec::new()),
+    });
+    let (dir, workspace, ledger) = gathering();
+    let secret = random::hex(40);
+    let token = Token::new(secret.clone());
+    let request = Request::git(forge.url())
+        .with_token(Some(token.clone()))
+        .through(recording.clone());
+
+    let report = gather::gather(&workspace, &ledger, &request).unwrap();
+    let foreseen = gather::dry_run(&workspace, &ledger, &request).unwrap();
+
+    assert_eq!(report.added.len(), names.len());
+    assert_eq!(foreseen.unchanged.len(), names.len());
+    assert_eq!(
+        *recording.tokens.lock().unwrap(),
+        [Some(token.clone()), Some(token)]
+    );
+    assert_eq!(holding(dir.path(), &secret), Vec::<PathBuf>::new());
+    let said = serde_json::to_string(&(report, ledger.history(10).unwrap())).unwrap();
+    assert!(!said.contains(&secret), "{said}");
 }
 
 fn a_gather_again_after_a_commit_says_what_changed<U: Upstream>() {
@@ -874,6 +957,7 @@ impl Remote for Refusing {
         _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
+        _token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         Err(GitError::Fetch {
             url: redacted(url).into_owned(),
@@ -935,6 +1019,7 @@ impl Remote for Cancelling {
         _pin: Option<&Pin>,
         _into: &Path,
         _watch: &Watch,
+        _token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         Err(GitError::Cancelled)
     }
@@ -991,11 +1076,12 @@ impl Remote for Reshaped {
         pin: Option<&Pin>,
         into: &Path,
         watch: &Watch,
+        token: Option<&Token>,
     ) -> Result<Cloned, GitError> {
         let at = self
             .inside
             .map_or_else(|| into.to_path_buf(), |inside| into.join(inside));
-        let cloned = self.inner.fetch(url, reference, pin, &at, watch)?;
+        let cloned = self.inner.fetch(url, reference, pin, &at, watch, token)?;
         Ok(Cloned {
             root: cloned.root,
             revision: cloned.revision.filter(|_| self.revision),
@@ -1074,7 +1160,7 @@ fn gix_names_a_revision_by_the_full_commit_id_the_repository_holds() {
     let (_cache, into) = destination();
 
     let cloned = Gix
-        .fetch(&repository.url(), None, None, &into, &Watch::new())
+        .fetch(&repository.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     let revision = cloned.revision.expect("a commit to resolve");
@@ -1100,7 +1186,14 @@ fn gix_fetches_a_tag_as_it_fetches_a_branch() {
     let (_cache, into) = destination();
 
     let cloned = Gix
-        .fetch(&repository.url(), Some("v1"), None, &into, &Watch::new())
+        .fetch(
+            &repository.url(),
+            Some("v1"),
+            None,
+            &into,
+            &Watch::new(),
+            None,
+        )
         .unwrap();
 
     assert_eq!(cloned.revision, Some(tagged));
@@ -1113,7 +1206,7 @@ fn gix_keeps_the_clone_a_gather_can_be_looked_at_afterwards_by() {
     let repository = Repository::create(&borrowed(&files));
     let (_cache, into) = destination();
 
-    Gix.fetch(&repository.url(), None, None, &into, &Watch::new())
+    Gix.fetch(&repository.url(), None, None, &into, &Watch::new(), None)
         .unwrap();
 
     let clone = gix::open_opts(&into, gix::open::Options::isolated()).expect("a repository");
