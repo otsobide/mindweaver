@@ -4,11 +4,12 @@
  * is what those commands made and `mindweaver list --json` says of it. Nothing is
  * written by hand but the folders `mind init` is run in, as `mkdir` would,
  * and, outside the workspace, the text an `--editor` copies in, as an editor
- * would save it.
+ * would save it, and what a repository to gather from holds, committed with
+ * git, as somebody's work is.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { succeed, type Places } from './environment.ts'
+import { git, repository, succeed, type Places } from './environment.ts'
 
 /** The workspace's own, each as `mindweaver add` takes it: kind, name, description. */
 export const LIBRARY = [
@@ -216,4 +217,33 @@ export const SERVED = 'alpha' as const
 export function serveable(at: Places): void {
   succeed(at, 'mindweaver', at.scratch, ['init', at.workspace], 'none')
   project(at, SERVED, ['--agents', 'claude,codex,opencode'])
+}
+
+/** The skill the repository `gatherable` makes beside its workspace holds, and what it says of itself. */
+export const GATHERED = { name: 'format', description: 'Format the code the way the team does', licence: 'MIT' } as const
+
+/** The repository `gatherable` makes beside the workspace `at` names, by its absolute path. */
+export function repositoryBeside(at: Places): string {
+  return join(dirname(at.workspace), 'acme-skills')
+}
+
+/**
+ * A workspace for the spec that adds sources from the panel, which no
+ * other spec reads: nothing gathered, and beside it `acme-skills`, a git
+ * repository holding the skill `format` in `skills`, committed with git as
+ * somebody keeps one, its `SKILL.md` the one file written by hand.
+ *
+ * A repository on this machine rather than on a forge, since the suite
+ * reaches no network: a gather from it is a gather like any other, by its
+ * path or its `file://` URL.
+ */
+export function gatherable(at: Places): void {
+  succeed(at, 'mindweaver', at.scratch, ['init', at.workspace], 'none')
+  const source = repositoryBeside(at)
+  repository(at, source)
+  const skill = join(source, 'skills', GATHERED.name, 'SKILL.md')
+  mkdirSync(dirname(skill), { recursive: true })
+  writeFileSync(skill, `---\nname: ${GATHERED.name}\ndescription: ${GATHERED.description}\nlicense: ${GATHERED.licence}\n---\n\n# ${GATHERED.name}\n\nRun the formatter, then read what it changed.\n`)
+  git(at, source, ['add', 'skills'])
+  git(at, source, ['commit', '--quiet', '-m', 'Add format'])
 }

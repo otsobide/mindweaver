@@ -10,7 +10,7 @@ import { test as base, expect, type Page, type TestInfo } from '@playwright/test
 import type { Envelope } from '../src/api/generated/Envelope'
 import type { Listing } from '../src/api/generated/Listing'
 import { given, look, run, serve, type Places, type Serving } from './environment.ts'
-import { assignable, authorable, changeable, loadable, serveable, updatable } from './fixture.ts'
+import { assignable, authorable, changeable, gatherable, loadable, serveable, updatable } from './fixture.ts'
 
 /** The server under test, as the link it printed says. */
 export interface Served {
@@ -114,10 +114,11 @@ export interface Own extends Panel {
  * unlinks, unless the spec says `assignable`, for the matrix
  * (`test.use({ building: 'assignable' })`), `updatable`, for updating and
  * removing, `authorable`, for editing, adding and renaming in the
- * library, `loadable`, for loading and unloading, or `serveable`, for
- * adding an MCP server and assigning it.
+ * library, `loadable`, for loading and unloading, `serveable`, for
+ * adding an MCP server and assigning it, or `gatherable`, for adding
+ * sources from a repository beside it.
  */
-const BUILDERS = { changeable, assignable, updatable, authorable, loadable, serveable }
+const BUILDERS = { changeable, assignable, updatable, authorable, loadable, serveable, gatherable }
 
 /**
  * The builders whose workspace is served with a home of its own, beside
