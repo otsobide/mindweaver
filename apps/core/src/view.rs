@@ -777,7 +777,12 @@ impl Shelved {
 }
 
 /// A source the shelf is filled from, with what `--from` takes for what it
-/// supplied.
+/// supplied, how much of it the shelf holds and since when: a row of
+/// `mindweaver gather sources` (#100), as the snapshot lists it too.
+///
+/// Counted and dated here, from the shelf's rows, rather than by a front
+/// end from [`Snapshot::shelf`], as every count a view shows is. `shelved`
+/// and `gathered_at` were added after the rest, which moved no version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -788,14 +793,52 @@ pub struct ShelfSource {
     /// [`Source::origin`], which every artifact it supplied is installed
     /// from.
     pub origin: Origin,
+    /// How many of its artifacts the shelf holds, of each kind it holds
+    /// any of, in report order: none for a source no gather has put
+    /// anything on the shelf from.
+    pub shelved: Vec<KindCount>,
+    /// When its last gather put on the shelf what it holds there, in
+    /// seconds since the Unix epoch: the latest of their `gathered_at`, a
+    /// gather recording every artifact it takes, changed or not. `None`
+    /// while the shelf holds nothing of it.
+    pub gathered_at: Option<i64>,
 }
 
 impl ShelfSource {
-    fn of(source: Source) -> ShelfSource {
-        ShelfSource {
-            origin: source.origin(),
-            source,
-        }
+    /// Every source the workspace's ledger knows, in the order it lists
+    /// them (by URL, then branch, then folder), each with what the shelf
+    /// holds of it: what `mindweaver gather sources` lists, and the
+    /// snapshot's `sources`.
+    pub fn read(ledger: &Ledger) -> Result<Vec<ShelfSource>, LedgerError> {
+        let gathered = ledger.gathered()?;
+        Ok(Self::all(ledger.sources()?, &gathered))
+    }
+
+    /// Each of `sources`, with what `shelf` holds of it.
+    fn all(sources: Vec<Source>, shelf: &[Gathered]) -> Vec<ShelfSource> {
+        sources
+            .into_iter()
+            .map(|source| {
+                let held: Vec<&Gathered> = shelf
+                    .iter()
+                    .filter(|gathered| gathered.source.id == source.id)
+                    .collect();
+                let shelved = Kind::ALL
+                    .into_iter()
+                    .map(|kind| KindCount {
+                        kind,
+                        count: held.iter().filter(|gathered| gathered.kind == kind).count(),
+                    })
+                    .filter(|counted| counted.count > 0)
+                    .collect();
+                ShelfSource {
+                    origin: source.origin(),
+                    shelved,
+                    gathered_at: held.iter().map(|gathered| gathered.gathered_at).max(),
+                    source,
+                }
+            })
+            .collect()
     }
 }
 
@@ -1111,17 +1154,16 @@ impl Snapshot {
         // the rest, so a shelf is counted whatever the log says.
         let (shelf, sources, history): (Vec<Shelved>, Vec<ShelfSource>, Vec<Entry>) =
             match workspace.ledger_for_reading() {
-                Ok(ledger) => (
-                    answered(ledger.gathered(), &mut warnings)
-                        .into_iter()
-                        .map(Shelved::of)
-                        .collect(),
-                    answered(ledger.sources(), &mut warnings)
-                        .into_iter()
-                        .map(ShelfSource::of)
-                        .collect(),
-                    answered(ledger.history(HISTORY), &mut warnings),
-                ),
+                Ok(ledger) => {
+                    let gathered = answered(ledger.gathered(), &mut warnings);
+                    let sources =
+                        ShelfSource::all(answered(ledger.sources(), &mut warnings), &gathered);
+                    (
+                        gathered.into_iter().map(Shelved::of).collect(),
+                        sources,
+                        answered(ledger.history(HISTORY), &mut warnings),
+                    )
+                }
                 Err(error) => {
                     warnings.push(Said::of(error.code(), &error));
                     Default::default()
