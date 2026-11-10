@@ -12,6 +12,7 @@ use clap::error::ErrorKind;
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use mindweaver_core::finder::Finder;
 use mindweaver_core::mcp::{self, Address, Program};
+use mindweaver_core::mcp_registry;
 use mindweaver_core::scan::DEFAULT_DEPTH;
 use mindweaver_core::value::{InputName, VariableName};
 use mindweaver_core::{Agent, Kind, Share, Shell};
@@ -1720,6 +1721,80 @@ pub enum GatherCommand {
 
         #[command(flatten)]
         credential: SearchCredential,
+    },
+
+    /// Look for MCP servers in an MCP registry, the official one unless
+    /// --registry names another, and write one into the library as a
+    /// definition.
+    #[command(subcommand)]
+    Mcp(RegistryCommand),
+}
+
+/// What `gather mcp` does with an MCP registry: a subcommand each, as
+/// `gather` has one for each way it takes from elsewhere, since a search
+/// and an add take different arguments.
+///
+/// Nothing either does starts a server: a search lists what the registry
+/// says, and an add writes a definition, which an agent starts only once
+/// `install` has given it to a project.
+#[derive(Debug, Subcommand)]
+pub enum RegistryCommand {
+    /// List the servers whose name holds QUERY, the latest version of
+    /// each, with its status and the ways it is started or reached, by
+    /// the name `gather mcp add` takes.
+    Search {
+        /// What a server's name holds: three characters or more.
+        query: String,
+
+        /// The registry to ask, an address serving its API, over https, or
+        /// http on this machine.
+        #[arg(long, value_name = "URL", default_value = mcp_registry::OFFICIAL)]
+        registry: String,
+
+        /// Print it as JSON, in the envelope every reading command's --json
+        /// shares.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Say what a server would be written as, the program an agent would
+    /// run or the address it would reach, and its status; with --yes,
+    /// write it into the library. Nothing is started either way.
+    //
+    // `--version` is the server's, as the issue names it, so this command
+    // takes none of its own: `propagate_version` would give it one that
+    // clap refuses beside an option of the same name.
+    #[command(disable_version_flag = true)]
+    Add {
+        /// The server, by the name the registry gives it
+        /// (`io.github.owner/server`), as `gather mcp search` lists it.
+        server: String,
+
+        /// The version to write, instead of the latest.
+        #[arg(long, value_name = "VERSION")]
+        version: Option<String>,
+
+        /// What to call it in the library, instead of its owner and its
+        /// name (`owner-server`).
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+
+        /// Which of the ways the registry lists it is started or reached
+        /// to write, by its place among them from 1, instead of the first
+        /// that can be: a remote over streamable HTTP, then a package, then
+        /// a remote over server-sent events.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        way: Option<u32>,
+
+        /// Write it. Without this nothing is written, and the command says
+        /// what would be.
+        #[arg(short, long)]
+        yes: bool,
+
+        /// The registry to ask, an address serving its API, over https, or
+        /// http on this machine.
+        #[arg(long, value_name = "URL", default_value = mcp_registry::OFFICIAL)]
+        registry: String,
     },
 }
 
