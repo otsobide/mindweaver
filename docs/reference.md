@@ -1399,8 +1399,9 @@ other-rules  https://github.com/other/rules  path agents                  1 skil
 ([machine-readable output](#machine-readable-output)), each as the control
 panel's snapshot lists it: the source's fields as `gather list --json` gives
 them, its `origin`, `shelved`, how many of each kind the shelf holds of it,
-and `gathered_at`, in Unix seconds, `null` while the shelf holds nothing of
-it.
+`gathered_at`, in Unix seconds, `null` while the shelf holds nothing of
+it, and `licences`, each licence what the shelf holds of it says, as
+`gather list` says it, with how many say it, most first.
 
 `gather rename` calls a source something else, held to the rules `--name`
 is held to, and refused for a name another source has, with the same
@@ -3040,6 +3041,7 @@ parser, one at a time. A command that would open a screen, an editor or a
 shell, or read standard input, is refused, and so is a path outside what
 the workspace allows, each with a reason and a code. A gather or a backup
 runs as any change does, its dialog showing each step as it takes it, with
+a bar of how far it has got where the step counts what it does, and
 **Stop**, which stops it until it starts placing what it read on the shelf,
 or pushing, as in the TUI; past that, the dialog says it is too late to
 stop, and it finishes. The first Ctrl-C (or, on Unix, the `SIGTERM` `kill`
@@ -3101,7 +3103,8 @@ and changes how one is started from its **MCP servers** page, brings what is ins
 takes out what nothing offers from **Updates**, removes one of the
 library's own everywhere, its dry run first, edits, adds and renames the
 library's own, adopts a skill somebody keeps in a project's agents'
-folders, loads and unloads other workspaces from **Loads**, and switches
+folders, loads and unloads other workspaces from **Loads**, adds sources,
+gathers them again, renames and forgets them from **Sources**, and switches
 to another workspace from the header, and installs, updates all and links
 from the command palette (below) too; everything else is still a command
 away.
@@ -3384,12 +3387,49 @@ machine knows it.
 **The shelf** lists everything gathered, filtered by kind or by name,
 summary or origin, each with the commit it was taken at, when, and its
 origin as `--from` takes it: the address it came from, with `#` and the
-branch when one was asked for. **Sources** lists where the shelf is filled
-from, each with that same origin, the branch, the folder harvested, the
-commit last gathered and what it supplied, and below them what happened
-lately: the latest gathers, installs, uninstalls, relinks and adoptions the
-ledger logged, newest first, with every URL in them shown without
-credentials. An empty shelf names `mindweaver gather git`.
+branch when one was asked for. An empty shelf names `mindweaver gather
+git`.
+
+**Sources** lists where the shelf is filled from, each by the name
+`--from` takes, with that same origin, the branch, the folder harvested,
+the commit it is pinned to, if any, the commit last gathered, the licences
+what it supplied says, each with how many say it, what it supplied and
+when, and a Claude Code marketplace with the plugins gathered of it under
+it. Below them is what happened lately: the latest gathers, installs,
+uninstalls, relinks and adoptions the ledger logged, newest first, with
+every URL in them shown without credentials.
+
+**Add a source**, above the list, gathers a git repository or a Claude
+Code marketplace, each a command shown before it runs. A repository, as
+`gather git` takes it (an address, `owner/repo`, `owner/repo@ref`, a
+folder's address on GitHub or GitLab, or the absolute path of one on this
+machine, typed or chosen with **Browse**), takes skills or rules, from the
+folder named, at the branch named, called the name typed and pinned to
+the commit typed, each left out of the line when it is left empty. **See
+what it would take** runs it with `--dry-run` first, which writes nothing
+and shows what a gather would add, update, leave and take off the shelf;
+**Gather** then runs the same line without it, offered only while the
+fields say what the dry run was of. A marketplace's catalog is listed
+first, `mindweaver gather marketplace --list --json`, which records the
+marketplace as a source and gathers none of its plugins; each plugin it
+lists is then a box, with where it is, its version, its licence, the
+source it was gathered as and what it holds that is not gathered, one no
+gather takes listed and never ticked, and the plugins ticked are gathered
+by name, `mindweaver gather marketplace --plugin <name>... <source>`. No
+token is typed here, nor sent: a private repository logs in as the
+server's machine's git credential helpers do, and a token is handed over
+from a shell alone.
+
+Each source is gathered again (`mindweaver gather update <name>`), or
+every one at once (`--all`), renamed (`mindweaver gather rename`, refused
+by its code for a name another source has), and forgotten, what forgetting
+it would do shown first (`mindweaver gather remove <name>`), then the line
+with `--yes`, a confirmation since it deletes what it put on the shelf
+and its clone and leaves what was installed from it orphaned. A
+marketplace's card lists its plugins again, to gather more of them. A
+gather, an update or a listing is followed while it runs, with its bar and
+**Stop**, and once it is over, stopped or not, what it said stays on the
+page, each line with its code, after the toast has gone.
 
 **Assign** is a matrix of everything there is to install against every
 project: a row for each skill, rule and MCP server the library, a loaded workspace or

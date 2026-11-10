@@ -189,13 +189,19 @@ page then shows that one, and every command the panel runs names it with
 
 ### The shelf and its sources
 
-The shelf holds what was gathered from git repositories, each skill with
-where it came from and the commit it was taken at. Sources lists those
-repositories, and what happened lately: gathers, installs, relinks.
+The shelf holds what was gathered from git repositories and Claude Code
+marketplaces, each skill with where it came from and the commit it was
+taken at. Sources lists those, each by its name, with its pin and the
+licences what it supplied says, a marketplace with its plugins under it,
+and what happened lately: gathers, installs, relinks. Add one there, a
+repository with what a gather would take shown first, or a marketplace
+with its plugins listed to tick; gather one again, rename it or forget it.
+A gather shows how far it has got, can be stopped until it starts placing
+what it read, and says what it did once it is over.
 
 ![The shelf: three gathered skills, each with its origin, revision and when it was gathered](docs/images/shelf.png)
 
-![Sources: the repository the shelf is filled from, and the latest actions](docs/images/sources.png)
+![Sources: a repository to add, what a gather of it would take, and the repository the shelf is filled from, with its licences](docs/images/sources.png)
 
 ### Assign
 

@@ -445,6 +445,8 @@ under `apps/` with its own `Makefile`:
   the query a page keeps its state in, `src/library.ts` finds the projects
   holding one of the library's own, `src/boxes.ts` a box of the matrix in
   the snapshot, for the matrix and the command palette alike,
+  `src/plugins.ts` reads back what a listing of a marketplace's plugins
+  printed, as core's `MarketplaceListing`,
   `src/markdown.ts` draws a skill's
   markdown from its tokens, and `src/time.ts` says the ledger's times.
   `src/components/` holds the frame
@@ -467,7 +469,11 @@ under `apps/` with its own `Makefile`:
   library exported into a folder and backed up to a git repository, a
   token named only by its variable (`ExportForm`, `BackupForm`), the
   removal of one of the library's own everywhere, dry run first
-  (`RemoveOffer`), its rename (`RenameForm`), the editor, CodeMirror in a
+  (`RemoveOffer`), its rename (`RenameForm`), a source added, what a
+  gather of it would take or what a marketplace lists said first
+  (`SourceForm`), one listed with what can be done to it, a marketplace's
+  plugins under it (`SourceCard`), the plugins a marketplace's catalog
+  lists, to tick those to gather (`PluginPicker`), the editor, CodeMirror in a
   shadow root of its own (`MarkdownEditor`), what core says of a draft
   (`DraftVerdict`), the form of an MCP server's transport, each of its
   fields an option's value and a secret a variable's name
@@ -484,7 +490,8 @@ under `apps/` with its own `Makefile`:
   libraries for the CSP. `src/*.d.ts` are written by the Vite plugins and
   committed, and so is `src/api/generated/`, written from Rust by `make
   web/types`. `e2e/` is the browser suite: `run.ts` its driver,
-  `environment.ts` what every process it starts runs in, `fixture.ts` the
+  `environment.ts` what every process it starts runs in, git and a line
+  run apart among it, `fixture.ts` the
   workspaces it builds with the commands, `panel.ts` what the specs share,
   and the specs; `playwright.config.ts`, beside `vite.config.ts`, starts
   `mindweaver ui` over the shared workspace. Beside the suite, through the same
@@ -667,7 +674,9 @@ These are easy to break from a single file without noticing.
   task carries no token, no variable's name and no `--gh`, so its lines
   hand none over: a gather's token comes from a shell alone. It carries
   its kind (`kind`, skills when a task leaves it out), which the TUI's
-  form never sets otherwise. The TUI's search of the skill directories, on
+  form never sets otherwise, and a name, a pin and a dry run (`name`,
+  `pin`, `dry_run`, none when a task leaves them out), which the panel's
+  page of sources sets, its dry run first. The TUI's search of the skill directories, on
   the shelf's page, is `Task::SearchSkills`, `mindweaver gather search
   --json`, its results read back from the JSON the line printed, by the
   names the envelope gives them, never a table's columns, and a result
@@ -1239,7 +1248,8 @@ These are easy to break from a single file without noticing.
     a scan is to look under or the explorer is to list, by an absolute,
     normalized path outside every `.mindweaver`, verbatim, each folder a
     listing holds held to the policy again and left out when refused
-    (`browse`). A gather's source is an address, held to the gather's own
+    (`browse`). A gather's source is an address, GitHub's `owner/repo`
+    among them, held to the gather's own
     rules, which refuse a credential in it, or a folder on this machine,
     as a path or a `file://` URL, held as a folder to link is
     (`policy::source`), and so is a backup's repository; the folder an
@@ -2168,7 +2178,13 @@ These are easy to break from a single file without noticing.
   run each on the workspace as built, the backup that names a token's
   variable previewed alone and the one that names none stopped at its
   first step, before it reaches any repository (`kept.json`), and each
-  step a backup reports (`steps.json`), none of them holding a token.
+  step a backup reports (`steps.json`), none of them holding a token, and,
+  of a workspace filled from repositories beside it and a marketplace's
+  plugin (`sources.json`), each change its page of sources sends,
+  previewed and run each on the workspace as built, a gather's dry run,
+  one stopped at its first step and a marketplace's catalog listed among
+  them (`gathered.json`), and each step a gather reports
+  (`gathering.json`).
   `tests/panel.ts` reads them and
   mounts the panel at an address, answering its queries with them, and a
   task with its preview and its run, told finished on the stream before
@@ -2212,8 +2228,9 @@ These are easy to break from a single file without noticing.
   something takes a workspace and a `mindweaver ui` of its own (`own`, built by
   `changeable`, or what the spec's `building` names, `assignable` for the
   matrix's, `updatable` for updating and removing, `authorable` for
-  editing, adding and renaming in the library or `serveable` for adding
-  an MCP server and assigning it, beside a copy of it
+  editing, adding and renaming in the library, `serveable` for adding
+  an MCP server and assigning it or `gatherable` for adding a source
+  from a repository beside it, beside a copy of it
   and served by `serve`, through
   `environment.ts` as every process is, with what the spec's `variables`
   set in its environment alone, an MCP server's secret drawn as the run
