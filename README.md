@@ -316,6 +316,14 @@ rest); `acme/skills@v2` and the address of a folder on GitHub or GitLab name
 a branch and a folder too, and `--dry-run` says what would be taken without
 taking it.
 
+`mindweaver gather search pdf` looks for skills before you gather them, and
+`--take 2` gathers the second it lists. It asks GitHub's code search, with
+a token you hand over for the search (`--token-env`, `--gh`), and only the
+skill directories your workspace's `weaver.toml` lists in `finders`:
+skills.sh and claude-plugins.dev are best-effort, read from APIs nobody
+documents, which can change under it, so none is asked until you list it,
+having read its terms.
+
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`
 offers them to yours.
