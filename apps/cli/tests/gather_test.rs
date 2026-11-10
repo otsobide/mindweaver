@@ -205,7 +205,7 @@ fn gather_list_names_where_each_skill_came_from() {
 
     // By the name `--from` takes, which the listing is for.
     assert!(outcome.ok);
-    assert_eq!(outcome.stdout, "deploy  acme  Ship it\n");
+    assert_eq!(outcome.stdout, "deploy  acme  unknown  Ship it\n");
 }
 
 #[test]
@@ -478,7 +478,7 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
     // Listing reads, so it rewrites nothing, and it shows nothing it should
     // not, the URL its JSON holds included.
     let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
-    assert_eq!(listed.stdout, "deploy  acme  Ship it\n");
+    assert_eq!(listed.stdout, "deploy  acme  unknown  Ship it\n");
     assert!(listed.stderr.is_empty(), "{:?}", listed.stderr);
     let json = weaver(dir.path(), &["gather", "list", "--json"]).unwrap();
     assert!(
@@ -510,7 +510,8 @@ fn a_token_an_older_build_stored_is_never_listed_and_a_command_that_writes_takes
     let listed = weaver(dir.path(), &["gather", "list"]).unwrap();
     assert!(
         listed.stdout.lines().any(|line| {
-            line.split_whitespace().collect::<Vec<_>>() == ["deploy", "acme", "Ship", "it"]
+            line.split_whitespace().collect::<Vec<_>>()
+                == ["deploy", "acme", "unknown", "Ship", "it"]
         }),
         "{}",
         listed.stdout

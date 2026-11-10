@@ -242,6 +242,10 @@ fn gather_list_json_says_where_each_offer_comes_from_as_from_takes_it() {
         )
         .given("~/Projects", "mindweaver gather git ../src/acme-skills");
     let revision = scenario.commit("~/src/acme-skills");
+    let shelved = mindweaver_core::hash::tree(
+        &scenario.at("~/Projects/.mindweaver/skills/..-src-acme-skills/review"),
+    )
+    .unwrap();
 
     let mut data = clean(&scenario.run("~/Projects", "mindweaver gather list --json"));
 
@@ -269,7 +273,11 @@ fn gather_list_json_says_where_each_offer_comes_from_as_from_takes_it() {
                 "revision": revision,
                 "directory": "..-src-acme-skills",
                 "name": "src-acme-skills",
+                "pin": null,
             },
+            "upstream_path": "skills/review",
+            "content_hash": shelved.as_str(),
+            "licence": {"from": "unknown"},
             "origin": "../src/acme-skills",
         }])
     );
