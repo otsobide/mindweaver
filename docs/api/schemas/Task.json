@@ -516,11 +516,15 @@
       ]
     },
     {
-      "description": "`mindweaver gather git [--path <folder>] [--ref <ref>] <url>`.",
+      "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
       "type": "object",
       "properties": {
         "folder": {
           "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind",
+          "default": "skill"
         },
         "reference": {
           "type": [
