@@ -6,7 +6,7 @@ import { useRunner, type Runner } from '@/api/commands'
 import type { LiveEvent, Transport } from '@/api/transport'
 import Projects from '@/pages/projects.vue'
 import { useShell } from '@/stores/shell'
-import { answering, answers, commanded, commanding, drafts, fixture, kept, plans, render, servers, steps, switching, unmount, updates, validated, walks, type Fixture } from './panel'
+import { answering, answers, commanded, commanding, drafts, fixture, gathered, gatheringSteps, kept, plans, render, servers, steps, switching, unmount, updates, validated, walks, type Fixture } from './panel'
 
 afterEach(unmount)
 
@@ -60,6 +60,7 @@ const PAGES: [string, Fixture][] = [
   ['/shelf?kind=rule', 'workspace'],
   ['/shelf', 'unmade'],
   ['/sources', 'workspace'],
+  ['/sources', 'sources'],
   ['/sources', 'unmade'],
   ['/discover', 'workspace'],
   ['/discover', 'unmade'],
@@ -83,6 +84,47 @@ const PAGES: [string, Fixture][] = [
 describe('every page', () => {
   it.each(PAGES)('%s, of the %s fixture, passes axe', async (path, name) => {
     await render(path, fixture(name))
+
+    expect(await violations()).toEqual([])
+  })
+})
+
+describe('the page of sources', () => {
+  it('passes axe with what a gather would take shown, a rename open and what forgetting one does shown', async () => {
+    const [dry, , , , , , , looked] = gathered()
+    const { transport } = commanding(fixture('sources'), [dry!, looked!])
+    const { page } = await render('/sources', transport)
+
+    await page.get('input[data-testid="source-url"]').setValue(dry!.task.type === 'gather' ? dry!.task.url : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="source-said"]')).not.toBeNull())
+    const [first, second] = page.findAll('[data-testid="source"]')
+    await first!.get('[data-testid="rename-open"]').trigger('click')
+    await second!.get('[data-testid="forget-dry"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="forget-said"]')).not.toBeNull())
+
+    expect(await violations()).toEqual([])
+  })
+
+  it('passes axe with what a gather stopped said', async () => {
+    const [dry, , stopped] = gathered()
+    const { transport } = commanding(fixture('sources'), [dry!, stopped!])
+    const { page } = await render('/sources', transport)
+    await page.get('input[data-testid="source-url"]').setValue(dry!.task.type === 'gather' ? dry!.task.url : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="source-gather"]')).not.toBeNull())
+    await page.get('[data-testid="source-gather"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="summary-error"]')).not.toBeNull())
+    useShell().warningsOpen = false
+    await flushPromises()
 
     expect(await violations()).toEqual([])
   })
@@ -322,6 +364,28 @@ describe('what the runner draws over a page', () => {
     await flushPromises()
 
     expect(document.querySelector('[data-testid="stop"]')).not.toBeNull()
+    expect(await violations(OVER)).toEqual([])
+  })
+
+  it('passes axe with a gather under way, its bar of its step\'s counts drawn', async () => {
+    const [dry, gather] = gathered()
+    const { control, tell, transport } = commanding(fixture('sources'), [dry!, gather!])
+    const { page } = await render('/sources', transport)
+    await page.get('input[data-testid="source-url"]').setValue(dry!.task.type === 'gather' ? dry!.task.url : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="source-gather"]')).not.toBeNull())
+    control.finishing = new Promise<void>(() => {})
+    await page.get('[data-testid="source-gather"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await flushPromises()
+
+    tell({ type: 'progress', run: 2, progress: gatheringSteps()[1]! })
+    await flushPromises()
+
+    expect(document.querySelector('progress[data-testid="progress"]')?.getAttribute('max')).toBe(String(gatheringSteps()[1]!.total))
     expect(await violations(OVER)).toEqual([])
   })
 
