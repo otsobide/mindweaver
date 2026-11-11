@@ -834,10 +834,13 @@
           "marketplace_source_unknown",
           "marketplace_plugin_local",
           "marketplace_plugin_unlisted",
+          "marketplace_plugin_skillless",
+          "marketplace_plugin_schema_unknown",
           "marketplace_entry_unnamed",
           "marketplace_entry_name_invalid",
           "marketplace_entry_twice",
           "marketplace_entry_unreadable",
+          "marketplace_entry_unresolved",
           "mcp_unparsed",
           "mcp_format_missing",
           "mcp_format_too_new",
@@ -4959,7 +4962,7 @@
             "type": "object"
           },
           {
-            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na Claude Code marketplace's catalog recorded as a source and its\nplugins listed, none gathered, read back from the JSON the line\nprints, for a front end to list the plugins and gather the ones\nticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na plugin marketplace's catalog, Claude Code's or Codex's, recorded as\na source and its plugins listed, none gathered, read back from the\nJSON the line prints, for a front end to list the plugins and gather\nthe ones ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103,\n#104).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
             "properties": {
               "reference": {
                 "type": [
@@ -4983,7 +4986,7 @@
             "type": "object"
           },
           {
-            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a Claude Code marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a plugin marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
             "properties": {
               "plugins": {
                 "items": {
@@ -6070,7 +6073,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na Claude Code marketplace's catalog recorded as a source and its\nplugins listed, none gathered, read back from the JSON the line\nprints, for a front end to list the plugins and gather the ones\nticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na plugin marketplace's catalog, Claude Code's or Codex's, recorded as\na source and its plugins listed, none gathered, read back from the\nJSON the line prints, for a front end to list the plugins and gather\nthe ones ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103,\n#104).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
             "properties": {
               "reference": {
                 "type": [
@@ -6094,7 +6097,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a Claude Code marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a plugin marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
             "properties": {
               "plugins": {
                 "items": {
