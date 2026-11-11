@@ -476,10 +476,13 @@ mind migrate --names [--yes]
 
 mindweaver                 # the TUI: everything below, a key each
 mindweaver ui [--port PORT] [--no-open] [--dev] [--token-file PATH] [--log]
+              [--registry URL] [--finder-url FINDER=URL]...
                            # the control panel, in a browser, until Ctrl-C;
                            # mind ui is the same; with --no-open and
                            # --token-file, its API for scripts alone; with
-                           # --log, what it answered and how long each took
+                           # --log, what it answered and how long each took;
+                           # with --registry and --finder-url, the catalogs
+                           # its searches ask instead of each one's own
 mindweaver init [PATH] [--skills DIR] [--rules DIR]
                            # create a .mindweaver here, or in PATH
 mindweaver activate [DIR] [--shell SHELL]
@@ -3178,7 +3181,9 @@ and changes how one is started from its **MCP servers** page, brings what is ins
 takes out what nothing offers from **Updates**, removes one of the
 library's own everywhere, its dry run first, edits, adds and renames the
 library's own, adopts a skill somebody keeps in a project's agents'
-folders, loads and unloads other workspaces from **Loads**, and switches
+folders, loads and unloads other workspaces from **Loads**, searches the
+skill directories and the MCP Registry from **Catalogs**, taking a skill
+onto the shelf and adding a server to the library, and switches
 to another workspace from the header, and installs, updates all and links
 from the command palette (below) too; everything else is still a command
 away.
@@ -3467,6 +3472,49 @@ commit last gathered and what it supplied, and below them what happened
 lately: the latest gathers, installs, uninstalls, relinks and adoptions the
 ledger logged, newest first, with every URL in them shown without
 credentials. An empty shelf names `mindweaver gather git`.
+
+**Catalogs**, below them, finds skills and MCP servers to take, and takes
+them with the commands the CLI uses. Each search is a change like any
+other, its line shown before it runs, and what it found is read from what
+the line printed: your browser asks no catalog anything, and is never
+given one's address.
+
+- **Skill directories** asks the directories your workspace's
+  `weaver.toml` lists in `finders` ([searching the skill
+  directories](#searching-the-skill-directories)): type what to look for
+  and **Search** runs `mindweaver gather search --json <query>`, followed
+  as a gather is, each directory it asks shown as it asks it, with
+  **Stop**. Each skill found is listed as the command lists it: its name,
+  the finders that found it, its repository, the branch a finder named,
+  its folder there, or none, when the whole repository is gathered, and
+  its installs or stars. **Take** gathers one onto the shelf, `mindweaver
+  gather git [--path <folder>] [--ref <branch>] <repository>`, the line
+  `--take` would run, shown first. GitHub's code search needs a token,
+  which the panel never hands over, so it is never asked from here, and
+  the line says so; search it from a terminal with `--gh` or
+  `--token-env`. With no finder listed but GitHub's, the default, a
+  search runs nothing and says why (`finder_none_asked`).
+- **MCP Registry** asks the official registry ([from the MCP
+  Registry](#from-the-mcp-registry)): **Search** runs `mindweaver gather
+  mcp search --json <query>`, listing each server by the name the
+  registry gives it, its version, its status by the registry's word, what
+  it is for and each way it is started or reached. **See what adding it
+  writes** runs the add's dry run, `mindweaver gather mcp add --version
+  <version> <server>`, and shows what it said: what an agent would run or
+  reach, the variables it reads and where it would be written, writing
+  nothing. Only then does **Add to the library** run the same line with
+  `--yes`, shown first, which writes the definition into the library, for
+  **MCP servers** to show and **Assign** to install. Nothing is started
+  either way.
+
+`mindweaver ui --registry <url>` has every search and add of the panel's
+ask that registry in place of the official one, a mirror serving the same
+API, and `--finder-url <finder>=<url>`, once for each, a skill directory
+at another address that speaks its API, as the command's own options do:
+each over https, or plain http on this machine, held to that as the panel
+starts, and named on every line that asks it, so a line copied from the
+panel asks the same catalog. Only whoever starts the panel names them; a
+browser names no address.
 
 **Assign** is a matrix of everything there is to install against every
 project: a row for each skill, rule and MCP server the library, a loaded workspace or

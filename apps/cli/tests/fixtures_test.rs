@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use common::*;
 use mindweaver_cli::backend::{PanelBackend, Query};
+use mindweaver_cli::task::Catalogs;
 use mindweaver_core::hash;
 use mindweaver_core::ledger::{Action, Outcome as Logged, Taken};
 use mindweaver_core::licence::Licence;
@@ -930,6 +931,96 @@ fn write_what_previewing_and_running_a_few_tasks_is_answered_with() {
         );
     }
     write("commands", &json);
+}
+
+/// Where the fixtures say the catalogs on loopback were, in place of the
+/// ports the system picked: the MCP registry, then skills.sh.
+const REGISTRY_AT: &str = "http://127.0.0.1:4100";
+const SKILLS_SH_AT: &str = "http://127.0.0.1:4200";
+
+/// What the panel's page of catalogs sends, previewed and run in turn on
+/// the workspace [`workspace`] builds, its `weaver.toml` listing skills.sh
+/// in `finders` as a person writes the key in, and served as `mindweaver
+/// ui --registry --finder-url skills.sh=` serves it, each catalog a server
+/// on loopback: a search of the skill directories for `commit`, which
+/// skills.sh answers with `commit-style`, in `you/src/house-rules`, a
+/// repository on this disk, and `pdf`, in `acme/skills` on GitHub; the
+/// first of those taken, sent back as the search printed it; a search of
+/// the registry for `mcp`, answered from #106's recordings; and
+/// `ai.clawfetch/mcp` added from it, its dry run, then told yes.
+///
+/// Nothing reaches the network: the repository is taken from this disk,
+/// and `acme/skills` is only listed.
+#[test]
+fn write_what_searching_the_catalogs_from_the_panel_is_answered_with() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("you");
+    let root = workspace(&home);
+    let marker = root.join(WEAVER_DIR).join(WEAVER_CONFIG);
+    let text = fs::read_to_string(&marker).unwrap().replacen(
+        "loaded = [",
+        "finders = [\"skills.sh\"]\nloaded = [",
+        1,
+    );
+    fs::write(&marker, text).unwrap();
+    let source = home.join("src").join("house-rules");
+    repository_at(
+        &source,
+        &[(
+            "skills/commit-style/SKILL.md",
+            &skill_file("commit-style", "How this repo writes commit messages"),
+        )],
+    );
+    let directory = common::finder::SkillsSh::answering(&[
+        ("commit-style", source.to_str().unwrap(), 56),
+        ("pdf", "acme/skills", 2263),
+    ]);
+    let registry = common::mcp_registry::Registry::recorded();
+    let backend = PanelBackend::launch(&root, &Lookup::default())
+        .unwrap()
+        .asking(Catalogs {
+            registry: Some(registry.url()),
+            finders: vec![directory.finder_url()],
+        });
+    let mut answers: Vec<Value> = Vec::new();
+    let mut run = |sent: Value| {
+        let task: Task = serde_json::from_value(sent.clone()).unwrap();
+        let preview = backend
+            .preview(&task)
+            .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
+        let ran = json!({"lines": preview.lines, "outcome": outcome});
+        answers.push(json!({"task": sent, "preview": preview, "ran": ran}));
+        answers.last().unwrap()["ran"]["outcome"].clone()
+    };
+
+    let searched = run(json!({"type": "search_skills", "query": "commit"}));
+    let found: Value = serde_json::from_str(searched["runs"][0]["stdout"].as_str().unwrap())
+        .unwrap_or_else(|error| panic!("{error}: {searched}"));
+    let hit = found["data"]["hits"][0].clone();
+    assert_eq!(hit["name"], "commit-style", "{found}");
+    run(json!({"type": "take_skill", "hit": hit}));
+    run(json!({"type": "search_servers", "query": "mcp"}));
+    for yes in [false, true] {
+        run(json!({
+            "type": "import_server", "server": "ai.clawfetch/mcp", "version": "0.4.0", "yes": yes,
+        }));
+    }
+
+    let json = serde_json::to_string_pretty(&answers).unwrap() + "\n";
+    let json = json
+        .replace(&registry.url(), REGISTRY_AT)
+        .replace(&directory.url(), SKILLS_SH_AT);
+    let json = pinned(&json, dir.path(), Some(&root));
+    assert!(!json.contains(&*dir.path().to_string_lossy()), "{json}");
+    for (index, answer) in answers.iter().enumerate() {
+        assert_eq!(answer["ran"]["outcome"]["ok"], true, "{index}: {json}");
+    }
+    assert!(root
+        .join(WEAVER_DIR)
+        .join("library/mcp/clawfetch-mcp.toml")
+        .is_file());
+    write("searched", &json);
 }
 
 /// The workspace [`assigning`] builds, in a home [`acquainted`] with it

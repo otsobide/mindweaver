@@ -46,7 +46,9 @@ use crate::browse::Folders;
 use crate::code::{self, CoreCode};
 use crate::contents::{self, Contents};
 use crate::draft::Judged;
+use crate::finder::SkillsFound;
 use crate::known::Switchable;
+use crate::mcp_registry::ServerListing;
 use crate::reading::{Shown, Validation};
 use crate::update::Updates;
 use crate::view::{Library, Listing, Project, Snapshot};
@@ -70,17 +72,20 @@ pub trait Visitor {
 /// what the panel's TypeScript exports (`typescript::roots`), the
 /// snapshot, an artifact's files and a file's contents, what an update of
 /// every project would do, the workspaces it may switch to, the folders
-/// inside one, what `list`, `show` and `validate` print, and every code
-/// core gives; and beside them the snapshot's projects, one project of it
-/// and its library, which the API answers with alone. Each is given, as
-/// serde writes it: core is sent nothing, a front end reading what it is
-/// sent into types of its own.
+/// inside one, what `list`, `show` and `validate` print, what a search of
+/// the skill directories and of an MCP registry print, which a run of the
+/// panel's answers with, and every code core gives; and beside them the
+/// snapshot's projects, one project of it and its library, which the API
+/// answers with alone. Each is given, as serde writes it: core is sent
+/// nothing, a front end reading what it is sent into types of its own.
 pub fn roots(visitor: &mut impl Visitor) {
     visitor.given::<Snapshot>();
     visitor.given::<Project>();
     visitor.given::<Library>();
     visitor.given::<Updates>();
     visitor.given::<Listing>();
+    visitor.given::<SkillsFound<'static>>();
+    visitor.given::<ServerListing<'static>>();
     visitor.given::<Shown>();
     visitor.given::<Validation>();
     visitor.given::<contents::Files>();
