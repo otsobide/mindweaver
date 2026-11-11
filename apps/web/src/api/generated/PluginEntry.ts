@@ -16,8 +16,9 @@ name: string, description: string | null, version: string | null,
 source: PluginPlace, 
 /**
  * Where its skills are, each a route from its folder, when its entry
- * lists them; `None` when it lists none, and a gather looks where
- * Claude Code does ([`gather::plugin`]).
+ * lists them; `None` when it lists none, and a gather looks where its
+ * manifest says ([`Manifest`], [`gather::plugin`]). An Agent Plugins
+ * package's are where that format keeps them, whatever this says.
  */
 skills: Array<string> | null, 
 /**
