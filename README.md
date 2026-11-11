@@ -329,19 +329,26 @@ skills.sh and claude-plugins.dev are best-effort, read from APIs nobody
 documents, which can change under it, so none is asked until you list it,
 having read its terms.
 
-### Claude Code marketplaces
+### Plugin marketplaces
 
-A Claude Code plugin marketplace is gathered too, from its repository's
-`.claude-plugin/marketplace.json`. `mindweaver gather marketplace
-anthropics/skills --list` records it and lists its plugins, fetching none
-of them, so a catalog listing thousands costs one clone; `--plugin
-document-skills` gathers the skills of the plugins you name, each a source
-of its own called after the marketplace, at the commit its entry pins, and
-`--all` gathers every one, asking for a `--yes` past 25. Only a plugin's
-skills are taken, only from a plugin kept in git, and nothing a catalog
-names is ever run. `gather update` and `gather remove` of the marketplace
-reach every plugin of it, and in the TUI, `m` on the shelf lists one's
-plugins for you to tick those to gather.
+A plugin marketplace is gathered too: Claude Code's, from its repository's
+`.claude-plugin/marketplace.json`, and Codex's, from
+`.agents/plugins/marketplace.json`, as openai/plugins keeps its.
+`mindweaver gather marketplace anthropics/skills --list` records it and
+lists its plugins, fetching none of them, so a catalog listing thousands
+costs one clone; `--plugin document-skills` gathers the skills of the
+plugins you name, each a source of its own called after the marketplace,
+at the commit its entry pins, and `--all` gathers every one, asking for a
+`--yes` past 25. A plugin is read by the manifest it keeps, Claude Code's,
+Codex's or an [Agent Plugins](https://agent-plugins.org) package's root
+`plugin.json`, whose skills are only the folders directly in its
+`skills/`. Only a plugin's skills are taken, only from a plugin kept in
+git, and nothing a catalog names is ever run. The MCP files a plugin keeps
+(`.mcp.json`, `mcp.json`) are reported and never imported: `mindweaver add
+mcp` brings a server into your library when you want it. `gather update`
+and `gather remove` of the marketplace reach every plugin of it, and in
+the TUI, `m` on the shelf lists one's plugins for you to tick those to
+gather.
 
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`

@@ -529,10 +529,11 @@ mindweaver gather git <URL> [--kind KIND] [--path DIR] [--ref REF] [--pin COMMIT
                            # would take; with --token-env or --gh, log in
                            # over https with a token for this run
 mindweaver gather marketplace <SOURCE> --list|--plugin NAME...|--all [--yes] [--ref REF] [--name NAME] [--json] [--token-env VAR|--gh]
-                           # record a Claude Code marketplace and list the
-                           # plugins its catalog lists, or gather the skills
-                           # of those named, or of every one, each a source
-                           # of its own; --all past 25 needs --yes
+                           # record a plugin marketplace, Claude Code's or
+                           # Codex's, and list the plugins its catalog
+                           # lists, or gather the skills of those named, or
+                           # of every one, each a source of its own; --all
+                           # past 25 needs --yes
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver gather sources [--json]
@@ -1646,7 +1647,8 @@ anthropics/skills lists each of its two plugins' (each a skill, or a
 folder of skills); with none listed, a `SKILL.md` at the plugin's root
 makes it one skill, and otherwise each folder of its `skills/` holding one
 is. What else a plugin keeps or declares, its commands, agents, hooks, MCP
-and LSP servers, is said in a note and left where it is. A skill that says
+and LSP servers, is said in a note and left where it is, the file it keeps
+MCP servers in named, `.mcp.json`, and never imported. A skill that says
 nothing of its licence is under the plugin's, as its entry or its own
 `.claude-plugin/plugin.json` declares it, which `gather list` shows. The
 skills install as any on the shelf do, `--from acme-tools.formatter` naming
@@ -1723,6 +1725,81 @@ host, and on to a plugin only on that same host. In the TUI, `m` on the
 shelf's page, or on a marketplace in the sources screen, lists one's
 plugins; `space` ticks those to gather and `enter` gathers them, as
 `mindweaver gather marketplace --plugin <name>... <source>`.
+
+### Gathering from a Codex marketplace
+
+A Codex marketplace keeps its catalog at
+`.agents/plugins/marketplace.json`, each plugin a `local` source in the
+marketplace's own repository, a `url` or a `git-subdir`, beside the
+`policy` and `category` Codex requires, which a gather passes over.
+`gather marketplace` reads it as it reads Claude Code's, its options doing
+the same:
+
+```
+$ mindweaver gather marketplace acme/codex-tools --list
+acme-codex: https://github.com/acme/codex-tools at 5c6d7e8
+  design   ./plugins/design
+  tracker  ./plugins/tracker
+  release  ./plugins/release
+
+3 plugins listed, none gathered
+```
+
+A repository keeping both catalogs is read at Claude Code's. Wherever a
+catalog is, it is read in the dialect its entries are written in: Codex's
+`local` sources and `policy`, or Claude Code's `github` sources and paths
+named bare under its `pluginRoot`; where they say both, or neither, as a
+catalog of `./` paths and URLs says, by where it is. `--list --json` says
+which in `catalog.dialect`, `codex` or `claude-code`, and where it read it
+in `catalog.file`.
+
+A plugin is read by the manifest it keeps, whichever catalog lists it,
+the first of these: an Agent Plugins package's root `plugin.json`,
+declaring the format's `$schema`, whose skills are each folder directly
+in its `skills/` that holds a `SKILL.md`, never one deeper, nor a
+`SKILL.md` at its root, nor what its entry lists; Codex's
+`.codex-plugin/plugin.json`, whose skills are the folders its `skills`
+lists, or else each folder of its `skills/`; and Claude Code's
+`.claude-plugin/plugin.json`, or none, read as above. The licence it
+declares is the one a skill of it saying none is under. A package of a
+later version of the Agent Plugins format than this build reads is said
+and not gathered.
+
+What a plugin keeps beside its skills is said, Codex's app connectors
+among it, and the files it keeps MCP servers in are named, `.mcp.json` or
+the Agent Plugins format's `mcp.json`, and never imported: `mindweaver add
+mcp` writes a server into the library when you want one. A plugin of
+nothing but those, as many of Codex's own are, is said and passed over
+under `--all`, and named with `--plugin`, fails the command:
+
+```
+$ mindweaver gather marketplace acme/codex-tools --all
+acme-codex: https://github.com/acme/codex-tools at 5c6d7e8, 3 plugins listed
+
+acme-codex.design: https://github.com/acme/codex-tools at 5c6d7e8
+  added  design-to-code  Turn a design into code
+
+1 skill: 1 added, 0 updated, 0 unchanged
+
+acme-codex.release: https://github.com/acme/codex-tools at 5c6d7e8
+  added  tag  Tag a release
+
+1 skill: 1 added, 0 updated, 0 unchanged
+note: design: its agents, MCP servers (`.mcp.json`) and app connectors are not gathered: only a plugin's skills are
+note: tracker: holds no skill, only MCP servers (`.mcp.json`) and app connectors, so nothing of it is gathered: only a plugin's skills are
+note: release: its MCP servers (`mcp.json`) are not gathered: only a plugin's skills are
+```
+
+An entry Codex cannot resolve, a source of a kind it does not fetch,
+`github` among them, or a path not written from the repository's root
+with `./`, is skipped as Codex skips it, with a warning, and the rest are
+listed all the same, the command exiting non-zero:
+
+```
+$ mindweaver gather marketplace acme/codex-tools --list
+...
+warning: forge: its source is of the kind `github`, which Codex does not resolve, so it is not listed, as Codex skips it
+```
 
 ### What a workspace keeps
 
@@ -2947,7 +3024,7 @@ Every key runs a command you could have typed, through the same parser:
 | `x` | export the library into a folder, a kind at a time when some are unticked; ticking `replace` lets it change or remove what an earlier export wrote there, once you say yes | `mindweaver export [--kind <kind>]... [--yes] <folder>` |
 | `b` | back the library up to a git repository, on a branch, with a message and the variable a token is read from when you type them, showing each step; `esc` stops it, until it starts pushing | `mindweaver backup [--branch <branch>] [--kind <kind>]... [--message <message>] [--token-env <variable>] <url>` |
 | `L` | load another workspace's own skills and rules; enter on a loaded one unloads it | `mindweaver load <path>`, `mindweaver unload <path>` |
-| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder; `r` searches the MCP Registry, `enter` on a server shows what adding it would write, and `y` there writes it into the library; `m` lists the plugins a Claude Code marketplace's catalog lists, `space` ticks those to gather and `enter` gathers them | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>`; `mindweaver gather mcp search --json <query>`, then `mindweaver gather mcp add --version <version> <server>`, and with `y`, the same with `--yes`; `mindweaver gather marketplace --list --json [--ref <branch>] <source>`, and with `enter`, `mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>` |
+| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder; `r` searches the MCP Registry, `enter` on a server shows what adding it would write, and `y` there writes it into the library; `m` lists the plugins a plugin marketplace's catalog lists, `space` ticks those to gather and `enter` gathers them | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>`; `mindweaver gather mcp search --json <query>`, then `mindweaver gather mcp add --version <version> <server>`, and with `y`, the same with `--yes`; `mindweaver gather marketplace --list --json [--ref <branch>] <source>`, and with `enter`, `mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>` |
 | `S` | the sources the shelf is filled from: `u` gathers the one picked again and `U` every one, each showing how far it has got, `esc` stopping it until it starts placing; `d` forgets the one picked, once you say yes; `m` lists the plugins of the marketplace picked, or of the one a plugin picked is listed by | `mindweaver gather update <name>`, `mindweaver gather update --all`, `mindweaver gather remove --yes <name>` |
 | `w` | the weavers this machine knows, the one in use marked | `mindweaver workspaces` |
 | `i` | install skills, rules and MCP servers from the workspace's own, a loaded workspace, or the shelf; `tab` switches between them, and `v` turns the screen round to every project for one of them | `mindweaver install` opens it; `a` runs `mindweaver install -p <project>... --from <origin> <kind:name>`, with `--yes` for an MCP server from elsewhere than the library once `a` has shown what each agent would run, and `mindweaver uninstall -p <project>... <kind:name>` |
