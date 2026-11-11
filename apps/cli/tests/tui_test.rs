@@ -5116,7 +5116,7 @@ fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
 /// second gathered already, one in a repository of its own pinned to a
 /// commit, and one from npm, which no gather takes.
 fn catalog_listed() -> String {
-    use mindweaver_core::marketplace::{Catalog, Listing};
+    use mindweaver_core::marketplace::{Catalog, Dialect, Listing};
     use mindweaver_core::value::{Redacted, SourceName};
 
     let pin = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c54f9c2a7e";
@@ -5131,6 +5131,7 @@ fn catalog_listed() -> String {
             ],
         }),
         "https://github.com/acme/tools",
+        Dialect::ClaudeCode,
     )
     .unwrap();
     catalog.entries[1].gathered = SourceName::parse("acme-tools.review");

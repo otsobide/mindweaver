@@ -1,5 +1,6 @@
-//! Gathering from a Claude Code plugin marketplace (#103): the reference's
-//! "Gathering from a Claude Code marketplace".
+//! Gathering from a plugin marketplace: the reference's "Gathering from a
+//! Claude Code marketplace" (#103) and "Gathering from a Codex
+//! marketplace" (#104).
 //!
 //! The marketplace is a folder on this machine, named by its path from the
 //! workspace as every source here is, and so are the repositories its
@@ -530,4 +531,203 @@ fn the_listing_as_json_holds_each_plugin_where_it_is_and_whether_it_is_gathered(
     assert_eq!(entries[3]["source"]["sha"], pin);
     assert_eq!(entries[5]["source"], serde_json::json!({"type": "command"}));
     assert_eq!(entries[5]["gatherable"], false);
+}
+
+// ---------------------------------------------------------------------------
+// A Codex marketplace (#104): the reference's "Gathering from a Codex
+// marketplace".
+// ---------------------------------------------------------------------------
+
+const CODEX_MARKETPLACE: &str = "~/src/acme-codex";
+
+/// What Codex requires of every entry and a gather passes over.
+fn policed(name: &str, source: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "source": source,
+        "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+        "category": "Developer Tools",
+    })
+}
+
+/// `~/Projects` linking `collapse`, beside a Codex marketplace keeping
+/// three plugins as openai/plugins keeps its: `design`, a Codex plugin
+/// with a skill, agents, an `.mcp.json` and app connectors; `tracker`,
+/// nothing but its MCP servers and app connectors; and `release`, an Agent
+/// Plugins package, whose `SKILL.md` at its root and skill a folder too
+/// deep are none of its skills; with `more` entries beside them.
+fn acme_codex(more: &[serde_json::Value]) -> Scenario {
+    let scenario = Scenario::projects(&["collapse"]);
+    let local = |path: &str| serde_json::json!({"source": "local", "path": path});
+    let mut plugins = vec![
+        policed("design", local("./plugins/design")),
+        policed("tracker", local("./plugins/tracker")),
+        policed("release", local("./plugins/release")),
+    ];
+    plugins.extend(more.iter().cloned());
+    let catalog = serde_json::json!({
+        "name": "acme-codex",
+        "interface": {"displayName": "Acme"},
+        "plugins": plugins,
+    });
+    let mcp =
+        r#"{"mcpServers": {"tracker": {"type": "http", "url": "https://mcp.example.com/mcp"}}}"#;
+    let release = serde_json::json!({
+        "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        "name": "release",
+        "license": "Apache-2.0",
+    });
+    scenario.source(
+        CODEX_MARKETPLACE,
+        &[
+            (".agents/plugins/marketplace.json", &catalog.to_string()),
+            (
+                "plugins/design/.codex-plugin/plugin.json",
+                r#"{"name": "design", "license": "MIT", "skills": "./skills/", "apps": "./.app.json"}"#,
+            ),
+            (
+                "plugins/design/skills/design-to-code/SKILL.md",
+                &skill("design-to-code", "Turn a design into code"),
+            ),
+            ("plugins/design/agents/review.md", "# Review\n"),
+            ("plugins/design/.mcp.json", mcp),
+            ("plugins/design/.app.json", "{}\n"),
+            (
+                "plugins/tracker/.codex-plugin/plugin.json",
+                r#"{"name": "tracker", "mcpServers": "./.mcp.json", "apps": "./.app.json"}"#,
+            ),
+            ("plugins/tracker/.mcp.json", mcp),
+            ("plugins/tracker/.app.json", "{}\n"),
+            ("plugins/release/plugin.json", &release.to_string()),
+            (
+                "plugins/release/skills/tag/SKILL.md",
+                &skill("tag", "Tag a release"),
+            ),
+            (
+                "plugins/release/SKILL.md",
+                &skill("release", "The package, no skill of it"),
+            ),
+            (
+                "plugins/release/skills/notes/drafts/SKILL.md",
+                &skill("drafts", "A folder too deep"),
+            ),
+            ("plugins/release/mcp.json", "{}\n"),
+        ],
+    );
+    scenario
+}
+
+#[test]
+fn listing_a_codex_marketplace_lists_the_plugins_its_catalog_lists() {
+    let scenario = acme_codex(&[]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather marketplace ../src/acme-codex --list",
+        )
+        .succeeds()
+        .prints(&format!(
+            "acme-codex: ../src/acme-codex at {}\n\
+             \x20 design   ./plugins/design\n\
+             \x20 tracker  ./plugins/tracker\n\
+             \x20 release  ./plugins/release\n\
+             \n\
+             3 plugins listed, none gathered\n",
+            scenario.head(CODEX_MARKETPLACE)
+        ))
+        .quiet();
+}
+
+#[test]
+fn every_plugin_of_a_codex_marketplace_gives_its_skills_and_names_its_mcp_files() {
+    let scenario = acme_codex(&[]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather marketplace ../src/acme-codex --all",
+        )
+        .succeeds()
+        .prints(&format!(
+            "acme-codex: ../src/acme-codex at {head}, 3 plugins listed\n\
+             \n\
+             acme-codex.design: ../src/acme-codex at {head}\n\
+             \x20 added  design-to-code  Turn a design into code\n\
+             \n\
+             1 skill: 1 added, 0 updated, 0 unchanged\n\
+             \n\
+             acme-codex.release: ../src/acme-codex at {head}\n\
+             \x20 added  tag  Tag a release\n\
+             \n\
+             1 skill: 1 added, 0 updated, 0 unchanged\n",
+            head = scenario.head(CODEX_MARKETPLACE),
+        ))
+        .says(
+            "note: design: its agents, MCP servers (`.mcp.json`) and app connectors are not \
+             gathered: only a plugin's skills are\n\
+             note: tracker: holds no skill, only MCP servers (`.mcp.json`) and app connectors, so \
+             nothing of it is gathered: only a plugin's skills are\n\
+             note: release: its MCP servers (`mcp.json`) are not gathered: only a plugin's skills \
+             are\n",
+        );
+
+    scenario
+        .run("~/Projects", "mindweaver gather list")
+        .succeeds()
+        .prints(
+            "design-to-code  acme-codex.design   MIT         Turn a design into code\n\
+             tag             acme-codex.release  Apache-2.0  Tag a release\n",
+        )
+        .quiet();
+    assert!(!scenario.exists("~/Projects/.mindweaver/mcp"));
+}
+
+#[test]
+fn a_plugin_of_nothing_but_mcp_servers_named_fails_the_gather_with_its_files_said() {
+    let scenario = acme_codex(&[]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather marketplace ../src/acme-codex --plugin tracker",
+        )
+        .exits(1)
+        .prints(&format!(
+            "acme-codex: ../src/acme-codex at {}, 3 plugins listed\n",
+            scenario.head(CODEX_MARKETPLACE)
+        ))
+        .says(
+            "warning: tracker: holds no skill, only MCP servers (`.mcp.json`) and app connectors, \
+             so nothing of it is gathered: only a plugin's skills are\n",
+        );
+    assert!(!scenario.exists("~/Projects/.mindweaver/skills"));
+}
+
+#[test]
+fn an_entry_codex_cannot_resolve_is_said_and_the_rest_listed() {
+    let scenario = acme_codex(&[policed(
+        "forge",
+        serde_json::json!({"source": "github", "repo": "acme/forge"}),
+    )]);
+
+    scenario
+        .run(
+            "~/Projects",
+            "mindweaver gather marketplace ../src/acme-codex --list",
+        )
+        .exits(1)
+        .prints(&format!(
+            "acme-codex: ../src/acme-codex at {}\n\
+             \x20 design   ./plugins/design\n\
+             \x20 tracker  ./plugins/tracker\n\
+             \x20 release  ./plugins/release\n\
+             \n\
+             3 plugins listed, none gathered\n",
+            scenario.head(CODEX_MARKETPLACE)
+        ))
+        .says(
+            "warning: forge: its source is of the kind `github`, which Codex does not resolve, so \
+             it is not listed, as Codex skips it\n",
+        );
 }

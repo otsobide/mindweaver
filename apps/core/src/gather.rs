@@ -1676,7 +1676,7 @@ fn examine(
     ))
 }
 
-/// A plugin a Claude Code marketplace lists (#103), as a gather takes its
+/// A plugin a marketplace lists (#103, #104), as a gather takes its
 /// skills: in a repository fetched already, its own or the marketplace's.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Plugin<'a> {
@@ -1685,9 +1685,11 @@ pub(crate) struct Plugin<'a> {
     pub clone: &'a Cloned,
     /// Where it is in that repository, a route from its root.
     pub folder: &'a str,
-    /// Where its catalog entry says its skills are, each a route from its
-    /// folder: `None` when it says nothing, which takes a `SKILL.md` at its
-    /// root, or else each folder of its `skills`.
+    /// Where its skills are looked for.
+    pub looking: Looking,
+    /// The folders its catalog entry or its manifest lists, each a route
+    /// from its folder, which [`Looking::Entry`] and [`Looking::Manifest`]
+    /// look in.
     pub skills: Option<&'a [String]>,
     /// The licence it declares, which every skill of it saying none is
     /// under.
@@ -1727,19 +1729,24 @@ pub(crate) fn plugin(
     )
 }
 
-/// What `plugin` holds of skills: the folders its catalog entry lists,
-/// each a skill when it holds a `SKILL.md` or a folder of skills when it
-/// holds none, as Claude Code reads a plugin's `skills` either way; and
-/// when it lists none, the plugin itself when it holds a `SKILL.md` at its
-/// root, or else each folder of its `skills` holding one, which is where
-/// Claude Code looks in a plugin.
+/// What `plugin` holds of skills, where [`Plugin::looking`] says: the
+/// folders its catalog entry or its manifest lists, each a skill when it
+/// holds a `SKILL.md` or a folder of skills when it holds none, as Claude
+/// Code and Codex read a plugin's `skills` either way; with none listed,
+/// the plugin itself when it holds a `SKILL.md` at its root, or else each
+/// folder of its `skills` holding one, which is where Claude Code looks;
+/// and for an Agent Plugins package, and Codex's plugin listing none, each
+/// folder of its `skills` holding one and nothing else (#104).
 ///
 /// Not [`LAYOUTS`], which reads a repository as the tools of skills read
-/// one: a plugin is read as Claude Code reads it, and a folder that is no
-/// skill of its, its `commands` or an example it ships, is no skill of
-/// the shelf's either. A folder listed is held to the plugin's own, links
-/// followed only inside it, and one that holds no skill is a failure of
-/// its own beside the rest.
+/// one: a plugin is read as the agent its manifest is written for reads
+/// it, and a folder that is no skill of its, its `commands` or an example
+/// it ships, is no skill of the shelf's either. A folder listed is held to
+/// the plugin's own, links followed only inside it, and one that holds no
+/// skill is a failure of its own beside the rest. A skill is only ever a
+/// folder of `skills`, never one deeper, which is what the Agent Plugins
+/// format asks and what a folder holding a `SKILL.md` being a skill with
+/// everything in it gives the rest.
 fn examine_plugin(
     plugin: &Plugin,
     watch: &Watch,
@@ -1758,8 +1765,16 @@ fn examine_plugin(
             .filter(|skill| holds(skill, manifest))
             .collect())
     };
-    let mut candidates = match plugin.skills {
-        Some(listed) => {
+    let in_skills = || -> Result<Vec<PathBuf>, GatherError> {
+        let skills = root.join("skills");
+        if followed_inside(&skills, &bound).is_some() {
+            skills_in(&skills)
+        } else {
+            Ok(Vec::new())
+        }
+    };
+    let mut candidates = match (plugin.looking, plugin.skills) {
+        (Looking::Entry | Looking::Manifest, Some(listed)) => {
             let mut found = Vec::new();
             for typed in listed {
                 let at = route_of(typed).map(|route| match route.as_str() {
@@ -1776,21 +1791,16 @@ fn examine_plugin(
                     failures.push(Failure::Unlisted {
                         path: reached.unwrap_or_else(|| root.clone()),
                         route: typed.clone(),
+                        by: plugin.looking,
                     });
                 }
                 found.extend(held);
             }
             found
         }
-        None if holds(&root, manifest) => vec![root.clone()],
-        None => {
-            let skills = root.join("skills");
-            if followed_inside(&skills, &bound).is_some() {
-                skills_in(&skills)?
-            } else {
-                Vec::new()
-            }
-        }
+        (Looking::RootThenSkills, _) if holds(&root, manifest) => vec![root.clone()],
+        (Looking::RootThenSkills | Looking::Skills, _)
+        | (Looking::Entry | Looking::Manifest, None) => in_skills()?,
     };
     candidates.sort();
     candidates.dedup();
@@ -1798,7 +1808,7 @@ fn examine_plugin(
         return Err(GatherError::PluginEmpty {
             url: plugin.url.to_owned(),
             path: plugin.folder.to_owned(),
-            listed: plugin.skills.is_some(),
+            looking: plugin.looking,
         });
     }
     let finding = Finding::Folders { manifest };
@@ -2415,19 +2425,22 @@ pub enum Failure {
         #[source]
         source: io::Error,
     },
-    /// A folder a marketplace's plugin lists in its catalog entry as a
-    /// skill, or a folder of skills, holds none inside the plugin (#103):
-    /// not there, a link leading out of the plugin, or climbing out of it.
-    /// Said by the route the entry spells.
+    /// A folder a marketplace's plugin lists in its catalog entry (#103),
+    /// or in its Codex manifest (#104), as a skill, or a folder of skills,
+    /// holds none inside the plugin: not there, a link leading out of the
+    /// plugin, or climbing out of it. Said by the route the list spells.
     #[error(
-        "{route}: listed by its plugin's catalog entry as a skill, and holds no `SKILL.md` \
-         inside the plugin, so nothing of it is taken"
+        "{route}: listed by its plugin's {} as a skill, and holds no `SKILL.md` inside the \
+         plugin, so nothing of it is taken",
+        by.lister()
     )]
     Unlisted {
         /// Where it leads in the clone, or the plugin's own folder when it
         /// leads nowhere in it, which [`Failure::path`] says.
         path: PathBuf,
         route: String,
+        /// What listed it.
+        by: Looking,
     },
 }
 
@@ -2509,9 +2522,10 @@ impl Failure {
                 path: routed(path),
                 source,
             },
-            Failure::Unlisted { path, route } => Failure::Unlisted {
+            Failure::Unlisted { path, route, by } => Failure::Unlisted {
                 path: routed(path),
                 route,
+                by,
             },
         }
     }
@@ -2639,14 +2653,13 @@ pub enum GatherError {
     PinInvalid { pin: String },
     #[error("{} cannot be gathered yet", .kind.plural())]
     NotGatherable { kind: Kind },
-    /// Not one skill in a marketplace's plugin (#103), where its catalog
-    /// entry lists them (`listed`), or, listing none, at its root and in
-    /// each folder of its `skills`.
-    #[error("{url}: {}", plugin_empty(path, *listed))]
+    /// Not one skill in a marketplace's plugin (#103) where it was looked
+    /// for (`looking`), as its manifest says (#104).
+    #[error("{url}: {}", plugin_empty(path, *looking))]
     PluginEmpty {
         url: String,
         path: String,
-        listed: bool,
+        looking: Looking,
     },
     #[error("{path}: cannot be read: {source}")]
     Read {
@@ -2702,19 +2715,54 @@ fn nothing_found(kind: Kind, path: &str) -> String {
 }
 
 /// What [`GatherError::PluginEmpty`] says after the URL: no skill in the
-/// plugin at `path`, and where it was looked for.
-fn plugin_empty(path: &str, listed: bool) -> String {
+/// plugin at `path`, and where it was looked for, `looking`.
+fn plugin_empty(path: &str, looking: Looking) -> String {
     let at = looked_in(path);
-    if listed {
-        format!(
-            "no skill found in the plugin {at}: none of the folders its catalog entry lists \
-             holds a `SKILL.md`"
-        )
-    } else {
-        format!(
+    match looking {
+        Looking::Entry | Looking::Manifest => format!(
+            "no skill found in the plugin {at}: none of the folders its {} lists holds a \
+             `SKILL.md`",
+            looking.lister()
+        ),
+        Looking::RootThenSkills => format!(
             "no skill found in the plugin {at}: looked for a `SKILL.md` there and in each folder \
              of its `skills`; only skills are gathered from a plugin"
-        )
+        ),
+        Looking::Skills => format!(
+            "no skill found in the plugin {at}: looked for a `SKILL.md` in each folder of its \
+             `skills`, as its manifest has it; only skills are gathered from a plugin"
+        ),
+    }
+}
+
+/// Where a gather looks for a marketplace's plugin's skills: as the agent
+/// its manifest is written for finds them (#103, #104).
+///
+/// Matched with no wildcard, so a manifest of another kind says where its
+/// skills are before it compiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Looking {
+    /// The folders its catalog entry lists in `skills` (#103).
+    Entry,
+    /// The folders its Codex manifest lists in `skills` (#104).
+    Manifest,
+    /// A `SKILL.md` at its root, else each folder of its `skills/`, as
+    /// Claude Code finds a plugin's (#103).
+    RootThenSkills,
+    /// Each folder directly in its `skills/` alone, as the Agent Plugins
+    /// format has it, and Codex when its manifest lists none (#104): never
+    /// a folder deeper, nor one any file lists.
+    Skills,
+}
+
+impl Looking {
+    /// What lists the folders looked in, as a sentence names it.
+    fn lister(self) -> &'static str {
+        match self {
+            Looking::Entry => "catalog entry",
+            Looking::Manifest => "manifest",
+            Looking::RootThenSkills | Looking::Skills => "folder",
+        }
     }
 }
 

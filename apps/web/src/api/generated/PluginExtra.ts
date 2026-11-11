@@ -4,4 +4,4 @@
  * What a plugin holds or declares beside skills, which a gather does
  * not take.
  */
-export type PluginExtra = "commands" | "agents" | "hooks" | "mcp_servers" | "lsp_servers";
+export type PluginExtra = "commands" | "agents" | "hooks" | "mcp_servers" | "lsp_servers" | "apps";

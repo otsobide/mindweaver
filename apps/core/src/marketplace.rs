@@ -1,25 +1,35 @@
-//! Gathering from a Claude Code plugin marketplace (#103, D-13).
+//! Gathering from a plugin marketplace: Claude Code's (#103, D-13) and
+//! Codex's (#104).
 //!
-//! A marketplace is a git repository whose catalog,
-//! `.claude-plugin/marketplace.json`, lists plugins, each in the
-//! marketplace's own repository or in a repository of its own. It is a
-//! source of its own kind ([`SourceKind::Marketplace`]), its catalog's
-//! repository, and each plugin gathered from it is a git source whose
-//! parent it is ([`Source::parent`]), known by its entry in the catalog,
-//! gathered only when it is chosen: by name (`--plugin`), or every one
-//! (`--all`), which waits for a yes past [`ASKED_BEYOND`], since a
-//! catalog can list thousands and each is a repository to fetch.
+//! A marketplace is a git repository whose catalog lists plugins, each in
+//! the marketplace's own repository or in a repository of its own: Claude
+//! Code keeps it at `.claude-plugin/marketplace.json`, Codex at
+//! `.agents/plugins/marketplace.json`, each in a dialect of its own
+//! ([`Dialect`]), told by where the file is and how its entries are
+//! written. It is a source of its own kind ([`SourceKind::Marketplace`]),
+//! its catalog's repository, and each plugin gathered from it is a git
+//! source whose parent it is ([`Source::parent`]), known by its entry in
+//! the catalog, gathered only when it is chosen: by name (`--plugin`), or
+//! every one (`--all`), which waits for a yes past [`ASKED_BEYOND`], since
+//! a catalog can list thousands and each is a repository to fetch.
+//!
+//! A plugin is read by the manifest it keeps, whichever catalog lists it
+//! ([`Manifest`]): an Agent Plugins package's root `plugin.json`, Codex's
+//! `.codex-plugin/plugin.json` or Claude Code's `.claude-plugin/plugin.json`,
+//! each saying where its skills are as the agent it is written for reads
+//! them.
 //!
 //! What a catalog says is somebody else's JSON, read leniently and never
 //! obeyed: a key this build does not know is passed over, an entry that
 //! cannot be read is said beside the rest and costs none of them, a
 //! plugin's skills are all that is taken of it, what else it holds (its
-//! commands, agents, hooks, MCP and LSP servers) said and left, and a
-//! source that is a command to run, or a `headersHelper` naming one, is
-//! never run. Only a plugin kept in git is gathered: one from npm or an
-//! archive is said and passed over, and so is one a catalog fetched from
-//! elsewhere names by a path on this machine, which a catalog has no
-//! business reaching, as a link in a clone leads nowhere out of it.
+//! commands, agents, hooks, MCP and LSP servers, app connectors) said and
+//! left, an MCP file among them named and never imported, and a source
+//! that is a command to run, or a `headersHelper` naming one, is never
+//! run. Only a plugin kept in git is gathered: one from npm or an archive
+//! is said and passed over, and so is one a catalog fetched from elsewhere
+//! names by a path on this machine, which a catalog has no business
+//! reaching, as a link in a clone leads nowhere out of it.
 
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -35,7 +45,9 @@ use thiserror::Error;
 use crate::adapter::gix::Gix;
 use crate::code::codes;
 use crate::copy;
-use crate::gather::{self, route_of, GatherError, Progress, Report, Watch, DEFAULT_SUBDIRECTORY};
+use crate::gather::{
+    self, route_of, GatherError, Looking, Progress, Report, Watch, DEFAULT_SUBDIRECTORY,
+};
 use crate::ledger::{Action, Ledger, LedgerError, Outcome, Source, SourceKind};
 use crate::lock::LockError;
 use crate::port::{Cloned, GitError, Remote, Token};
@@ -43,8 +55,13 @@ use crate::url::{carries_credentials, fetched, is_path, located, redacted};
 use crate::value::{Pin, Redacted, Revision, SourceName};
 use crate::workspace::WeaverWorkspace;
 
-/// Where a marketplace keeps its catalog, from its repository's root.
+/// Where a Claude Code marketplace keeps its catalog, from its
+/// repository's root.
 pub const CATALOG: &str = ".claude-plugin/marketplace.json";
+
+/// Where a Codex marketplace keeps its catalog, from its repository's root
+/// (#104).
+pub const CODEX_CATALOG: &str = ".agents/plugins/marketplace.json";
 
 /// How many plugins `--all` gathers unasked: more is a list of what it
 /// would gather, until a yes says to (`--yes`).
@@ -58,11 +75,35 @@ pub const ASKED_BEYOND: usize = 25;
 /// needs, and a bound on what a repository can make a gather read.
 const READ_AT_MOST: u64 = 8 * 1024 * 1024;
 
-/// How much of a plugin's own manifest is read for its licence.
+/// How much of a plugin's own manifest is read.
 const MANIFEST_AT_MOST: u64 = 1024 * 1024;
 
-/// Where a plugin keeps its own manifest, from its folder.
+/// Where a plugin written for Claude Code keeps its manifest, from its
+/// folder.
 const PLUGIN_MANIFEST: &str = ".claude-plugin/plugin.json";
+
+/// Where a plugin written for Codex keeps its manifest, from its folder
+/// (#104).
+const CODEX_MANIFEST: &str = ".codex-plugin/plugin.json";
+
+/// Where an Agent Plugins package keeps its manifest, from its folder: a
+/// `plugin.json` that is one only while it declares [`AGENT_PLUGINS_SCHEMA`]
+/// (#104), since a root `plugin.json` is a name any tool may have used.
+const PORTABLE_MANIFEST: &str = "plugin.json";
+
+/// The `$schema` an Agent Plugins 1.0.0 manifest declares, which is how
+/// the format says a package is one, and the version of it this build
+/// reads.
+pub const AGENT_PLUGINS_SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+
+/// What every version's `$schema` starts with: one of a version this build
+/// does not read is refused rather than read as 1.0.0.
+const AGENT_PLUGINS_SCHEMAS: &str = "https://agent-plugins.org/schemas/";
+
+/// Where a plugin keeps MCP servers in a file of their own, from its
+/// folder: Claude Code's and Codex's `.mcp.json`, and the Agent Plugins
+/// format's `mcp.json`. Named when a plugin keeps one, never imported.
+const MCP_FILES: [&str; 2] = [".mcp.json", "mcp.json"];
 
 /// The longest name a plugin is gathered under: Claude Code's own names are
 /// a few words, and this one is a source's name and a folder's.
@@ -183,6 +224,139 @@ impl Request {
 }
 
 // ---------------------------------------------------------------------------
+// The dialects
+// ---------------------------------------------------------------------------
+
+/// The dialect a catalog is written in (#104): Claude Code's or Codex's.
+///
+/// The two agree on most of a catalog (a `plugins` list, each entry a
+/// `name` and a `source`, a source object's kind under its own `source`
+/// key, `url` and `git-subdir` alike) and differ where an entry is read
+/// differently: Claude Code reads a path named bare under the catalog's
+/// `pluginRoot` and fetches a `github` source, where Codex refuses the
+/// first, has no word for the second and skips it, and keeps a plugin of
+/// its own repository as a `local` source, which Claude Code has no word
+/// for. Matched with no wildcard and written as the words JSON holds it as,
+/// as [`Extra`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Dialect {
+    ClaudeCode,
+    Codex,
+}
+
+impl Dialect {
+    /// Every one, in the order a repository is looked in for a catalog:
+    /// Claude Code's first, so a repository #103 read goes on reading the
+    /// catalog it read once it keeps Codex's too, and the plugins gathered
+    /// from it are still found by their entries in it.
+    pub const ALL: [Dialect; 2] = [Dialect::ClaudeCode, Dialect::Codex];
+
+    /// The word JSON holds it as.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Dialect::ClaudeCode => "claude-code",
+            Dialect::Codex => "codex",
+        }
+    }
+
+    /// The words a sentence names it by.
+    pub const fn said(self) -> &'static str {
+        match self {
+            Dialect::ClaudeCode => "Claude Code",
+            Dialect::Codex => "Codex",
+        }
+    }
+
+    /// Where a repository keeps a catalog in it, from its root.
+    pub const fn file(self) -> &'static str {
+        match self {
+            Dialect::ClaudeCode => CATALOG,
+            Dialect::Codex => CODEX_CATALOG,
+        }
+    }
+
+    /// The dialect `value`, a catalog found where this one keeps one, is
+    /// written in: the one only its entries' shape says, and this one
+    /// when its shape says both or neither.
+    ///
+    /// By the path and the shape, since neither alone says it: Codex reads
+    /// a catalog at Claude Code's place too, as a marketplace it is
+    /// compatible with, and writes it in its own dialect there, and a
+    /// catalog may be written in the shape both read alike, a list of `./`
+    /// paths and URLs, which only where it is tells apart. A file in the
+    /// other's shape alone is read as what it says: Claude Code's
+    /// `pluginRoot` read by Codex's rules would lose every plugin named
+    /// bare under it, and Codex's `local` sources read by Claude Code's
+    /// would lose every plugin the repository keeps.
+    pub fn of_shape(self, value: &Value) -> Dialect {
+        let plugins = value
+            .get("plugins")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        let kind = |plugin: &Value| {
+            plugin
+                .get("source")
+                .and_then(|source| source.get("source"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        // What only Codex writes: a `local` source, and the `policy` it
+        // requires of every entry.
+        let codex = plugins.iter().any(|plugin| {
+            kind(plugin).as_deref() == Some("local")
+                || plugin.get("policy").is_some_and(Value::is_object)
+        });
+        // What only Claude Code reads: a `github` source, a path named bare,
+        // and the `pluginRoot` such a path is read under.
+        let claude = value
+            .get("metadata")
+            .and_then(|metadata| metadata.get("pluginRoot"))
+            .is_some()
+            || plugins.iter().any(|plugin| {
+                kind(plugin).as_deref() == Some("github")
+                    || plugin
+                        .get("source")
+                        .and_then(Value::as_str)
+                        .is_some_and(|path| !from_its_root(path))
+            });
+        match (claude, codex) {
+            (true, false) => Dialect::ClaudeCode,
+            (false, true) => Dialect::Codex,
+            (true, true) | (false, false) => self,
+        }
+    }
+}
+
+#[cfg(any(feature = "ts", feature = "schema"))]
+crate::described::words! {
+    /// The dialect a marketplace's catalog is written in: Claude Code's or
+    /// Codex's.
+    Dialect as "MarketplaceDialect", by slug { ClaudeCode, Codex }
+}
+
+impl Serialize for Dialect {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.slug())
+    }
+}
+
+impl<'de> Deserialize<'de> for Dialect {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let word = String::deserialize(deserializer)?;
+        Dialect::ALL
+            .into_iter()
+            .find(|dialect| dialect.slug() == word)
+            .ok_or_else(|| D::Error::custom(format!("`{word}` is no catalog's dialect")))
+    }
+}
+
+/// Whether the path `typed` is written from the repository's root, `.` or
+/// `./...`, as both dialects read one, rather than named bare.
+fn from_its_root(typed: &str) -> bool {
+    typed == DEFAULT_SUBDIRECTORY || typed.starts_with("./")
+}
+
+// ---------------------------------------------------------------------------
 // The catalog
 // ---------------------------------------------------------------------------
 
@@ -194,6 +368,13 @@ impl Request {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(rename = "MarketplaceCatalog"))]
 pub struct Catalog {
+    /// The dialect it is written in ([`Dialect::of_shape`]), which every
+    /// entry of it is read by.
+    pub dialect: Dialect,
+    /// Where it is in its repository, from the root: where its dialect
+    /// keeps one, or where the other does, Codex reading a catalog at
+    /// Claude Code's place too.
+    pub file: String,
     /// What it calls itself, as written: what its source is called unless
     /// `--name` says otherwise, a name being free.
     pub name: Option<String>,
@@ -209,12 +390,14 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// The catalog `value` is, a JSON document as somebody wrote it, of the
-    /// marketplace fetched from `from`: an object listing `plugins`, or why
-    /// it is not one. Each plugin is read on its own ([`entry`]), one that
-    /// cannot be among the failures; `from` says whether a plugin it names
-    /// on this machine is gathered ([`Place::refusal`]).
-    pub fn of(value: &Value, from: &str) -> Result<Catalog, String> {
+    /// The catalog `value` is, a JSON document as somebody wrote it, found
+    /// where `found` keeps one, of the marketplace fetched from `from`: an
+    /// object listing `plugins`, or why it is not one. It is read in the
+    /// dialect its place and its shape say ([`Dialect::of_shape`]), each
+    /// plugin on its own ([`entry`]), one that cannot be among the
+    /// failures; `from` says whether a plugin it names on this machine is
+    /// gathered ([`Place::refusal`]).
+    pub fn of(value: &Value, from: &str, found: Dialect) -> Result<Catalog, String> {
         let here = on_this_machine(from);
         let object = value
             .as_object()
@@ -223,9 +406,10 @@ impl Catalog {
             .get("plugins")
             .and_then(Value::as_array)
             .ok_or_else(|| String::from("it lists no `plugins`"))?;
+        let dialect = found.of_shape(value);
         let metadata = object.get("metadata").and_then(Value::as_object);
         // Where a plugin named bare is: a route from the repository's root,
-        // or why it leads nowhere a plugin can be.
+        // or why it leads nowhere a plugin can be. Codex names none bare.
         let root = match metadata.and_then(|metadata| text(metadata.get("pluginRoot"))) {
             None => Ok(String::from(DEFAULT_SUBDIRECTORY)),
             Some(typed) => route_of(&typed).ok_or(typed),
@@ -233,7 +417,7 @@ impl Catalog {
         let mut entries = Vec::new();
         let mut failures = Vec::new();
         for (at, plugin) in plugins.iter().enumerate() {
-            match entry(plugin, at + 1, &root, here) {
+            match entry(plugin, at + 1, &root, here, dialect) {
                 Ok(entry) => entries.push(entry),
                 Err(failure) => failures.push(failure),
             }
@@ -260,6 +444,8 @@ impl Catalog {
             !clashes
         });
         Ok(Catalog {
+            dialect,
+            file: found.file().to_owned(),
             name: text(object.get("name")),
             description: metadata
                 .and_then(|metadata| text(metadata.get("description")))
@@ -303,8 +489,9 @@ pub struct Entry {
     /// Where it is.
     pub source: Place,
     /// Where its skills are, each a route from its folder, when its entry
-    /// lists them; `None` when it lists none, and a gather looks where
-    /// Claude Code does ([`gather::plugin`]).
+    /// lists them; `None` when it lists none, and a gather looks where its
+    /// manifest says ([`Manifest`], [`gather::plugin`]). An Agent Plugins
+    /// package's are where that format keeps them, whatever this says.
     pub skills: Option<Vec<String>>,
     /// The licence it declares, as written, which a skill of it saying
     /// none is under.
@@ -525,16 +712,21 @@ pub enum Extra {
     Hooks,
     McpServers,
     LspServers,
+    /// Codex's app connectors (#104), which only Codex reads and which are
+    /// out of #104's scope to bring in: said, so a plugin of nothing else
+    /// is told from one that holds nothing.
+    Apps,
 }
 
 impl Extra {
     /// Every one, in the order a listing says them.
-    pub const ALL: [Extra; 5] = [
+    pub const ALL: [Extra; 6] = [
         Extra::Commands,
         Extra::Agents,
         Extra::Hooks,
         Extra::McpServers,
         Extra::LspServers,
+        Extra::Apps,
     ];
 
     /// The word JSON holds it as.
@@ -545,6 +737,7 @@ impl Extra {
             Extra::Hooks => "hooks",
             Extra::McpServers => "mcp_servers",
             Extra::LspServers => "lsp_servers",
+            Extra::Apps => "apps",
         }
     }
 
@@ -556,10 +749,38 @@ impl Extra {
             Extra::Hooks => "hooks",
             Extra::McpServers => "MCP servers",
             Extra::LspServers => "LSP servers",
+            Extra::Apps => "app connectors",
         }
     }
 
-    /// The key a catalog entry declares it under, as Claude Code reads it.
+    /// `extras` as a sentence names them, `agents`, `agents and hooks`, MCP
+    /// servers followed by the files `mcp` names them in, each in
+    /// backticks, when it names any.
+    pub fn listed(extras: &[Extra], mcp: &[String]) -> String {
+        let said: Vec<String> = extras
+            .iter()
+            .map(|extra| match extra {
+                Extra::McpServers if !mcp.is_empty() => {
+                    let files: Vec<String> = mcp.iter().map(|file| format!("`{file}`")).collect();
+                    format!("{} ({})", extra.said(), files.join(", "))
+                }
+                Extra::Commands
+                | Extra::Agents
+                | Extra::Hooks
+                | Extra::McpServers
+                | Extra::LspServers
+                | Extra::Apps => extra.said().to_owned(),
+            })
+            .collect();
+        match said.as_slice() {
+            [] => String::new(),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        }
+    }
+
+    /// The key a catalog entry or a manifest declares it under, as Claude
+    /// Code and Codex read it.
     const fn key(self) -> &'static str {
         match self {
             Extra::Commands => "commands",
@@ -567,18 +788,20 @@ impl Extra {
             Extra::Hooks => "hooks",
             Extra::McpServers => "mcpServers",
             Extra::LspServers => "lspServers",
+            Extra::Apps => "apps",
         }
     }
 
-    /// Where a plugin keeps it unsaid, from its folder, as Claude Code
-    /// finds it there.
-    const fn kept_at(self) -> &'static str {
+    /// Where a plugin keeps it unsaid, from its folder, as the agents find
+    /// it there: MCP servers wherever one of them does ([`MCP_FILES`]).
+    const fn kept_at(self) -> &'static [&'static str] {
         match self {
-            Extra::Commands => "commands",
-            Extra::Agents => "agents",
-            Extra::Hooks => "hooks",
-            Extra::McpServers => ".mcp.json",
-            Extra::LspServers => ".lsp.json",
+            Extra::Commands => &["commands"],
+            Extra::Agents => &["agents"],
+            Extra::Hooks => &["hooks"],
+            Extra::McpServers => &MCP_FILES,
+            Extra::LspServers => &[".lsp.json"],
+            Extra::Apps => &[".app.json"],
         }
     }
 }
@@ -587,7 +810,7 @@ impl Extra {
 crate::described::words! {
     /// What a plugin holds or declares beside skills, which a gather does
     /// not take.
-    Extra as "PluginExtra", by slug { Commands, Agents, Hooks, McpServers, LspServers }
+    Extra as "PluginExtra", by slug { Commands, Agents, Hooks, McpServers, LspServers, Apps }
 }
 
 impl Serialize for Extra {
@@ -606,17 +829,26 @@ impl<'de> Deserialize<'de> for Extra {
     }
 }
 
-/// What a plugin `object` names that is not gathered, in order: what its
-/// entry declares, and what its folder `at` holds, once it is fetched.
-fn extras(object: Option<&Map<String, Value>>, at: Option<&Path>) -> Vec<Extra> {
+/// What a plugin names that is not gathered, in order: what each of
+/// `declared`, its catalog entry and its manifest, declares, and what its
+/// folder `at` holds, once it is fetched. A name there is looked at and
+/// never followed, which is all it takes to say it is there.
+fn extras(declared: &[Option<&Map<String, Value>>], at: Option<&Path>) -> Vec<Extra> {
     Extra::ALL
         .into_iter()
         .filter(|extra| {
-            let declared = object
-                .and_then(|object| object.get(extra.key()))
-                .is_some_and(|value| !value.is_null());
-            let kept = at.is_some_and(|folder| folder.join(extra.kept_at()).exists());
-            declared || kept
+            let said = declared.iter().flatten().any(|object| {
+                object
+                    .get(extra.key())
+                    .is_some_and(|value| !value.is_null())
+            });
+            let kept = at.is_some_and(|folder| {
+                extra
+                    .kept_at()
+                    .iter()
+                    .any(|name| fs::symlink_metadata(folder.join(name)).is_ok())
+            });
+            said || kept
         })
         .collect()
 }
@@ -654,14 +886,16 @@ pub fn is_plugin_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-/// The plugin `value` is, the `at`th the catalog lists, under `root`, where
-/// a plugin named bare is, or why it cannot be read; `here` whether the
-/// catalog is on this machine ([`Place::refusal`]).
+/// The plugin `value` is, the `at`th the catalog lists, read in `dialect`,
+/// under `root`, where a plugin named bare is in Claude Code's, or why it
+/// cannot be read; `here` whether the catalog is on this machine
+/// ([`Place::refusal`]).
 fn entry(
     value: &Value,
     at: usize,
     root: &Result<String, String>,
     here: bool,
+    dialect: Dialect,
 ) -> Result<Entry, UnreadEntry> {
     let object = value.as_object().ok_or(UnreadEntry::Unnamed { at })?;
     let name = text(object.get("name")).ok_or(UnreadEntry::Unnamed { at })?;
@@ -674,7 +908,7 @@ fn entry(
         name: name.clone(),
         why: why.to_owned(),
     };
-    let source = place(object.get("source"), &name, root)?;
+    let source = place(object.get("source"), &name, root, dialect)?;
     let skills = match object.get("skills") {
         None | Some(Value::Null) => None,
         Some(Value::String(one)) => Some(vec![one.clone()]),
@@ -701,7 +935,7 @@ fn entry(
         version: text(object.get("version")),
         skills,
         licence: text(object.get("license")),
-        declares: extras(Some(object), None),
+        declares: extras(&[Some(object)], None),
         headers_helper,
         gatherable: source.refusal(&name, here).is_none(),
         source,
@@ -710,15 +944,37 @@ fn entry(
     })
 }
 
-/// Where the plugin `name`'s `source` says it is, under `root`.
+/// Where the plugin `name`'s `source` says it is, read in `dialect`, under
+/// `root` in Claude Code's.
+///
+/// Codex's is read as Codex resolves a source: a path only from the
+/// repository's root, `./`, a `local` source naming one, a `url` with a
+/// `path` a folder of that repository, and npm; any other kind, `github`
+/// among them, is one it skips, and so is this ([`UnreadEntry::Unresolved`]).
 fn place(
     source: Option<&Value>,
     name: &str,
     root: &Result<String, String>,
+    dialect: Dialect,
 ) -> Result<Place, UnreadEntry> {
     let unreadable = |why: String| UnreadEntry::Unreadable {
         name: name.to_owned(),
         why,
+    };
+    let unresolved = |why: String| UnreadEntry::Unresolved {
+        name: name.to_owned(),
+        why,
+    };
+    // A path in the marketplace's repository, as `dialect` reads one.
+    let path = |typed: &str| -> Result<Place, UnreadEntry> {
+        match dialect {
+            Dialect::ClaudeCode => relative(typed, root).map_err(unreadable),
+            Dialect::Codex if from_its_root(typed) => relative(typed, root).map_err(unreadable),
+            Dialect::Codex => Err(unresolved(format!(
+                "its path, `{typed}`, does not start with `./`, as Codex reads one from the \
+                 repository's root"
+            ))),
+        }
     };
     // What a catalog may not say, a credential, is refused before it is
     // repeated, and said without it.
@@ -737,14 +993,14 @@ fn place(
     };
     let object = match source {
         None | Some(Value::Null) => return Err(unreadable(String::from("it names no `source`"))),
-        Some(Value::String(path)) => {
-            if carries_credentials(path) {
+        Some(Value::String(typed)) => {
+            if carries_credentials(typed) {
                 return Err(UnreadEntry::Credentialed {
                     name: name.to_owned(),
-                    text: redacted(path).into_owned(),
+                    text: redacted(typed).into_owned(),
                 });
             }
-            return relative(path, root).map_err(unreadable);
+            return path(typed);
         }
         Some(Value::Object(object)) => object,
         Some(_) => {
@@ -770,6 +1026,48 @@ fn place(
     };
     let kind = held("source", object.get("source"))?
         .ok_or_else(|| unreadable(String::from("its `source` names no kind of source")))?;
+    // A folder of a repository at a URL, its `path` (`typed`, when read
+    // already) a route from its root.
+    let subdir = |typed: Option<String>| -> Result<Place, UnreadEntry> {
+        let url = required("url")?;
+        let typed = match typed {
+            Some(typed) => typed,
+            None => required("path")?,
+        };
+        let folder = route_of(&typed).ok_or_else(|| {
+            unreadable(format!(
+                "its `path`, `{typed}`, is no folder inside the repository"
+            ))
+        })?;
+        Ok(Place::GitSubdir {
+            url: Redacted::new(&url),
+            path: folder,
+            reference: reference()?,
+            sha: sha()?,
+        })
+    };
+    if dialect == Dialect::Codex {
+        return match kind.as_str() {
+            "local" => path(&required("path")?),
+            "url" => match held("path", object.get("path"))? {
+                Some(typed) => subdir(Some(typed)),
+                None => Ok(Place::Url {
+                    url: Redacted::new(&required("url")?),
+                    reference: reference()?,
+                    sha: sha()?,
+                }),
+            },
+            "git-subdir" => subdir(None),
+            "npm" => Ok(Place::Npm {
+                package: held("package", object.get("package"))?,
+            }),
+            // What Codex has no way to fetch, a command among it, which is
+            // then neither run nor kept.
+            other => Err(unresolved(format!(
+                "its source is of the kind `{other}`, which Codex does not resolve"
+            ))),
+        };
+    }
     match kind.as_str() {
         "github" => {
             let repo = required("repo")?;
@@ -790,21 +1088,7 @@ fn place(
             reference: reference()?,
             sha: sha()?,
         }),
-        "git-subdir" => {
-            let url = required("url")?;
-            let typed = required("path")?;
-            let path = route_of(&typed).ok_or_else(|| {
-                unreadable(format!(
-                    "its `path`, `{typed}`, is no folder inside the repository"
-                ))
-            })?;
-            Ok(Place::GitSubdir {
-                url: Redacted::new(&url),
-                path,
-                reference: reference()?,
-                sha: sha()?,
-            })
-        }
+        "git-subdir" => subdir(None),
         "npm" => Ok(Place::Npm {
             package: held("package", object.get("package"))?,
         }),
@@ -825,8 +1109,7 @@ fn relative(typed: &str, root: &Result<String, String>) -> Result<Place, String>
     // own, or climbing, is refused wherever it would be joined.
     let own = route_of(typed)
         .ok_or_else(|| format!("its `source`, `{typed}`, is no folder inside the repository"))?;
-    let from_root = typed == DEFAULT_SUBDIRECTORY || typed.starts_with("./");
-    let path = match (from_root, root) {
+    let path = match (from_its_root(typed), root) {
         (true, _) => own,
         (false, Err(root)) => {
             return Err(format!(
@@ -870,26 +1153,50 @@ fn maybe_named<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Sour
     }
 }
 
-/// The catalog in the clone at `root`, of the repository `url`.
+/// The catalog in the clone at `root`, of the repository `url`: the first
+/// there is where a dialect keeps one, in [`Dialect::ALL`]'s order, read
+/// in the dialect its place and its shape say.
 ///
-/// Its file, or a folder on the way to it, is not read when it is a link
-/// leading out of the clone: a repository can link its catalog to a file
-/// of the machine it is gathered on, whose words the listing would quote.
+/// One file, and no other once it is there: a catalog that does not read
+/// is said, never passed over for the other, which would make which
+/// catalog a source is depend on a fault in one. Its file, or a folder on
+/// the way to it, is not read when it is a link leading out of the clone:
+/// a repository can link its catalog to a file of the machine it is
+/// gathered on, whose words the listing would quote.
 fn read_catalog(root: &Path, url: &str) -> Result<Catalog, MarketplaceError> {
-    let file = root.join(CATALOG);
+    let mut found = None;
+    for dialect in Dialect::ALL {
+        let file = root.join(dialect.file());
+        match fs::symlink_metadata(&file) {
+            Ok(_) => {
+                found = Some((dialect, file));
+                break;
+            }
+            // Neither is there, nor is the folder it would be in.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) => {}
+            Err(error) => {
+                return Err(MarketplaceError::Unreadable {
+                    url: url.to_owned(),
+                    file: dialect.file().to_owned(),
+                    why: error.to_string(),
+                })
+            }
+        }
+    }
+    let Some((dialect, file)) = found else {
+        return Err(MarketplaceError::NoCatalog {
+            url: url.to_owned(),
+        });
+    };
     let unreadable = |why: String| MarketplaceError::Unreadable {
         url: url.to_owned(),
+        file: dialect.file().to_owned(),
         why,
     };
-    match fs::symlink_metadata(&file) {
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Err(MarketplaceError::NoCatalog {
-                url: url.to_owned(),
-            })
-        }
-        Err(error) => return Err(unreadable(error.to_string())),
-    }
     let inside = fs::canonicalize(root)
         .ok()
         .zip(fs::canonicalize(&file).ok())
@@ -897,6 +1204,7 @@ fn read_catalog(root: &Path, url: &str) -> Result<Catalog, MarketplaceError> {
     if !inside {
         return Err(MarketplaceError::Outside {
             url: url.to_owned(),
+            file: dialect.file().to_owned(),
         });
     }
     let mut bytes = Vec::new();
@@ -911,26 +1219,162 @@ fn read_catalog(root: &Path, url: &str) -> Result<Catalog, MarketplaceError> {
     }
     let value: Value =
         serde_json::from_slice(&bytes).map_err(|error| unreadable(error.to_string()))?;
-    Catalog::of(&value, url).map_err(unreadable)
+    Catalog::of(&value, url, dialect).map_err(unreadable)
 }
 
-/// The licence the plugin at `folder` declares in its own manifest, when
-/// it reads and is inside `clone`.
-fn manifest_licence(folder: &Path, clone: &Path) -> Option<String> {
-    let file = folder.join(PLUGIN_MANIFEST);
+// ---------------------------------------------------------------------------
+// A plugin's manifest
+// ---------------------------------------------------------------------------
+
+/// Which manifest a plugin is read by (#104): what it says of itself, as
+/// the agent it is written for reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// A root `plugin.json` declaring [`AGENT_PLUGINS_SCHEMA`]: its skills
+    /// are each folder directly in its `skills/` that holds a `SKILL.md`,
+    /// and nothing else, never a folder deeper nor one any file lists.
+    AgentPlugins,
+    /// `.codex-plugin/plugin.json`: its skills are the folders its `skills`
+    /// lists, else each folder of its `skills/`.
+    Codex,
+    /// `.claude-plugin/plugin.json`, or no manifest at all, which Claude
+    /// Code reads a plugin without: its skills are where #103 looks.
+    ClaudeCode,
+}
+
+/// What a plugin's manifest says of it (#104), as a gather reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Manifest {
+    pub format: Format,
+    /// The licence it declares, which a skill of it saying none is under
+    /// when its catalog entry declares none.
+    pub licence: Option<String>,
+    /// The folders a Codex manifest lists in `skills`, each a route from
+    /// the plugin's folder.
+    pub skills: Option<Vec<String>>,
+    /// What it declares beside skills.
+    pub declares: Vec<Extra>,
+    /// A file a Codex manifest keeps its MCP servers in (`mcpServers`),
+    /// a route from the plugin's folder, when it names one there.
+    pub mcp: Option<String>,
+}
+
+impl Manifest {
+    /// What a plugin keeping no manifest says of itself, which Claude Code
+    /// reads such a plugin as.
+    pub(crate) fn none() -> Manifest {
+        Manifest {
+            format: Format::ClaudeCode,
+            licence: None,
+            skills: None,
+            declares: Vec::new(),
+            mcp: None,
+        }
+    }
+
+    /// The manifest of the plugin at `folder`, in `clone`: the first it
+    /// keeps of a root `plugin.json` declaring the Agent Plugins `$schema`,
+    /// `.codex-plugin/plugin.json` and `.claude-plugin/plugin.json`, in the
+    /// order Codex looks for one, and Claude Code's without any; or, for a
+    /// `plugin.json` declaring a version of the Agent Plugins format this
+    /// build does not read, its `$schema`.
+    ///
+    /// Only a file inside the clone is read, to [`MANIFEST_AT_MOST`]; one
+    /// that is not, or does not read, says nothing but which it is, as
+    /// Codex takes the first that is there.
+    pub(crate) fn of(folder: &Path, clone: &Path) -> Result<Manifest, String> {
+        let portable = read_inside(&folder.join(PORTABLE_MANIFEST), clone);
+        let schema = portable
+            .as_ref()
+            .and_then(|value| value.get("$schema"))
+            .and_then(Value::as_str);
+        let (format, value) = match schema {
+            Some(AGENT_PLUGINS_SCHEMA) => (Format::AgentPlugins, portable.clone()),
+            Some(schema) if schema.starts_with(AGENT_PLUGINS_SCHEMAS) => {
+                return Err(schema.to_owned())
+            }
+            // A `plugin.json` of some other tool's, or of nobody's.
+            Some(_) | None => {
+                if fs::symlink_metadata(folder.join(CODEX_MANIFEST)).is_ok() {
+                    (
+                        Format::Codex,
+                        read_inside(&folder.join(CODEX_MANIFEST), clone),
+                    )
+                } else {
+                    (
+                        Format::ClaudeCode,
+                        read_inside(&folder.join(PLUGIN_MANIFEST), clone),
+                    )
+                }
+            }
+        };
+        let object = value.as_ref().and_then(Value::as_object);
+        let routes = |key: &str| -> Option<Vec<String>> {
+            match object?.get(key)? {
+                Value::String(one) => Some(vec![one.clone()]),
+                Value::Array(listed) => listed
+                    .iter()
+                    .map(|one| one.as_str().map(str::to_owned))
+                    .collect(),
+                // Passed over, as Codex passes it over.
+                _ => None,
+            }
+        };
+        let (skills, mcp) = match format {
+            Format::Codex => (
+                routes("skills").filter(|listed| !listed.is_empty()),
+                object
+                    .and_then(|object| text(object.get("mcpServers")))
+                    .and_then(|typed| route_of(&typed))
+                    .filter(|route| fs::symlink_metadata(folder.join(route)).is_ok()),
+            ),
+            // The Agent Plugins format keeps both where it says, which no
+            // manifest moves; Claude Code's are where #103 looks.
+            Format::AgentPlugins | Format::ClaudeCode => (None, None),
+        };
+        Ok(Manifest {
+            format,
+            licence: object.and_then(|object| text(object.get("license"))),
+            skills,
+            declares: extras(&[object], None),
+            mcp,
+        })
+    }
+}
+
+/// The JSON at `file`, when it is a file inside `clone` that reads as JSON,
+/// to [`MANIFEST_AT_MOST`].
+fn read_inside(file: &Path, clone: &Path) -> Option<Value> {
     let inside = fs::canonicalize(clone)
         .ok()
-        .zip(fs::canonicalize(&file).ok())
+        .zip(fs::canonicalize(file).ok())
         .is_some_and(|(clone, file)| file.starts_with(clone));
     if !inside {
         return None;
     }
     let mut bytes = Vec::new();
-    File::open(&file)
+    File::open(file)
         .and_then(|opened| opened.take(MANIFEST_AT_MOST).read_to_end(&mut bytes))
         .ok()?;
-    let value: Value = serde_json::from_slice(&bytes).ok()?;
-    text(value.get("license"))
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// The files the plugin at `folder` keeps MCP servers in, each a route from
+/// it: `.mcp.json` and `mcp.json` where it keeps either, and the one its
+/// `manifest` names. Named so a person can bring a server into the library
+/// by hand; never read, never imported.
+fn mcp_files(folder: &Path, manifest: &Manifest) -> Vec<String> {
+    let mut files: Vec<String> = MCP_FILES
+        .iter()
+        .filter(|name| fs::symlink_metadata(folder.join(name)).is_ok())
+        .map(|name| (*name).to_owned())
+        .collect();
+    if let Some(named) = &manifest.mcp {
+        if !files.contains(named) {
+            files.push(named.clone());
+        }
+    }
+    files
 }
 
 // ---------------------------------------------------------------------------
@@ -981,6 +1425,9 @@ pub struct Plugin {
     pub took: Took,
     /// What it declares or holds beside skills, left where it is.
     pub left: Vec<Extra>,
+    /// The files it keeps MCP servers in, each a route from its folder,
+    /// once it is fetched: named, never imported (#104).
+    pub mcp: Vec<String>,
     /// Whether its entry names a `headersHelper`, which was not run.
     pub unrun: bool,
 }
@@ -1407,6 +1854,7 @@ fn run(
                 url: None,
                 folder: None,
                 left: Vec::new(),
+                mcp: Vec::new(),
                 unrun: false,
             },
             Pick::Listed(at) if stopped => Plugin {
@@ -1417,6 +1865,7 @@ fn run(
                 folder: None,
                 took: Took::Unreached,
                 left: Vec::new(),
+                mcp: Vec::new(),
                 unrun: false,
             },
             Pick::Listed(at) => {
@@ -1549,6 +1998,7 @@ fn take(
         folder: None,
         took: Took::Unreached,
         left: entry.declares.clone(),
+        mcp: Vec::new(),
         unrun: entry.headers_helper,
     };
     if let Some(refused) = entry
@@ -1588,7 +2038,9 @@ fn take(
     plugin.folder = Some(folder.clone());
     let cache = workspace.cache_dir().join(&child.directory);
 
-    let outcome = (|| -> Result<(Report, PathBuf), GatherError> {
+    // What the plugin holds beside skills, once its folder is reached.
+    let mut seen: Option<(Vec<Extra>, Vec<String>)> = None;
+    let outcome = (|| -> Result<Report, Stop> {
         let fetched_own;
         let clone = match &own {
             None => found.clone,
@@ -1622,52 +2074,107 @@ fn take(
             DEFAULT_SUBDIRECTORY => clone.root.clone(),
             folder => clone.root.join(folder),
         };
-        let licence = entry
-            .licence
-            .clone()
-            .or_else(|| manifest_licence(&at, &clone.root));
-        let report = gather::plugin(
+        // Nothing in a folder that leads out of the clone is looked at,
+        // which the gather then refuses.
+        let inside = fs::canonicalize(&clone.root)
+            .ok()
+            .zip(fs::canonicalize(&at).ok())
+            .is_some_and(|(root, at)| at.starts_with(root));
+        let manifest = match inside.then(|| Manifest::of(&at, &clone.root)) {
+            None => Manifest::none(),
+            Some(Ok(manifest)) => manifest,
+            Some(Err(schema)) => {
+                return Err(Stop::Refused(NotGathered::Newer {
+                    entry: entry.name.clone(),
+                    schema,
+                }))
+            }
+        };
+        // What it holds beside skills, said whatever comes of its skills,
+        // in the order a listing says them.
+        if inside {
+            let mcp = mcp_files(&at, &manifest);
+            let left: Vec<Extra> = extras(&[], Some(&at))
+                .into_iter()
+                .chain(entry.declares.iter().copied())
+                .chain(manifest.declares.iter().copied())
+                .chain((!mcp.is_empty()).then_some(Extra::McpServers))
+                .collect::<std::collections::BTreeSet<Extra>>()
+                .into_iter()
+                .collect();
+            seen = Some((left, mcp));
+        }
+        // What its catalog entry says first, then its manifest, as its
+        // licence is read; nothing but the format's own place for an Agent
+        // Plugins package, which no file moves.
+        let (looking, skills) = match (manifest.format, &entry.skills, &manifest.skills) {
+            (Format::AgentPlugins, _, _) => (Looking::Skills, None),
+            (Format::Codex | Format::ClaudeCode, Some(listed), _) => {
+                (Looking::Entry, Some(listed.as_slice()))
+            }
+            (Format::Codex, None, Some(listed)) => (Looking::Manifest, Some(listed.as_slice())),
+            (Format::Codex, None, None) => (Looking::Skills, None),
+            (Format::ClaudeCode, None, _) => (Looking::RootThenSkills, None),
+        };
+        let licence = entry.licence.clone().or(manifest.licence);
+        gather::plugin(
             workspace,
             ledger,
             &child,
             &gather::Plugin {
                 clone,
                 folder: &folder,
-                skills: entry.skills.as_deref(),
+                looking,
+                skills,
                 licence: licence.as_deref(),
                 pin: entry.source.sha(),
                 url: &url,
             },
             &request.watch,
-        )?;
-        Ok((report, at))
+        )
+        .map_err(Stop::Failed)
     })();
 
+    let (left, mcp) = seen.unwrap_or_else(|| (entry.declares.clone(), Vec::new()));
     match outcome {
-        Ok((report, at)) => {
+        Ok(report) => {
             let _ = ledger.log(
                 Action::Gather,
                 Some(&url),
                 Outcome::Ok,
                 Some(&gather::logged(&report)),
             );
-            plugin.left = extras(None, Some(&at))
-                .into_iter()
-                .chain(entry.declares.iter().copied())
-                .collect::<std::collections::BTreeSet<Extra>>()
-                .into_iter()
-                .collect();
+            plugin.left = left;
+            plugin.mcp = mcp;
             plugin.took = Took::Gathered(report);
         }
-        Err(error) => {
-            if !matches!(error, GatherError::Cancelled) {
-                let _ = ledger.log(
-                    Action::Gather,
-                    Some(&url),
-                    Outcome::Failed,
-                    Some(&error.to_string()),
-                );
-            }
+        Err(stop) => {
+            plugin.took = match stop {
+                // Nothing a gather of skills could take, which is no
+                // fault of the plugin's: passed over under `--all`, as
+                // what is not kept in git is.
+                Stop::Failed(GatherError::PluginEmpty { .. }) if !left.is_empty() => {
+                    Took::NotGathered(NotGathered::Skillless {
+                        entry: entry.name.clone(),
+                        holds: left,
+                        mcp,
+                    })
+                }
+                Stop::Failed(error) => {
+                    if !matches!(error, GatherError::Cancelled) {
+                        let _ = ledger.log(
+                            Action::Gather,
+                            Some(&url),
+                            Outcome::Failed,
+                            Some(&error.to_string()),
+                        );
+                    }
+                    plugin.left = left;
+                    plugin.mcp = mcp;
+                    Took::Failed(error)
+                }
+                Stop::Refused(why) => Took::NotGathered(why),
+            };
             // A plugin new to the ledger that took nothing is not one of
             // its sources: forgotten, and its clone with it.
             if new {
@@ -1677,10 +2184,22 @@ fn take(
                 }
                 plugin.name = None;
             }
-            plugin.took = Took::Failed(error);
         }
     }
     plugin
+}
+
+/// Why a gather of a plugin stopped short of placing it: a failure, or a
+/// plugin it found it does not take once it read it.
+enum Stop {
+    Failed(GatherError),
+    Refused(NotGathered),
+}
+
+impl From<GatherError> for Stop {
+    fn from(error: GatherError) -> Self {
+        Stop::Failed(error)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1706,6 +2225,13 @@ pub enum UnreadEntry {
     /// Where it is cannot be read.
     #[error("{name}: {why}, so it is not listed")]
     Unreadable { name: String, why: String },
+    /// In a catalog in Codex's dialect, where it is is somewhere Codex
+    /// does not resolve, which Codex skips with a warning, and so is it
+    /// here (#104): a source of a kind Codex has no way to fetch, a command
+    /// among them, which is neither run nor kept, or a path not from the
+    /// repository's root.
+    #[error("{name}: {why}, so it is not listed, as Codex skips it")]
+    Unresolved { name: String, why: String },
     /// Where it is carries a credential, said without it.
     #[error(
         "{name}: its source names {text} with a password, a token or a user name in it, which \
@@ -1719,6 +2245,7 @@ codes!(UnreadEntry {
     Self::NameUnusable { .. } => "marketplace_entry_name_invalid",
     Self::Twice { .. } => "marketplace_entry_twice",
     Self::Unreadable { .. } => "marketplace_entry_unreadable",
+    Self::Unresolved { .. } => "marketplace_entry_unresolved",
 } echoed {
     Self::Credentialed { .. } => "credentials_in_url",
 });
@@ -1752,6 +2279,31 @@ pub enum NotGathered {
          left as it was: `mindweaver gather remove` forgets it"
     )]
     Unlisted { entry: String },
+    /// Fetched, and holding no skill where its manifest says, only what a
+    /// gather does not take (#104): a plugin of MCP servers or app
+    /// connectors, as over a quarter of Codex's own catalog is, which is
+    /// nothing a gather of skills could take rather than a fault of the
+    /// plugin's.
+    #[error(
+        "{entry}: holds no skill, only {}, so nothing of it is gathered: only a plugin's skills \
+         are",
+        Extra::listed(holds, mcp)
+    )]
+    Skillless {
+        entry: String,
+        holds: Vec<Extra>,
+        /// The files it keeps MCP servers in, each a route from its folder.
+        mcp: Vec<String>,
+    },
+    /// An Agent Plugins package of a version of the format this build does
+    /// not read, by the `$schema` it declares (#104): refused rather than
+    /// read as 1.0.0, which could take what a later version keeps
+    /// elsewhere for skills.
+    #[error(
+        "{entry}: an Agent Plugins package declaring `{schema}`, a version of the format this \
+         build does not read, so it is not gathered"
+    )]
+    Newer { entry: String, schema: String },
 }
 
 codes!(NotGathered {
@@ -1761,6 +2313,8 @@ codes!(NotGathered {
     Self::Unknown { .. } => "marketplace_source_unknown",
     Self::Local { .. } => "marketplace_plugin_local",
     Self::Unlisted { .. } => "marketplace_plugin_unlisted",
+    Self::Skillless { .. } => "marketplace_plugin_skillless",
+    Self::Newer { .. } => "marketplace_plugin_schema_unknown",
 });
 
 /// Why a marketplace could not be gathered from at all, as opposed to one
@@ -1773,22 +2327,23 @@ pub enum MarketplaceError {
     Ledger(#[from] LedgerError),
     #[error(transparent)]
     Lock(#[from] LockError),
-    /// Its repository has no catalog.
+    /// Its repository has no catalog where either dialect keeps one.
     #[error(
-        "{url}: has no `.claude-plugin/marketplace.json`, so it is no Claude Code marketplace: \
+        "{url}: has neither `{CATALOG}` nor `{CODEX_CATALOG}`, so it is no plugin marketplace: \
          `mindweaver gather git` gathers a repository of skills"
     )]
     NoCatalog { url: String },
-    /// Its catalog does not read as one.
-    #[error("{url}: its `.claude-plugin/marketplace.json` cannot be read: {why}")]
-    Unreadable { url: String, why: String },
+    /// Its catalog, the `file` of its repository, does not read as one.
+    #[error("{url}: its `{file}` cannot be read: {why}")]
+    Unreadable {
+        url: String,
+        file: String,
+        why: String,
+    },
     /// Its catalog, or a folder on the way to it, is a link leading out of
     /// the repository.
-    #[error(
-        "{url}: its `.claude-plugin/marketplace.json` is a link leading out of the repository, \
-         so it is not read"
-    )]
-    Outside { url: String },
+    #[error("{url}: its `{file}` is a link leading out of the repository, so it is not read")]
+    Outside { url: String, file: String },
     /// What was typed names a folder of the repository.
     #[error(
         "`{path}`: a marketplace's catalog is at its repository's root, so no folder of it is \

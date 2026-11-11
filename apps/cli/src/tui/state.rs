@@ -562,7 +562,7 @@ pub enum Mode {
     Searching(SearchForm),
     /// What a search of the skill directories found, one picked to take.
     Results(Results),
-    /// A Claude Code marketplace about to be listed: `m` on the shelf's
+    /// A plugin marketplace about to be listed: `m` on the shelf's
     /// page or the sources screen.
     Marketplace(MarketplaceForm),
     /// What a marketplace's catalog lists, the plugins to gather ticked.
@@ -1286,7 +1286,7 @@ impl App {
     /// every one, each as `mindweaver gather update` does and followed as a
     /// gather is, `d` forgets the one picked once somebody says yes, as
     /// `mindweaver gather remove --yes` does, and `m` lists the plugins of a
-    /// Claude Code marketplace, the one picked or the one a plugin picked
+    /// plugin marketplace, the one picked or the one a plugin picked
     /// is listed by, to tick the ones to gather.
     fn in_sources(&mut self, mut screen: SourcesScreen, key: KeyEvent) -> (Mode, Step) {
         let sources: &[ShelfSource] = self
@@ -2784,7 +2784,7 @@ fn marketplace_of<'a>(one: &'a ShelfSource, sources: &'a [ShelfSource]) -> Optio
 /// The lines of the marketplace form, in order.
 pub const MARKETPLACE_FIELDS: [&str; 2] = ["marketplace", "ref"];
 
-/// A Claude Code marketplace about to be listed: what `m` opens on the
+/// A plugin marketplace about to be listed: what `m` opens on the
 /// shelf's page, empty, and on the sources screen, holding the marketplace
 /// picked.
 #[derive(Debug, Clone, Default)]
@@ -2841,7 +2841,7 @@ impl MarketplaceForm {
     }
 }
 
-/// What a Claude Code marketplace's catalog lists, the plugins to gather
+/// What a plugin marketplace's catalog lists, the plugins to gather
 /// ticked: the screen listing one opens once it is over.
 #[derive(Debug, Clone)]
 pub struct PluginsScreen {
@@ -3462,7 +3462,7 @@ impl Reader {
             ),
             (
                 "s",
-                "what is on the shelf; f there searches the skill directories, enter on a result gathers it; r searches the MCP Registry, enter on a server says what adding it writes, y there writes it; m lists a Claude Code marketplace's plugins, enter gathers those ticked",
+                "what is on the shelf; f there searches the skill directories, enter on a result gathers it; r searches the MCP Registry, enter on a server says what adding it writes, y there writes it; m lists a plugin marketplace's plugins, enter gathers those ticked",
                 &[
                     "mindweaver gather list",
                     "mindweaver gather search --json <query>",

@@ -10,8 +10,9 @@ reaches the block (#44), the names a suggestion ranks a repository by (#58),
 what an MCP server's definition is held to for each agent (#87), the
 entry Claude's `.mcp.json` is given of one (#90), the one Codex's
 `.codex/config.toml` is (#91) and the one OpenCode's `opencode.json` is
-(#92), the MCP installs they serve (#93, #94), and what `mindweaver doctor`
-finds keeps an agent from what a project gives it (#96).
+(#92), the MCP installs they serve (#93, #94), what `mindweaver doctor`
+finds keeps an agent from what a project gives it (#96), and how a gather
+reads a Codex marketplace and the plugins it lists (#104).
 [docs/architecture.md](architecture.md) says what Mindweaver does with these
 facts and why; this page says what the agents do.
 
@@ -567,6 +568,23 @@ developers.openai.com/codex to learn.chatgpt.com.
 | An ignored `AGENTS.md` is read. | docs-only | Source search only. Fallback: shared mode, or `edit_tracked` for a tracked `AGENTS.md`, which no exclude touches. |
 | `CODEX_HOME` moves `~/.codex`. | docs-only | [config-reference](https://learn.chatgpt.com/docs/config-file/config-reference). Fallback: `--codex-home` names the folder outright. |
 | How an empty `CODEX_HOME` is read. | docs-only | The docs are silent. The source requires a set `CODEX_HOME` to name an existing folder ([home-dir](https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs)), so an empty one may be refused rather than taken for unset; not run. Fallback: Mindweaver reads an empty variable as no folder, as it reads an empty `$MINDWEAVER_HOME`, so if the agent takes it for unset and reads its default folder, a check leaves that folder out; `--codex-home` names it outright. An [open question](architecture.md#open-questions). |
+
+### Plugins and marketplaces
+
+Read on 2026-11-10 in the [build plugins](https://developers.openai.com/codex/plugins/build)
+page and Codex's source (`codex-rs/core-plugins/src/marketplace.rs`,
+`manifest.rs` and `loader.rs`, `codex-rs/utils/plugins/src/plugin_namespace.rs`),
+and the [Agent Plugins](https://agent-plugins.org/specification) 1.0.0
+specification, for #104's gather of a Codex marketplace. Nothing was run.
+
+| Fact | Mark | Source, and the fallback |
+|---|---|---|
+| A repository's catalog is `.agents/plugins/marketplace.json`; Codex also reads `.agents/plugins/api_marketplace.json`, `.claude-plugin/marketplace.json` and `.cursor-plugin/marketplace.json`, in that order. | docs-only | Source, `MARKETPLACE_MANIFEST_RELATIVE_PATHS`. Fallback: a gather reads `.claude-plugin/marketplace.json`, then `.agents/plugins/marketplace.json`, each in the dialect its entries are written in, so a Codex catalog at either place reads; one kept only in the other two places is said to have no catalog. |
+| An entry's source is a `./` path, as a string or `{"source": "local", "path"}`, a `url` (with an optional `path`), a `git-subdir` or `npm`; any other kind, `github` among them, is skipped with a warning, and so is a source that does not resolve, a path without `./` or climbing out among them. | docs-only | Source, `RawMarketplaceManifestPluginSource` and `resolve_plugin_source`; the build page says an entry that cannot be resolved is skipped "instead of failing the whole marketplace". Fallback: a gather skips the same with a warning of its code (`marketplace_entry_unresolved`), so were Codex to fetch more, a gather would only take less than it. |
+| `policy` and `category` are required of every entry for a catalog Codex lists, and read with defaults when missing. | docs-only | The build page; source, `#[serde(default)]`. Fallback: a gather reads neither, so their absence or their values change nothing. |
+| A plugin's manifest is a root `plugin.json` declaring an Agent Plugins `$schema`, else the first of `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json`. | docs-only | Source, `find_plugin_manifest_path` and `DISCOVERABLE_PLUGIN_MANIFEST_PATHS`. Fallback: a gather reads the first three in that order, which is where the skills a gather takes are said; Cursor's is read by none. |
+| A Codex manifest's `skills` is a `./` path or a list of them, each walked whole for a `SKILL.md`, and `skills/` when it lists none; its MCP servers are in `.mcp.json`, or the file its `mcpServers` names. | docs-only | Source, `resolve_manifest_paths`, `plugin_skill_roots` and `default_mcp_config_paths`. Fallback: a gather takes the folders directly in each, a folder holding a `SKILL.md` a skill with all it holds, which reads every plugin of openai/plugins as Codex does; a skill nested deeper under a folder holding none is not taken (an [open question](architecture.md#open-questions)). |
+| An Agent Plugins package's skills are each folder directly in its `skills/` holding a `SKILL.md`, never deeper, and no manifest moves them; its MCP servers are in `mcp.json`. | docs-only | The specification, sections 6.1, 7.1 and 7.2.1; Codex's source, `SkillDiscoveryMode::DirectChildren`. Fallback: a gather reads it so, and refuses a version of the format it does not know (`marketplace_plugin_schema_unknown`). |
 
 ## OpenCode
 
@@ -1394,7 +1412,7 @@ repository it finds, so neither hides one.
 
 ## Facts the roadmap cites
 
-Where every fact #28, #34, #42 to #44, #87, #90 to #94 and #96 build on stands. A
+Where every fact #28, #34, #42 to #44, #87, #90 to #94, #96 and #104 build on stands. A
 docs-only one carries its fallback in the tables above, one of #87's what
 would move it, and a pending one the check that will settle it, under [MCP
 servers](#mcp-servers).
@@ -1463,3 +1481,5 @@ servers](#mcp-servers).
 | #96 | OpenCode reads `.agents/skills`, `.claude/skills` and `.opencode/skills`, and given one name twice loads one of them. | docs-only |
 | #96, D-22 | At user scope Claude reads `<config dir>/skills`, Codex `~/.agents/skills`, and OpenCode `~/.config/opencode/skills`, the one in the folder `$OPENCODE_CONFIG_DIR` names, `~/.claude/skills` whatever `$CLAUDE_CONFIG_DIR` says, and `~/.agents/skills`, and one name at both scopes resolves differently in each. | verified in part for Claude's folder; docs-only for the rest |
 | #96 | Codex reads a project's servers over `$CODEX_HOME/config.toml`'s key by key, and OpenCode merges a project's config over its global config key by key. | docs-only |
+| #104 | Codex keeps a catalog at `.agents/plugins/marketplace.json` and reads one at `.claude-plugin/marketplace.json` too, and skips an entry it cannot resolve with a warning. | docs-only, as [plugins and marketplaces](#plugins-and-marketplaces) above |
+| #104 | Codex reads a plugin by a root `plugin.json` declaring an Agent Plugins `$schema`, else `.codex-plugin/plugin.json`, else `.claude-plugin/plugin.json`, and an Agent Plugins package's skills only directly in its `skills/`. | docs-only, as above |

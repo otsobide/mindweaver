@@ -1,6 +1,7 @@
-//! `mindweaver gather marketplace`: a Claude Code plugin marketplace's
-//! catalog recorded and listed, and the plugins chosen of it gathered, each
-//! as a source of its own (#103), through core's [`marketplace`].
+//! `mindweaver gather marketplace`: a plugin marketplace's catalog,
+//! Claude Code's (#103) or Codex's (#104), recorded and listed, and the
+//! plugins chosen of it gathered, each as a source of its own, through
+//! core's [`marketplace`].
 //!
 //! What a catalog lists, which of its plugins a gather takes, where each is
 //! fetched from and what is never run are core's: this reads the token a
@@ -144,11 +145,13 @@ fn said_of(plugin: &Plugin, outcome: &mut Outcome) {
             outcome.stdout.push_str(&said.stdout);
             outcome.stderr.extend(said.stderr);
             outcome.ok &= said.ok;
+            // MCP servers among them by the files they are in, which are
+            // named and never imported (#104).
             if !plugin.left.is_empty() {
                 outcome.stderr.push(Warning::from(format!(
                     "note: {}: its {} are not gathered: only a plugin's skills are",
                     printable(&plugin.entry),
-                    extras(&plugin.left),
+                    printable(&Extra::listed(&plugin.left, &plugin.mcp)),
                 )));
             }
         }
@@ -312,14 +315,4 @@ fn helper(entry: &str) -> String {
         "note: {}: its catalog entry names a headersHelper, a command Mindweaver never runs",
         printable(entry)
     )
-}
-
-/// `left` as a sentence names them: `agents`, `agents and hooks`.
-fn extras(left: &[Extra]) -> String {
-    let said: Vec<&str> = left.iter().map(|extra| extra.said()).collect();
-    match said.as_slice() {
-        [] => String::new(),
-        [one] => (*one).to_owned(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
-    }
 }

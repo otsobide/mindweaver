@@ -45,11 +45,19 @@
             "null"
           ]
         },
+        "dialect": {
+          "description": "The dialect it is written in ([`Dialect::of_shape`]), which every\nentry of it is read by.",
+          "$ref": "#/$defs/MarketplaceDialect"
+        },
         "entries": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/PluginEntry"
           }
+        },
+        "file": {
+          "description": "Where it is in its repository, from the root: where its dialect\nkeeps one, or where the other does, Codex reading a catalog at\nClaude Code's place too.",
+          "type": "string"
         },
         "name": {
           "description": "What it calls itself, as written: what its source is called unless\n`--name` says otherwise, a name being free.",
@@ -67,10 +75,20 @@
         }
       },
       "required": [
+        "dialect",
+        "file",
         "name",
         "description",
         "owner",
         "entries"
+      ]
+    },
+    "MarketplaceDialect": {
+      "description": "The dialect a marketplace's catalog is written in: Claude Code's or\nCodex's.",
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex"
       ]
     },
     "PluginEntry": {
@@ -118,7 +136,7 @@
           "type": "string"
         },
         "skills": {
-          "description": "Where its skills are, each a route from its folder, when its entry\nlists them; `None` when it lists none, and a gather looks where\nClaude Code does ([`gather::plugin`]).",
+          "description": "Where its skills are, each a route from its folder, when its entry\nlists them; `None` when it lists none, and a gather looks where its\nmanifest says ([`Manifest`], [`gather::plugin`]). An Agent Plugins\npackage's are where that format keeps them, whatever this says.",
           "type": [
             "array",
             "null"
@@ -159,7 +177,8 @@
         "agents",
         "hooks",
         "mcp_servers",
-        "lsp_servers"
+        "lsp_servers",
+        "apps"
       ]
     },
     "PluginPlace": {

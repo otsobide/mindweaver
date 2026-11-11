@@ -211,13 +211,17 @@ under `apps/` with its own `Makefile`:
   starts it (`mcp_registry::import`), a registry asked over https, or
   plain http on this machine alone, and what a search lists of each
   server (`mcp_registry::Summary`, each way by its word, `Way::word`),
-  gathering from a Claude Code plugin marketplace (`marketplace`: its
-  catalog, `.claude-plugin/marketplace.json`, read leniently and never
-  obeyed,
+  gathering from a plugin marketplace (`marketplace`: its catalog,
+  Claude Code's `.claude-plugin/marketplace.json` or Codex's
+  `.agents/plugins/marketplace.json`, read leniently and never obeyed, in
+  the dialect its place and its shape say, `Dialect`,
   `Catalog`, each plugin an `Entry` and where it is a `Place`, recorded
   as a source of its own kind and listed, `Listing`, and each plugin
   chosen gathered as a source of its own, its child, through
-  `gather::plugin`, `Gathered`, what no gather takes `NotGathered`), the
+  `gather::plugin`, read by the manifest it keeps, an Agent Plugins
+  package's root `plugin.json`, Codex's or Claude Code's, `Manifest`,
+  `Format`, where its skills are looked for, `gather::Looking`,
+  `Gathered`, what no gather takes `NotGathered`), the
   ledger (through `port::LedgerStore`), installing, keeping installs out
   of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
@@ -768,8 +772,9 @@ These are easy to break from a single file without noticing.
   takes away only the folders the ledger records as the source's, one
   folder name under the cache and under each shelf and never a link,
   before its rows, leaving every installation from it recorded, orphaned
-  (`LedgerStore::installed_from`). A Claude Code marketplace is a source
-  of its own kind, and each plugin gathered from it a git source whose
+  (`LedgerStore::installed_from`). A marketplace, Claude Code's or
+  Codex's, is a source of its own kind whichever dialect its catalog is
+  in, and each plugin gathered from it a git source whose
   `parent_id` names it, known by its `entry` in the catalog rather than by
   where it is (`LedgerStore::child_for`, `sources_by_entry`), which the
   catalog says each time, so `sources_by_identity` holds of the sources
@@ -1352,11 +1357,20 @@ These are easy to break from a single file without noticing.
     (`marketplace_command_refused`), a `headersHelper` said and never run,
     and npm and archive plugins are passed over, said. A catalog fetched
     from elsewhere reaches no repository on this machine, a path or a
-    `file://` URL (`marketplace_plugin_local`). A plugin's skills are only
-    the folders its entry lists or Claude Code finds in it, each held
-    inside the plugin's folder (`gathered_listed_missing`), its commands,
-    agents, hooks and MCP and LSP servers said and left, and a token goes
-    on to a plugin only on the catalog's own host.
+    `file://` URL (`marketplace_plugin_local`). In Codex's dialect an
+    entry Codex does not resolve, a `github` or `command` source or a path
+    without `./`, is skipped, said (`marketplace_entry_unresolved`). A
+    plugin's skills are only the folders its entry or its manifest lists,
+    or the agent its manifest is written for finds in it, an Agent Plugins
+    package's only directly in its `skills/` and never deeper, each held
+    inside the plugin's folder (`gathered_listed_missing`); its manifest
+    is read only inside the clone, to 1 MiB, and one of a newer Agent
+    Plugins version refused (`marketplace_plugin_schema_unknown`); its
+    commands, agents, hooks, MCP and LSP servers and app connectors are
+    said and left, the files it keeps MCP servers in (`.mcp.json`,
+    `mcp.json`) named and never read nor imported, a plugin of nothing
+    else said and passed over (`marketplace_plugin_skillless`); and a
+    token goes on to a plugin only on the catalog's own host.
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1937,7 +1951,9 @@ These are easy to break from a single file without noticing.
   `MarketplaceMother`, a marketplace's repository keeping its catalog,
   among it one modelled on anthropics/skills, `anthropic_skills`, one
   listing as many plugins of repositories of their own as asked,
-  `listing`, and a plugin's files, `plugin`),
+  `listing`, a plugin's files, `plugin`, a Codex marketplace, `codex`
+  and `codex_catalog`, one modelled on openai/plugins, `openai_plugins`,
+  and an Agent Plugins package's files, `agent_plugins_package`),
   and what a Mindflayer build left under its names (`MindflayerMother`:
   a workspace in a `.mindflayer`, and a project's blocks, exclude lines and
   rule files for Claude as that build wrote them, records included).

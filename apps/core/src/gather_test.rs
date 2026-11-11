@@ -1132,6 +1132,7 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
     let unlisted = Failure::Unlisted {
         path: PathBuf::from("/w/.mindweaver/cache/s/plugins/deploy/skills/gone"),
         route: String::from("./skills/gone"),
+        by: Looking::Entry,
     };
     assert_eq!(unlisted.code(), "gathered_listed_missing");
     assert_eq!(
@@ -1141,6 +1142,18 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
     assert_eq!(
         unlisted.to_string(),
         "./skills/gone: listed by its plugin's catalog entry as a skill, and holds no `SKILL.md` \
+         inside the plugin, so nothing of it is taken"
+    );
+    // One a Codex manifest lists (#104) is said as its manifest's.
+    let by_manifest = Failure::Unlisted {
+        path: PathBuf::from("/w/.mindweaver/cache/s/plugins/deploy/skills/gone"),
+        route: String::from("./skills/gone"),
+        by: Looking::Manifest,
+    };
+    assert_eq!(by_manifest.code(), "gathered_listed_missing");
+    assert_eq!(
+        by_manifest.to_string(),
+        "./skills/gone: listed by its plugin's manifest as a skill, and holds no `SKILL.md` \
          inside the plugin, so nothing of it is taken"
     );
 }
@@ -1330,7 +1343,7 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
             GatherError::PluginEmpty {
                 url: UrlMother::https(),
                 path: String::from("plugins/deploy"),
-                listed: false,
+                looking: Looking::RootThenSkills,
             },
             "gather_plugin_empty",
         ),

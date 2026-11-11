@@ -2596,7 +2596,8 @@ type derives `Serialize` from the start:
   search's results, and the panel's page of sources too (#113), through
   the TypeScript and the JSON Schema written from it, each type under a
   name of its own (`MarketplaceListing`, `MarketplaceCatalog`,
-  `PluginEntry`, `PluginPlace`, `PluginExtra`), since the snapshot's
+  `PluginEntry`, `PluginPlace`, `PluginExtra`, and #104's
+  `MarketplaceDialect`), since the snapshot's
   `Listing`, the ledger's `Entry` and an install's `Place` have the plain
   ones. An entry the catalog lists that could not be read is a warning,
   the envelope's, never data. Names added, which move neither
@@ -2607,6 +2608,12 @@ type derives `Serialize` from the start:
   first; and each kind a gather takes with the folder it looks in unsaid,
   as the snapshot's `gatherable` (`gather::Gatherable`). Names added, which
   move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Listed by #104**: the dialect a marketplace's catalog is read in and
+  where it was read, as `dialect` (`claude-code` or `codex`, a word
+  serialized by hand from `Dialect::slug` and described in TypeScript and
+  JSON Schema from it, `MarketplaceDialect`) and `file` on its `Catalog`;
+  and a plugin's app connectors, `apps`, one more word of an `Extra`.
+  Names added, which move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
 - **Listed by #107**: what a search of an MCP registry found
   (`mcp_registry::Listing`), which `mindweaver gather mcp search --json`
   prints, by hand, each entry as its `Summary`, since an entry keeps its
@@ -3766,6 +3773,125 @@ read back by the envelope's names as a search's results are), and `space`
 on its plugins ticks those to gather and `enter` gathers them
 (`Task::GatherPlugins`, `gather marketplace --plugin <name>...`), each run
 apart and stopped as a gather is. A plugin no gather takes is not ticked.
+
+### Gathering from a Codex marketplace
+
+#104 reads Codex's marketplaces and the plugins any marketplace lists as
+Codex and the Agent Plugins format write them, through the same command,
+the same parent and children and the same reader (`marketplace`): a
+second command, or a second kind of source, would have made which of them
+a repository is the user's to know before gathering it, and a catalog
+gathered under one could not be gathered again under the other. What
+Codex does is docs-only, read on 2026-11-10 in its documentation
+(developers.openai.com/codex/plugins/build) and its source
+(`codex-rs/core-plugins/src/marketplace.rs`, `manifest.rs`, `loader.rs`,
+`codex-rs/utils/plugins/src/plugin_namespace.rs`), and the Agent Plugins
+format's in its 1.0.0 specification (agent-plugins.org); none of it was run,
+the owner having no Codex subscription ([docs/agents.md](agents.md#codex)).
+
+**Which catalog, and in which dialect.** Codex keeps a catalog at
+`.agents/plugins/marketplace.json` and reads one at Claude Code's place too,
+as a marketplace it is compatible with, written in its own dialect there.
+So the file says where to look and not how to read: a repository is read
+at the first of `.claude-plugin/marketplace.json` and
+`.agents/plugins/marketplace.json` it keeps (`Dialect::ALL`), and the
+catalog there in the dialect its entries are written in
+(`Dialect::of_shape`). Claude Code's place first, so a repository #103 read
+goes on reading the catalog it read when it adds Codex's, and the plugins
+gathered from it are still found by their entries in it. One file, and no
+other once it is there: a catalog that does not read is said
+(`marketplace_catalog_unreadable`, naming the file), never passed over for
+the other, which would make which catalog a source is depend on a fault in
+one. The shape is what only one dialect writes and the other reads
+differently: Codex's `local` sources and the `policy` it requires of every
+entry, Claude Code's `github` sources, paths named bare and the
+`pluginRoot` they are read under. A catalog showing one dialect's marks
+alone is read in it wherever it is, since reading Claude Code's
+`pluginRoot` by Codex's rules would lose every plugin named under it, and
+Codex's `local` sources by Claude Code's every plugin its repository
+keeps; one showing both, or neither, as a list of `./` paths and URLs
+does, is read in the dialect of where it is. `--list --json` says which, as
+`catalog.dialect`, and where it read it, `catalog.file`. Rejected: deciding
+by the file alone, which reads Codex's catalog at Claude Code's place as
+plugins of an unknown kind, and by the shape alone, which cannot tell the
+catalog both read alike.
+
+**Codex's entries** are read as Codex resolves a source: a path only from
+the repository's root, `./`, written as a string or as a `local` source; a
+`url`, with a `path` a folder of that repository, as `git-subdir` is; and
+npm, said and passed over as Claude Code's is. Anything else Codex skips
+with a warning, and so does a gather: a source of a kind Codex has no way to
+fetch, `github` among them, and a `command`, which is then neither run nor
+kept, and a path named bare, which Codex refuses rather than read under a
+`pluginRoot` it does not have, each a warning of its own code
+(`marketplace_entry_unresolved`) beside the rest, never a reason to list
+nothing. What both dialects refuse alike, a path climbing out, a `sha` that
+is no commit in full, a credential, keeps the code it has in Claude Code's.
+`policy` and `category` are passed over, as every key a gather does not
+need is, and so is the catalog's `interface`, its title for Codex's app.
+
+**A plugin is read by the manifest it keeps**, whichever catalog lists it
+(`marketplace::Manifest`), the first of three, in the order Codex looks:
+a root `plugin.json` declaring the Agent Plugins `$schema`
+(`AGENT_PLUGINS_SCHEMA`, 1.0.0), Codex's `.codex-plugin/plugin.json`, and
+Claude Code's `.claude-plugin/plugin.json`, or none, which Claude Code
+reads a plugin without. A root `plugin.json` without that `$schema` is
+somebody else's file and passed over, as Codex passes it over; one
+declaring a version of the format this build does not read is refused,
+said and not gathered (`marketplace_plugin_schema_unknown`), rather than
+read as 1.0.0, which could take what a later version keeps elsewhere.
+Where its skills are is the format's (`gather::Looking`):
+
+- An Agent Plugins package's are each folder directly in its `skills/`
+  holding a `SKILL.md`, and nothing else, as its specification says
+  (sections 6.1 and 7.1): never a folder deeper, nor a `SKILL.md` at its
+  root, nor what its catalog entry lists, since no file overrides the
+  format's places.
+- A Codex plugin's are the folders its manifest's `skills` lists, a path
+  or a list of them, each a skill or a folder of skills as an entry's are,
+  and else each folder of its `skills/`. Codex walks those folders whole,
+  where a gather takes the folders directly in them, a folder holding a
+  `SKILL.md` being a skill with everything in it; every skill nested so in
+  openai/plugins is inside one that is a skill itself, so the two read it
+  alike ([open questions](#open-questions)).
+- A Claude Code plugin's are where #103 looks.
+
+What a catalog entry says comes first, then its manifest, for the folders
+listed as for the licence, as #103 reads an entry before a plugin's own
+manifest. The licence is the manifest's `license`, which the Agent
+Plugins format and Codex both write.
+
+**MCP files are named, never imported.** A plugin's MCP servers are in
+`.mcp.json` (Claude Code's and Codex's), the Agent Plugins format's
+`mcp.json`, or the file a Codex manifest's `mcpServers` names, and a
+gather names each it keeps, by its route from the plugin's folder, in the
+note that says what was left (`Plugin::mcp`, `Extra::listed`), so
+somebody can bring a server into the library by hand with `add mcp`; it
+reads none of them. Importing one is out of this roadmap's scope: a server
+is something an agent runs, which `add` and an install confirm one at a
+time. Codex's app connectors (`.app.json`, `apps`) are said too, an
+`Extra` of their own, and not brought in, which is out of #104's scope.
+
+**A plugin of nothing a gather takes is passed over.** Over a quarter of
+openai/plugins' entries hold no skill, only MCP servers and app
+connectors. #103 failed a plugin holding no skill (`gather_plugin_empty`),
+which would make `--all` of Codex's own catalog fail on each of them. A
+plugin holding no skill where its manifest says, and something else a
+gather does not take, is now what a plugin from npm is, said and not
+gathered (`NotGathered::Skillless`, `marketplace_plugin_skillless`): a note
+under `--all`, a failure when named. One holding nothing at all is still a
+failure, since that is a catalog naming the wrong folder. Its new source is
+forgotten, as a plugin that took nothing always is. Rejected: keeping the
+failure, which reads as Mindweaver's fault on the catalog it was asked to
+read.
+
+Nothing else moves: a Codex plugin is a git source whose parent is its
+marketplace, called after both, gathered again and forgotten through it,
+its pin its `sha`; the token reaches a plugin only on the catalog's host;
+a catalog fetched from elsewhere reaches no repository on this machine;
+and every file a gather reads of a plugin, its manifest among them, is read
+only inside the clone, to 1 MiB, a link leading out not followed, nor the
+plugin's folder looked in at all when it leads out.
 
 ### Following a gather, and stopping it
 
@@ -13446,7 +13572,12 @@ marketplace](#gathering-from-a-claude-code-marketplace)): a parent source
 of its own kind, each plugin a git source gathered only when named or by a
 confirmed `--all`, known by its entry (schema 9's `entry` beside
 `parent_id`), at its pin when its entry has one, and gathered again and
-forgotten with its marketplace, `parent_id` cascading.
+forgotten with its marketplace, `parent_id` cascading. #104 carried the
+same model to Codex's marketplaces and the Agent Plugins format's
+packages ([gathering from a Codex
+marketplace](#gathering-from-a-codex-marketplace)), with no kind of source
+of their own: a catalog's dialect is read off where it is and how it is
+written each time it is read.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -14748,9 +14879,31 @@ repository, stays on `gix`.
   and `--from` then takes the plugin's name.
 - **What of a plugin is not taken.** A marketplace's plugin is gathered for
   its skills alone, and its commands, agents, hooks, MCP and LSP servers
-  are said and left (#103). Taking an MCP server a plugin declares into the
+  and app connectors are said and left (#103, #104), the files it keeps
+  MCP servers in named. Taking an MCP server a plugin declares into the
   library, or installing a plugin whole, is a decision of its own, which
   the hooks above all make one to take with care: a hook runs a command.
+- **A Codex plugin's skills are taken a folder down.** Codex walks the
+  folders a plugin's manifest lists, or its `skills/`, whole (#104), and a
+  gather takes the folders directly in them, as it takes a Claude Code
+  plugin's: a skill a folder deeper, under one holding no `SKILL.md`,
+  reaches Codex and not the shelf. None of openai/plugins' is so; a walk
+  as Codex walks would take an example a skill ships, which the layouts
+  of `gather git` were written to leave.
+- **What Codex reads of a marketplace is docs-only.** Its catalog's two
+  places, the order it looks for a plugin's manifest and where it finds a
+  plugin's skills are read from its documentation and source on
+  2026-11-10, not run (#104). Codex's `.agents/plugins/api_marketplace.json`,
+  which it reads after `marketplace.json`, and Cursor's
+  `.cursor-plugin/` catalog and manifest, which it reads too, are not read
+  by a gather; were a catalog to keep its plugins there alone, it would be
+  said to have no catalog.
+- **A lone Agent Plugins package through `gather git`.** A repository that
+  is one package, with no catalog, is gathered by `gather git` through its
+  layouts (#101), which take `skills/<namespace>/<skill>` and a `SKILL.md`
+  at the root besides the folders the format reads (#104). Reading such a
+  repository as its format does would need `gather git` to read a
+  manifest, which no layout does.
 - **A cancel after the marketplace is recorded.** A gather of a marketplace
   registers it once its catalog reads and before any plugin is fetched, so
   a cancel while a plugin is fetched leaves the marketplace recorded, its

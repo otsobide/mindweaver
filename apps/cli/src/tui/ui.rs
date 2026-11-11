@@ -1532,13 +1532,7 @@ fn servers(screen: &ServerResults, frame: &mut Frame, area: Rect) {
 
 /// The marketplace form: its repository, its branch, and the line it runs.
 fn marketplace(form: &MarketplaceForm, frame: &mut Frame, area: Rect) {
-    let inner = popup(
-        frame,
-        area,
-        "List a Claude Code marketplace's plugins",
-        78,
-        8,
-    );
+    let inner = popup(frame, area, "List a plugin marketplace's plugins", 78, 8);
     let rows = lines(inner, 6);
     for (index, name) in MARKETPLACE_FIELDS.iter().enumerate() {
         input(

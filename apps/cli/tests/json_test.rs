@@ -1206,6 +1206,10 @@ struct MarketplaceListing {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Catalog {
+    /// `claude-code` or `codex` (#104).
+    dialect: String,
+    /// Where the catalog is in its repository.
+    file: String,
     name: Option<String>,
     description: Option<String>,
     owner: Option<String>,
@@ -1291,6 +1295,8 @@ fn gather_marketplace_list_as_json_holds_the_plugins_the_text_lists() {
     assert_eq!(listing.reference, None);
     assert_eq!(listing.revision.as_ref().map(String::len), Some(40));
     assert_eq!(listing.catalog.name.as_deref(), Some(listing.name.as_str()));
+    assert_eq!(listing.catalog.dialect, "claude-code");
+    assert_eq!(listing.catalog.file, ".claude-plugin/marketplace.json");
     assert_eq!(listing.catalog.owner.as_deref(), Some("Keith Lazuka"));
     assert!(listing.catalog.description.is_some());
     let entries: Vec<(&str, Option<&str>)> = listing
@@ -1329,6 +1335,50 @@ fn gather_marketplace_list_as_json_holds_the_plugins_the_text_lists() {
     }
     assert!(warnings.is_empty());
     assert!(json.ok && text.ok);
+}
+
+/// A Codex catalog (#104) is listed in the same envelope, by the same
+/// names, its dialect and its file saying which it is, each `local` plugin
+/// where it is in the repository.
+#[test]
+fn gather_marketplace_list_as_json_says_a_codex_catalogs_dialect_and_file() {
+    let catalog = mindweaver_core::mother::MarketplaceMother::openai_plugins();
+    let url = catalog.path().to_string_lossy().into_owned();
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+
+    let json = weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--list", "--json"],
+    )
+    .unwrap();
+
+    let (listing, warnings): (MarketplaceListing, _) = enveloped(&json);
+    assert_eq!(
+        listing.name,
+        mindweaver_core::mother::MarketplaceMother::OPENAI_CURATED
+    );
+    assert_eq!(listing.catalog.dialect, "codex");
+    assert_eq!(listing.catalog.file, ".agents/plugins/marketplace.json");
+    let places: Vec<(&str, &PluginPlace)> = listing
+        .catalog
+        .entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), &entry.source))
+        .collect();
+    let relative = |path: &str| PluginPlace::Relative {
+        path: path.to_owned(),
+    };
+    assert_eq!(
+        places,
+        [
+            ("tracker", &relative("plugins/tracker")),
+            ("design", &relative("plugins/design")),
+            ("meetings", &relative("plugins/meetings")),
+        ]
+    );
+    assert!(warnings.is_empty());
+    assert!(json.ok);
 }
 
 /// A loaded workspace that has gone is a warning beside what the rest

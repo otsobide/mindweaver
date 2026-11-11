@@ -115,6 +115,7 @@ fn every_word_type_says_in_typescript_the_words_serde_writes() {
     ]);
     says_what_serde_writes(&[SourceKind::Git, SourceKind::Marketplace]);
     says_what_serde_writes(&marketplace::Extra::ALL);
+    says_what_serde_writes(&marketplace::Dialect::ALL);
     says_what_serde_writes(&[
         scan::Reason::Id,
         scan::Reason::Mind,
