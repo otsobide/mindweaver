@@ -63,9 +63,10 @@ pub const FLAYER_LEDGER_FILE: &str = "mindflayer.db";
 pub enum SourceKind {
     /// A git repository, cloned into the workspace cache.
     Git,
-    /// A Claude Code plugin marketplace (#103): a git repository whose
-    /// catalog, `.claude-plugin/marketplace.json`, lists plugins, each
-    /// gathered only when chosen, as a git source of its own, its child
+    /// A plugin marketplace, Claude Code's (#103) or Codex's (#104): a git
+    /// repository whose catalog, `.claude-plugin/marketplace.json` or
+    /// `.agents/plugins/marketplace.json`, lists plugins, each gathered only
+    /// when chosen, as a git source of its own, its child
     /// ([`Source::parent`]). What is cloned of it is the catalog's
     /// repository, and nothing of it is put on the shelf itself.
     Marketplace,

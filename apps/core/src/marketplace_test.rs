@@ -13,7 +13,7 @@ use crate::mother::{random, PinMother, UrlMother};
 const ELSEWHERE: &str = "https://github.com/acme/tools";
 
 fn catalog(value: Value) -> Catalog {
-    Catalog::of(&value, ELSEWHERE).expect("a catalog that reads")
+    Catalog::of(&value, ELSEWHERE, Dialect::ClaudeCode).expect("a catalog that reads")
 }
 
 /// The catalog anthropics/skills keeps, as it keeps it: two plugins at its
@@ -246,7 +246,7 @@ fn a_plugin_on_this_machine_is_gathered_only_from_a_catalog_on_this_machine_too(
         ]
     });
 
-    let elsewhere = Catalog::of(&value, ELSEWHERE).unwrap();
+    let elsewhere = Catalog::of(&value, ELSEWHERE, Dialect::ClaudeCode).unwrap();
     let refused: Vec<(&str, Option<&str>)> = elsewhere
         .entries
         .iter()
@@ -277,7 +277,13 @@ fn a_plugin_on_this_machine_is_gathered_only_from_a_catalog_on_this_machine_too(
         "file:///srv/acme-tools",
     ] {
         assert!(on_this_machine(here), "{here}");
-        assert_eq!(Catalog::of(&value, here).unwrap().gatherable(), 5, "{here}");
+        assert_eq!(
+            Catalog::of(&value, here, Dialect::ClaudeCode)
+                .unwrap()
+                .gatherable(),
+            5,
+            "{here}"
+        );
     }
     for there in [
         ELSEWHERE,
@@ -466,7 +472,11 @@ fn what_is_not_a_catalog_is_said_as_that() {
         (json!({"name": "x"}), "it lists no `plugins`"),
         (json!({"plugins": {"a": 1}}), "it lists no `plugins`"),
     ] {
-        assert_eq!(Catalog::of(&value, ELSEWHERE).unwrap_err(), why, "{value}");
+        assert_eq!(
+            Catalog::of(&value, ELSEWHERE, Dialect::ClaudeCode).unwrap_err(),
+            why,
+            "{value}"
+        );
     }
 }
 
@@ -551,4 +561,542 @@ fn a_listing_reads_back_from_its_json_as_it_was() {
     assert_eq!(value["catalog"]["entries"][5]["source"]["type"], "other");
     assert_eq!(value["catalog"]["entries"][5]["source"]["kind"], "pip");
     assert!(value["catalog"].get("failures").is_none());
+    assert_eq!(value["catalog"]["dialect"], "claude-code");
+    assert_eq!(value["catalog"]["file"], CATALOG);
+
+    // A Codex catalog's dialect, as its words.
+    let mut codex = listing.clone();
+    codex.catalog = Catalog::of(&openai_plugins(), ELSEWHERE, Dialect::Codex).unwrap();
+    let printed = serde_json::to_string(&codex).unwrap();
+    let back: Listing = serde_json::from_str(&printed).unwrap();
+    assert_eq!(back, codex, "{printed}");
+    let value: Value = serde_json::from_str(&printed).unwrap();
+    assert_eq!(value["catalog"]["dialect"], "codex");
+    assert_eq!(value["catalog"]["file"], CODEX_CATALOG);
+}
+
+// ---------------------------------------------------------------------------
+// Codex's dialect (#104)
+// ---------------------------------------------------------------------------
+
+/// The catalog openai/plugins keeps at `.agents/plugins/marketplace.json`,
+/// as it keeps it: a name and a title, each plugin a `local` source with
+/// the `policy` and `category` Codex requires, and a few kept in
+/// repositories of their own, a whole one by its URL and a folder of
+/// another.
+fn openai_plugins() -> Value {
+    let policy = json!({"installation": "AVAILABLE", "authentication": "ON_INSTALL"});
+    json!({
+        "name": "openai-curated",
+        "interface": {"displayName": "Codex official"},
+        "plugins": [
+            {"name": "linear", "source": {"source": "local", "path": "./plugins/linear"}, "policy": policy, "category": "Productivity"},
+            {"name": "figma", "source": {"source": "local", "path": "./plugins/figma"}, "policy": policy, "category": "Creativity"},
+            {"name": "foundry", "source": {"source": "url", "url": "https://github.com/acme/foundry-skills.git"}, "policy": policy, "category": "Developer Tools", "interface": {"displayName": "Foundry"}},
+            {"name": "qodo", "source": {"source": "git-subdir", "url": "https://github.com/acme/qodo-skills.git", "path": "codex-packages/qodo"}, "policy": {"installation": "AVAILABLE", "authentication": "ON_USE", "products": ["CODEX"]}, "category": "Developer Tools"},
+        ]
+    })
+}
+
+#[test]
+fn a_codex_catalog_like_openais_lists_each_plugin_where_it_is_and_passes_over_its_policy() {
+    let read = Catalog::of(&openai_plugins(), ELSEWHERE, Dialect::Codex).unwrap();
+
+    assert_eq!(read.dialect, Dialect::Codex);
+    assert_eq!(read.file, CODEX_CATALOG);
+    assert_eq!(read.name.as_deref(), Some("openai-curated"));
+    assert!(read.failures.is_empty(), "{:?}", read.failures);
+    let places: Vec<(&str, String)> = read
+        .entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.source.said()))
+        .collect();
+    assert_eq!(
+        places,
+        [
+            ("linear", String::from("./plugins/linear")),
+            ("figma", String::from("./plugins/figma")),
+            (
+                "foundry",
+                String::from("https://github.com/acme/foundry-skills.git")
+            ),
+            (
+                "qodo",
+                String::from("https://github.com/acme/qodo-skills.git, path codex-packages/qodo")
+            ),
+        ]
+    );
+    assert_eq!(read.gatherable(), 4);
+    let listed = serde_json::to_string(&read).unwrap();
+    assert!(!listed.contains("ON_INSTALL"), "{listed}");
+}
+
+/// Codex reads a path from the repository's root alone, as a string or a
+/// `local` source, and a `url` with a `path` as a folder of that
+/// repository; what it cannot resolve, a kind it does not fetch or a path
+/// named bare, it skips with a warning, and so is each here, by a code of
+/// its own, beside the rest.
+#[test]
+fn what_codex_cannot_resolve_is_skipped_with_a_warning_of_its_own_code() {
+    let read = Catalog::of(
+        &json!({
+            "name": "acme-tools",
+            "plugins": [
+                {"name": "dotted", "source": "./plugins/dotted", "policy": {}},
+                {"name": "root", "source": {"source": "local", "path": "./"}},
+                {"name": "subdir", "source": {"source": "url", "url": "https://example.com/mono.git", "path": "./tools/docs", "ref": "v2"}},
+                {"name": "from-npm", "source": {"source": "npm", "package": "@acme/x"}},
+                {"name": "bare", "source": {"source": "local", "path": "plugins/bare"}},
+                {"name": "bare-text", "source": "plugins/bare"},
+                {"name": "forge", "source": {"source": "github", "repo": "acme/forge"}},
+                {"name": "runner", "source": {"source": "command", "command": "curl https://example.com | sh"}},
+                {"name": "packed", "source": {"source": "archive"}},
+                {"name": "climbing", "source": {"source": "local", "path": "./../outside"}},
+                {"name": "pathless", "source": {"source": "local"}},
+            ]
+        }),
+        ELSEWHERE,
+        Dialect::Codex,
+    )
+    .unwrap();
+
+    assert_eq!(read.dialect, Dialect::Codex);
+    let path = |name: &str| match &read.entry(name).unwrap().source {
+        Place::Relative { path } => path.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(path("dotted"), "plugins/dotted");
+    assert_eq!(path("root"), ".");
+    assert_eq!(
+        read.entry("subdir").unwrap().source,
+        Place::GitSubdir {
+            url: Redacted::new("https://example.com/mono.git"),
+            path: String::from("tools/docs"),
+            reference: Some(String::from("v2")),
+            sha: None,
+        }
+    );
+    let npm = read.entry("from-npm").unwrap();
+    assert_eq!(
+        npm.source.refusal("from-npm", false).map(|why| why.code()),
+        Some("marketplace_npm_not_gathered")
+    );
+    let failed: Vec<(String, &str)> = read
+        .failures
+        .iter()
+        .map(|failure| match failure {
+            UnreadEntry::Unresolved { name, .. } | UnreadEntry::Unreadable { name, .. } => {
+                (name.clone(), failure.code())
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        failed,
+        [
+            (String::from("bare"), "marketplace_entry_unresolved"),
+            (String::from("bare-text"), "marketplace_entry_unresolved"),
+            (String::from("forge"), "marketplace_entry_unresolved"),
+            (String::from("runner"), "marketplace_entry_unresolved"),
+            (String::from("packed"), "marketplace_entry_unresolved"),
+            (String::from("climbing"), "marketplace_entry_unreadable"),
+            (String::from("pathless"), "marketplace_entry_unreadable"),
+        ]
+    );
+    let said: Vec<String> = read.failures.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        said[0],
+        "bare: its path, `plugins/bare`, does not start with `./`, as Codex reads one from the \
+         repository's root, so it is not listed, as Codex skips it"
+    );
+    assert_eq!(
+        said[2],
+        "forge: its source is of the kind `github`, which Codex does not resolve, so it is not \
+         listed, as Codex skips it"
+    );
+    let listed = serde_json::to_string(&read).unwrap();
+    assert!(!listed.contains("curl"), "{listed}");
+}
+
+/// The dialect is told by where the catalog is and how it is written
+/// (#104): a catalog both read alike, `./` paths and URLs, is read in the
+/// dialect of its place; one written in one dialect's shape alone is read
+/// in that one wherever it is, Codex keeping one at Claude Code's place
+/// too; and one in both shapes at once in the dialect of its place.
+#[test]
+fn the_dialect_is_told_by_the_catalogs_place_and_by_its_shape() {
+    let ambiguous = json!({
+        "name": "acme-tools",
+        "plugins": [
+            {"name": "formatter", "source": "./plugins/formatter", "category": "Developer Tools"},
+            {"name": "deploy", "source": {"source": "url", "url": "https://example.com/deploy.git"}},
+        ]
+    });
+    let codex_shaped = json!({
+        "plugins": [
+            {"name": "formatter", "source": {"source": "local", "path": "./plugins/formatter"}},
+        ]
+    });
+    let policed = json!({
+        "plugins": [
+            {"name": "formatter", "source": "./plugins/formatter", "policy": {"installation": "AVAILABLE"}},
+        ]
+    });
+    let claude_shaped = json!({
+        "plugins": [
+            {"name": "formatter", "source": {"source": "github", "repo": "acme/formatter"}},
+        ]
+    });
+    let rooted = json!({
+        "metadata": {"pluginRoot": "./plugins"},
+        "plugins": [{"name": "formatter", "source": "formatter"}]
+    });
+    let both = json!({
+        "plugins": [
+            {"name": "formatter", "source": {"source": "local", "path": "./plugins/formatter"}},
+            {"name": "deploy", "source": {"source": "github", "repo": "acme/deploy"}},
+        ]
+    });
+
+    for (value, at_claudes, at_codexs) in [
+        (&ambiguous, Dialect::ClaudeCode, Dialect::Codex),
+        (&codex_shaped, Dialect::Codex, Dialect::Codex),
+        (&policed, Dialect::Codex, Dialect::Codex),
+        (&claude_shaped, Dialect::ClaudeCode, Dialect::ClaudeCode),
+        (&rooted, Dialect::ClaudeCode, Dialect::ClaudeCode),
+        (&both, Dialect::ClaudeCode, Dialect::Codex),
+    ] {
+        assert_eq!(Dialect::ClaudeCode.of_shape(value), at_claudes, "{value}");
+        assert_eq!(Dialect::Codex.of_shape(value), at_codexs, "{value}");
+    }
+
+    // Read so: the ambiguous one alike either way, the one in both shapes
+    // as its place says, each entry the other has no word for said.
+    for found in Dialect::ALL {
+        let read = Catalog::of(&ambiguous, ELSEWHERE, found).unwrap();
+        assert_eq!((read.dialect, read.file.as_str()), (found, found.file()));
+        assert_eq!(read.gatherable(), 2, "{found:?}");
+    }
+    let codex_at_claudes = Catalog::of(&codex_shaped, ELSEWHERE, Dialect::ClaudeCode).unwrap();
+    assert_eq!(codex_at_claudes.dialect, Dialect::Codex);
+    assert_eq!(codex_at_claudes.file, CATALOG);
+    assert_eq!(codex_at_claudes.gatherable(), 1);
+    let claude_at_codexs = Catalog::of(&rooted, ELSEWHERE, Dialect::Codex).unwrap();
+    assert_eq!(claude_at_codexs.dialect, Dialect::ClaudeCode);
+    assert_eq!(
+        claude_at_codexs.entry("formatter").unwrap().source,
+        Place::Relative {
+            path: String::from("plugins/formatter")
+        }
+    );
+    let both_at_claudes = Catalog::of(&both, ELSEWHERE, Dialect::ClaudeCode).unwrap();
+    assert_eq!(
+        both_at_claudes.entry("formatter").unwrap().source,
+        Place::Other {
+            kind: String::from("local")
+        }
+    );
+    assert!(both_at_claudes.entry("deploy").unwrap().gatherable);
+    let both_at_codexs = Catalog::of(&both, ELSEWHERE, Dialect::Codex).unwrap();
+    assert!(both_at_codexs.entry("formatter").unwrap().gatherable);
+    assert!(both_at_codexs.entry("deploy").is_none());
+    assert_eq!(
+        both_at_codexs.failures[0].code(),
+        "marketplace_entry_unresolved"
+    );
+}
+
+/// The file read is the first there is, Claude Code's place before
+/// Codex's, so a repository #103 read goes on reading the same catalog
+/// once it keeps both; and one of them that does not read is said, never
+/// passed over for the other.
+#[test]
+fn a_repository_is_read_at_the_first_place_a_catalog_is_and_at_no_other() {
+    let write = |root: &Path, file: &str, value: &str| {
+        let at = root.join(file);
+        fs::create_dir_all(at.parent().unwrap()).unwrap();
+        fs::write(at, value).unwrap();
+    };
+    let claude = json!({"name": "from-claude", "plugins": []}).to_string();
+    let codex = json!({"name": "from-codex", "plugins": []}).to_string();
+
+    let both = tempfile::TempDir::new().unwrap();
+    write(both.path(), CATALOG, &claude);
+    write(both.path(), CODEX_CATALOG, &codex);
+    let read = read_catalog(both.path(), ELSEWHERE).unwrap();
+    assert_eq!(read.name.as_deref(), Some("from-claude"));
+
+    let codexs = tempfile::TempDir::new().unwrap();
+    write(codexs.path(), CODEX_CATALOG, &codex);
+    let read = read_catalog(codexs.path(), ELSEWHERE).unwrap();
+    assert_eq!(read.name.as_deref(), Some("from-codex"));
+    assert_eq!(
+        (read.dialect, read.file.as_str()),
+        (Dialect::Codex, CODEX_CATALOG)
+    );
+
+    let broken = tempfile::TempDir::new().unwrap();
+    write(broken.path(), CATALOG, "{ not json");
+    write(broken.path(), CODEX_CATALOG, &codex);
+    let refused = read_catalog(broken.path(), ELSEWHERE).unwrap_err();
+    assert_eq!(refused.code(), "marketplace_catalog_unreadable");
+    assert!(
+        refused
+            .to_string()
+            .starts_with(&format!("{ELSEWHERE}: its `{CATALOG}` cannot be read: ")),
+        "{refused}"
+    );
+
+    // Claude Code's folder a file: no catalog there, Codex's read.
+    let filed = tempfile::TempDir::new().unwrap();
+    fs::write(filed.path().join(".claude-plugin"), "").unwrap();
+    write(filed.path(), CODEX_CATALOG, &codex);
+    assert_eq!(
+        read_catalog(filed.path(), ELSEWHERE)
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("from-codex")
+    );
+
+    let none = tempfile::TempDir::new().unwrap();
+    let refused = read_catalog(none.path(), ELSEWHERE).unwrap_err();
+    assert_eq!(refused.code(), "marketplace_catalog_missing");
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "{ELSEWHERE}: has neither `{CATALOG}` nor `{CODEX_CATALOG}`, so it is no plugin \
+             marketplace: `mindweaver gather git` gathers a repository of skills"
+        )
+    );
+}
+
+/// Codex's catalog linked out of its clone is not read either, said by its
+/// own place.
+#[cfg(unix)]
+#[test]
+fn a_codex_catalog_linked_out_of_its_clone_is_not_read() {
+    use std::os::unix::fs::symlink;
+
+    let outside = tempfile::TempDir::new().unwrap();
+    fs::write(outside.path().join("secret.json"), r#"{"plugins": []}"#).unwrap();
+    let clone = tempfile::TempDir::new().unwrap();
+    fs::create_dir_all(clone.path().join(".agents/plugins")).unwrap();
+    symlink(
+        outside.path().join("secret.json"),
+        clone.path().join(CODEX_CATALOG),
+    )
+    .unwrap();
+
+    let refused = read_catalog(clone.path(), ELSEWHERE).unwrap_err();
+    assert_eq!(refused.code(), "marketplace_catalog_outside", "{refused}");
+    assert!(refused.to_string().contains(CODEX_CATALOG), "{refused}");
+}
+
+// ---------------------------------------------------------------------------
+// A plugin's manifest (#104)
+// ---------------------------------------------------------------------------
+
+/// A plugin's folder in a clone of its own, holding `files`.
+fn plugin_with(files: &[(&str, &str)]) -> tempfile::TempDir {
+    let clone = tempfile::TempDir::new().unwrap();
+    for (path, contents) in files {
+        let at = clone.path().join(path);
+        fs::create_dir_all(at.parent().unwrap()).unwrap();
+        fs::write(at, contents).unwrap();
+    }
+    clone
+}
+
+fn manifest_of(clone: &tempfile::TempDir) -> Result<Manifest, String> {
+    Manifest::of(clone.path(), clone.path())
+}
+
+#[test]
+fn a_plugin_is_read_by_the_first_manifest_it_keeps_in_the_order_codex_looks() {
+    let portable = json!({"$schema": AGENT_PLUGINS_SCHEMA, "name": "deploy", "license": "MIT"});
+    let codex = json!({"name": "deploy", "license": "Apache-2.0", "skills": "./skills/"});
+    let claude = json!({"name": "deploy", "license": "BSD-3-Clause"});
+
+    let all = plugin_with(&[
+        ("plugin.json", &portable.to_string()),
+        (".codex-plugin/plugin.json", &codex.to_string()),
+        (".claude-plugin/plugin.json", &claude.to_string()),
+    ]);
+    let read = manifest_of(&all).unwrap();
+    assert_eq!(read.format, Format::AgentPlugins);
+    assert_eq!(read.licence.as_deref(), Some("MIT"));
+    assert_eq!(
+        read.skills, None,
+        "nothing lists an Agent Plugins package's skills"
+    );
+
+    // A `plugin.json` without the format's `$schema` is somebody else's.
+    let unschemed = plugin_with(&[
+        (
+            "plugin.json",
+            &json!({"name": "deploy", "license": "MIT"}).to_string(),
+        ),
+        (".codex-plugin/plugin.json", &codex.to_string()),
+        (".claude-plugin/plugin.json", &claude.to_string()),
+    ]);
+    let read = manifest_of(&unschemed).unwrap();
+    assert_eq!(read.format, Format::Codex);
+    assert_eq!(read.licence.as_deref(), Some("Apache-2.0"));
+    assert_eq!(read.skills, Some(vec![String::from("./skills/")]));
+
+    let claudes = plugin_with(&[(".claude-plugin/plugin.json", &claude.to_string())]);
+    let read = manifest_of(&claudes).unwrap();
+    assert_eq!(read.format, Format::ClaudeCode);
+    assert_eq!(read.licence.as_deref(), Some("BSD-3-Clause"));
+
+    let none = plugin_with(&[("skills/ship/SKILL.md", "x")]);
+    assert_eq!(manifest_of(&none).unwrap(), Manifest::none());
+
+    // Codex's that does not read is Codex's still, saying nothing, as
+    // Codex takes the first there is.
+    let unread = plugin_with(&[
+        (".codex-plugin/plugin.json", "{ not json"),
+        (".claude-plugin/plugin.json", &claude.to_string()),
+    ]);
+    let read = manifest_of(&unread).unwrap();
+    assert_eq!((read.format, read.licence), (Format::Codex, None));
+}
+
+#[test]
+fn an_agent_plugins_package_of_another_version_is_refused_by_its_schema() {
+    let newer = "https://agent-plugins.org/schemas/2.0.0/plugin.schema.json";
+    let clone = plugin_with(&[(
+        "plugin.json",
+        &json!({"$schema": newer, "name": "deploy"}).to_string(),
+    )]);
+
+    assert_eq!(manifest_of(&clone).unwrap_err(), newer);
+    let said = NotGathered::Newer {
+        entry: String::from("deploy"),
+        schema: newer.to_owned(),
+    };
+    assert_eq!(said.code(), "marketplace_plugin_schema_unknown");
+    assert_eq!(
+        said.to_string(),
+        format!(
+            "deploy: an Agent Plugins package declaring `{newer}`, a version of the format this \
+             build does not read, so it is not gathered"
+        )
+    );
+}
+
+/// What a Codex manifest says beside its skills: the folders it lists, as a
+/// path or a list of them, what it declares, and the file it keeps its MCP
+/// servers in, only while that file is there.
+#[test]
+fn a_codex_manifest_lists_its_skills_and_names_its_mcp_file() {
+    let codex = json!({
+        "name": "tracker",
+        "skills": ["./skills/one", "./more"],
+        "mcpServers": "./config/servers.json",
+        "apps": "./.app.json",
+        "hooks": "./hooks.json",
+    });
+    let clone = plugin_with(&[
+        (".codex-plugin/plugin.json", &codex.to_string()),
+        ("config/servers.json", "{}"),
+        (".mcp.json", "{}"),
+    ]);
+
+    let read = manifest_of(&clone).unwrap();
+    assert_eq!(
+        read.skills,
+        Some(vec![String::from("./skills/one"), String::from("./more")])
+    );
+    assert_eq!(read.mcp.as_deref(), Some("config/servers.json"));
+    assert_eq!(
+        read.declares,
+        [Extra::Hooks, Extra::McpServers, Extra::Apps]
+    );
+    assert_eq!(
+        mcp_files(clone.path(), &read),
+        [
+            String::from(".mcp.json"),
+            String::from("config/servers.json")
+        ]
+    );
+
+    let gone = plugin_with(&[(".codex-plugin/plugin.json", &codex.to_string())]);
+    assert_eq!(manifest_of(&gone).unwrap().mcp, None);
+    let inline = plugin_with(&[(
+        ".codex-plugin/plugin.json",
+        &json!({"name": "tracker", "skills": 3, "mcpServers": {"tracker": {"url": "https://example.com"}}}).to_string(),
+    )]);
+    let read = manifest_of(&inline).unwrap();
+    assert_eq!((read.skills, read.mcp), (None, None));
+    assert_eq!(read.declares, [Extra::McpServers]);
+}
+
+/// An Agent Plugins package keeps its MCP servers in `mcp.json`, which is
+/// named, and Claude Code's and Codex's plugins in `.mcp.json`.
+#[test]
+fn every_mcp_file_a_plugin_keeps_is_named_by_its_route() {
+    let both = plugin_with(&[("mcp.json", "{}"), (".mcp.json", "{}")]);
+    assert_eq!(
+        mcp_files(both.path(), &Manifest::none()),
+        [String::from(".mcp.json"), String::from("mcp.json")]
+    );
+    let none = plugin_with(&[("skills/ship/SKILL.md", "x")]);
+    assert!(mcp_files(none.path(), &Manifest::none()).is_empty());
+}
+
+/// A manifest that is a link leading out of the clone is not read, as a
+/// catalog is not: a repository could link it to a file of the machine.
+#[cfg(unix)]
+#[test]
+fn a_manifest_linked_out_of_its_clone_is_not_read() {
+    use std::os::unix::fs::symlink;
+
+    let outside = tempfile::TempDir::new().unwrap();
+    fs::write(
+        outside.path().join("plugin.json"),
+        json!({"$schema": AGENT_PLUGINS_SCHEMA, "name": "x", "license": "Secret"}).to_string(),
+    )
+    .unwrap();
+    let clone = tempfile::TempDir::new().unwrap();
+    symlink(
+        outside.path().join("plugin.json"),
+        clone.path().join("plugin.json"),
+    )
+    .unwrap();
+
+    assert_eq!(manifest_of(&clone).unwrap(), Manifest::none());
+}
+
+#[test]
+fn what_a_plugin_holds_beside_skills_is_said_with_its_mcp_files() {
+    assert_eq!(Extra::listed(&[], &[]), "");
+    assert_eq!(Extra::listed(&[Extra::Hooks], &[]), "hooks");
+    assert_eq!(
+        Extra::listed(
+            &[Extra::Agents, Extra::McpServers, Extra::Apps],
+            &[String::from(".mcp.json"), String::from("mcp.json")]
+        ),
+        "agents, MCP servers (`.mcp.json`, `mcp.json`) and app connectors"
+    );
+    let said = NotGathered::Skillless {
+        entry: String::from("tracker"),
+        holds: vec![Extra::McpServers, Extra::Apps],
+        mcp: vec![String::from(".mcp.json")],
+    };
+    assert_eq!(said.code(), "marketplace_plugin_skillless");
+    assert_eq!(
+        said.to_string(),
+        "tracker: holds no skill, only MCP servers (`.mcp.json`) and app connectors, so nothing \
+         of it is gathered: only a plugin's skills are"
+    );
+    for extra in Extra::ALL {
+        let word = serde_json::to_string(&extra).unwrap();
+        assert_eq!(serde_json::from_str::<Extra>(&word).unwrap(), extra);
+    }
+    for dialect in Dialect::ALL {
+        let word = serde_json::to_string(&dialect).unwrap();
+        assert_eq!(serde_json::from_str::<Dialect>(&word).unwrap(), dialect);
+    }
 }

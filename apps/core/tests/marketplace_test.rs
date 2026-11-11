@@ -1098,3 +1098,378 @@ fn removing_a_marketplace_forgets_its_plugins_with_their_folders() {
         assert!(!folder.exists(), "{}", folder.display());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Codex marketplaces and Agent Plugins packages (#104)
+// ---------------------------------------------------------------------------
+
+/// What came of the plugin `entry`, whole.
+fn plugin<'a>(gathered: &'a Gathered, entry: &str) -> &'a marketplace::Plugin {
+    gathered
+        .plugins
+        .iter()
+        .find(|plugin| plugin.entry == entry)
+        .unwrap_or_else(|| panic!("{entry} was not chosen: {:?}", gathered.plugins))
+}
+
+/// The licence the shelf records of the skill `name`.
+fn licence_of(ledger: &Ledger, name: &str) -> Licence {
+    ledger
+        .gathered()
+        .unwrap()
+        .into_iter()
+        .find(|artifact| artifact.name.as_str() == name)
+        .unwrap_or_else(|| panic!("{name} is not on the shelf"))
+        .licence
+        .unwrap()
+}
+
+/// The acceptance's first case: a Codex marketplace modelled on
+/// openai/plugins, every plugin of it gathered, gives the skills of each
+/// plugin keeping some, where its Codex manifest says, under the licence
+/// it declares; what each holds beside them is said, its MCP files named
+/// and never imported; and a plugin of nothing but MCP servers and app
+/// connectors is passed over under `--all`, said, as Codex's catalog lists
+/// a third of its plugins so.
+#[test]
+fn a_codex_marketplace_like_openais_gathers_the_skills_of_each_plugin_keeping_some() {
+    let catalog = MarketplaceMother::openai_plugins();
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let gathered = gather(
+        &workspace,
+        &ledger,
+        &Request::listing(url(&catalog)).all(false),
+    );
+
+    let listing = &gathered.listing;
+    assert_eq!(listing.name, name(MarketplaceMother::OPENAI_CURATED));
+    assert_eq!(listing.catalog.dialect, marketplace::Dialect::Codex);
+    assert_eq!(listing.catalog.file, marketplace::CODEX_CATALOG);
+    assert!(listing.catalog.failures.is_empty());
+
+    let design = format!("{}.design", MarketplaceMother::OPENAI_CURATED);
+    let mut expected: Vec<String> = MarketplaceMother::DESIGN_SKILLS
+        .iter()
+        .map(|skill| (*skill).to_owned())
+        .collect();
+    expected.sort();
+    assert_eq!(shelved_by(&ledger, &design), expected);
+    for skill in MarketplaceMother::DESIGN_SKILLS {
+        assert_eq!(
+            licence_of(&ledger, skill),
+            Licence::Plugin {
+                text: String::from("LicenseRef-Design-Terms")
+            }
+        );
+    }
+    let designed = plugin(&gathered, "design");
+    assert_eq!(
+        designed.left,
+        [
+            Extra::Commands,
+            Extra::Agents,
+            Extra::McpServers,
+            Extra::Apps
+        ]
+    );
+    assert_eq!(designed.mcp, [String::from(".mcp.json")]);
+
+    // Each folder of its `skills/`, the one inside another part of it.
+    let meetings = format!("{}.meetings", MarketplaceMother::OPENAI_CURATED);
+    assert_eq!(shelved_by(&ledger, &meetings), ["meeting-sdk", "oauth"]);
+    let sdk = workspace
+        .gathered_dir(Kind::Skill)
+        .join(
+            &ledger
+                .source_named(&name(&meetings))
+                .unwrap()
+                .unwrap()
+                .directory,
+        )
+        .join("meeting-sdk");
+    assert!(sdk.join("web/SKILL.md").is_file());
+    assert!(plugin(&gathered, "meetings").mcp.is_empty());
+
+    // Nothing to take of the tracker: passed over, and named with what it
+    // holds, its MCP file among it.
+    let tracker = plugin(&gathered, "tracker");
+    let Took::NotGathered(why) = &tracker.took else {
+        panic!("{:?}", tracker.took);
+    };
+    assert_eq!(why.code(), "marketplace_plugin_skillless");
+    assert_eq!(
+        why.to_string(),
+        "tracker: holds no skill, only MCP servers (`.mcp.json`) and app connectors, so nothing \
+         of it is gathered: only a plugin's skills are"
+    );
+    assert!(!tracker.fails(), "under --all, a note");
+    assert_eq!(tracker.name, None);
+
+    // The repository's own skill, which no plugin lists, is not taken; the
+    // tracker, which took nothing, is no source.
+    assert!(ledger
+        .gathered()
+        .unwrap()
+        .iter()
+        .all(|artifact| artifact.name.as_str() != "plugin-creator"));
+    let sources: Vec<String> = ledger
+        .sources()
+        .unwrap()
+        .iter()
+        .map(|source| source.name.to_string())
+        .collect();
+    assert_eq!(
+        sources,
+        [
+            MarketplaceMother::OPENAI_CURATED,
+            design.as_str(),
+            meetings.as_str()
+        ]
+    );
+    assert!(gathered.plugins.iter().all(|plugin| !plugin.fails()));
+}
+
+/// A plugin of nothing a gather takes, named, fails the gather, said with
+/// what it holds; nothing of it is recorded.
+#[test]
+fn a_plugin_holding_no_skill_named_fails_the_gather_and_is_said_with_its_mcp_file() {
+    let catalog = MarketplaceMother::openai_plugins();
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let gathered = gather(
+        &workspace,
+        &ledger,
+        &Request::listing(url(&catalog)).plugins(vec![String::from("tracker")]),
+    );
+
+    let tracker = plugin(&gathered, "tracker");
+    let Took::NotGathered(NotGathered::Skillless { holds, mcp, .. }) = &tracker.took else {
+        panic!("{:?}", tracker.took);
+    };
+    assert_eq!(holds, &[Extra::McpServers, Extra::Apps]);
+    assert_eq!(mcp, &[String::from(".mcp.json")]);
+    assert!(tracker.fails(), "named, it fails the gather");
+    assert_eq!(ledger.sources().unwrap().len(), 1, "the marketplace alone");
+    assert!(ledger.gathered().unwrap().is_empty());
+}
+
+/// The acceptance's second case: an Agent Plugins package, listed by a
+/// Codex catalog beside it and kept in a repository of its own, gives the
+/// folders directly in its `skills` that hold a `SKILL.md` and nothing
+/// else: not the `SKILL.md` at its root, not one a folder deeper, and not
+/// what its catalog entry lists, which nothing the format reads moves.
+/// Its MCP servers, in `mcp.json`, are named and never imported.
+#[test]
+fn an_agent_plugins_package_gives_only_the_folders_directly_in_its_skills() {
+    let package = GitRepositoryMother::create(
+        &MarketplaceMother::agent_plugins_package("packages/release", "release", "MIT", &["tag"])
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    let mut files = MarketplaceMother::agent_plugins_package(
+        "plugins/portable",
+        "portable",
+        "MIT",
+        &["ship", "roll-back"],
+    );
+    files.push((
+        String::from("plugins/portable/.claude-plugin/plugin.json"),
+        String::from(r#"{"name": "portable", "license": "Proprietary"}"#),
+    ));
+    let catalog = MarketplaceMother::codex(
+        &MarketplaceMother::codex_catalog(
+            "acme-tools",
+            &[
+                json!({"name": "portable", "source": MarketplaceMother::local("plugins/portable"), "skills": ["./"]}),
+                json!({"name": "release", "source": {"source": "url", "url": url(&package), "path": "packages/release"}}),
+            ],
+        ),
+        &files,
+    );
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let gathered = gather(
+        &workspace,
+        &ledger,
+        &Request::listing(url(&catalog)).all(false),
+    );
+
+    assert_eq!(
+        shelved_by(&ledger, "acme-tools.portable"),
+        ["roll-back", "ship"]
+    );
+    assert_eq!(shelved_by(&ledger, "acme-tools.release"), ["tag"]);
+    for skill in ["ship", "roll-back", "tag"] {
+        assert_eq!(
+            licence_of(&ledger, skill),
+            Licence::Plugin {
+                text: String::from("MIT")
+            },
+            "{skill}: its root `plugin.json`'s, before the Claude Code manifest beside it"
+        );
+    }
+    for shelved in ledger.gathered().unwrap() {
+        assert!(
+            !["portable", "release", "deeper"].contains(&shelved.name.as_str()),
+            "{shelved:?}"
+        );
+    }
+    for entry in ["portable", "release"] {
+        let taken = plugin(&gathered, entry);
+        let Took::Gathered(report) = &taken.took else {
+            panic!("{:?}", taken.took);
+        };
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(taken.mcp, [String::from("mcp.json")]);
+        assert_eq!(taken.left, [Extra::McpServers]);
+    }
+    let release = ledger
+        .sources()
+        .unwrap()
+        .into_iter()
+        .find(|source| source.entry.as_deref() == Some("release"))
+        .unwrap();
+    assert_eq!(release.subdirectory, "packages/release");
+}
+
+/// A package declaring a version of the Agent Plugins format this build
+/// does not read is not gathered: said, a note under `--all` and a failure
+/// named, and nothing of it recorded.
+#[test]
+fn an_agent_plugins_package_of_a_newer_format_is_said_and_not_gathered() {
+    let newer = "https://agent-plugins.org/schemas/2.0.0/plugin.schema.json";
+    let mut files = MarketplaceMother::plugin("plugins/future", &["ship"]);
+    files.push((
+        String::from("plugins/future/plugin.json"),
+        json!({"$schema": newer, "name": "future"}).to_string(),
+    ));
+    let catalog = MarketplaceMother::codex(
+        &MarketplaceMother::codex_catalog(
+            "acme-tools",
+            &[json!({"name": "future", "source": MarketplaceMother::local("plugins/future")})],
+        ),
+        &files,
+    );
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    for (request, fails) in [
+        (Request::listing(url(&catalog)).all(false), false),
+        (
+            Request::listing(url(&catalog)).plugins(vec![String::from("future")]),
+            true,
+        ),
+    ] {
+        let gathered = gather(&workspace, &ledger, &request);
+        let future = plugin(&gathered, "future");
+        let Took::NotGathered(why) = &future.took else {
+            panic!("{:?}", future.took);
+        };
+        assert_eq!(why.code(), "marketplace_plugin_schema_unknown");
+        assert!(why.to_string().contains(newer), "{why}");
+        assert_eq!(future.fails(), fails);
+        assert!(ledger.gathered().unwrap().is_empty());
+        assert_eq!(ledger.sources().unwrap().len(), 1, "the marketplace alone");
+    }
+}
+
+/// A Codex manifest's `skills` says where its plugin's skills are, each a
+/// skill or a folder of them, in place of its `skills/`, and a folder it
+/// lists that holds none is said by the manifest's word.
+#[test]
+fn a_codex_manifest_says_where_its_plugins_skills_are() {
+    let mut files = MarketplaceMother::plugin("plugins/tools", &["unlisted"]);
+    files.push((
+        String::from("plugins/tools/.codex-plugin/plugin.json"),
+        json!({"name": "tools", "skills": ["./extra", "./gone"]}).to_string(),
+    ));
+    files.push((
+        String::from("plugins/tools/extra/format/SKILL.md"),
+        skill("format", "Format the code"),
+    ));
+    let catalog = MarketplaceMother::codex(
+        &MarketplaceMother::codex_catalog(
+            "acme-tools",
+            &[json!({"name": "tools", "source": MarketplaceMother::local("plugins/tools")})],
+        ),
+        &files,
+    );
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let gathered = gather(
+        &workspace,
+        &ledger,
+        &Request::listing(url(&catalog)).plugins(vec![String::from("tools")]),
+    );
+
+    let Took::Gathered(report) = took(&gathered, "tools") else {
+        panic!("{:?}", gathered.plugins);
+    };
+    assert_eq!(shelved_by(&ledger, "acme-tools.tools"), ["format"]);
+    let said: Vec<String> = report.failures.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        said,
+        [
+            "./gone: listed by its plugin's manifest as a skill, and holds no `SKILL.md` inside \
+          the plugin, so nothing of it is taken"
+        ]
+    );
+}
+
+/// The acceptance's ambiguous catalog: kept where Claude Code keeps one and
+/// written in Codex's shape, as Codex writes a catalog there too, it is
+/// read as Codex reads it, its `local` plugin gathered; written in the
+/// shape both read alike, the same text is read in the dialect of where it
+/// is kept.
+#[test]
+fn a_catalog_is_read_in_the_dialect_its_place_and_its_shape_say() {
+    let mut files = MarketplaceMother::plugin("plugins/formatter", &["format"]);
+    files.push((
+        String::from("plugins/formatter/.codex-plugin/plugin.json"),
+        json!({"name": "formatter", "license": "MIT"}).to_string(),
+    ));
+    let codex_shaped = MarketplaceMother::codex_catalog(
+        "acme-tools",
+        &[json!({"name": "formatter", "source": MarketplaceMother::local("plugins/formatter")})],
+    );
+    let at_claudes = MarketplaceMother::create(&codex_shaped, &files);
+    let (_dir, workspace) = workspace();
+    let ledger = workspace.ledger().unwrap();
+
+    let gathered = gather(
+        &workspace,
+        &ledger,
+        &Request::listing(url(&at_claudes)).all(false),
+    );
+
+    assert_eq!(
+        gathered.listing.catalog.dialect,
+        marketplace::Dialect::Codex
+    );
+    assert_eq!(gathered.listing.catalog.file, marketplace::CATALOG);
+    assert_eq!(shelved_by(&ledger, "acme-tools.formatter"), ["format"]);
+
+    // Both alike: a path from the root.
+    let ambiguous = json!({
+        "name": "both-ways",
+        "plugins": [{"name": "formatter", "source": "./plugins/formatter"}],
+    });
+    for (place, dialect) in [
+        (marketplace::CATALOG, marketplace::Dialect::ClaudeCode),
+        (marketplace::CODEX_CATALOG, marketplace::Dialect::Codex),
+    ] {
+        let repository = MarketplaceMother::create_at(place, &ambiguous, &files);
+        let (_other, elsewhere) = common::workspace();
+        let ledger = elsewhere.ledger().unwrap();
+        let listed = gather(&elsewhere, &ledger, &Request::listing(url(&repository)));
+        assert_eq!(listed.listing.catalog.dialect, dialect, "{place}");
+        assert_eq!(listed.listing.catalog.file, place);
+        assert_eq!(listed.listing.catalog.gatherable(), 1);
+    }
+}
