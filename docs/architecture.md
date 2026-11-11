@@ -2596,7 +2596,8 @@ type derives `Serialize` from the start:
   search's results, and the panel's page of sources too (#113), through
   the TypeScript and the JSON Schema written from it, each type under a
   name of its own (`MarketplaceListing`, `MarketplaceCatalog`,
-  `PluginEntry`, `PluginPlace`, `PluginExtra`), since the snapshot's
+  `PluginEntry`, `PluginPlace`, `PluginExtra`, and #104's
+  `MarketplaceDialect`), since the snapshot's
   `Listing`, the ledger's `Entry` and an install's `Place` have the plain
   ones. An entry the catalog lists that could not be read is a warning,
   the envelope's, never data. Names added, which move neither
