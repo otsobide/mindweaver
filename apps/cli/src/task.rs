@@ -314,10 +314,11 @@ pub enum Task {
         kind: Kind,
     },
     /// `mindweaver gather marketplace --list --json [--ref <ref>] <source>`:
-    /// a Claude Code marketplace's catalog recorded as a source and its
-    /// plugins listed, none gathered, read back from the JSON the line
-    /// prints, for a front end to list the plugins and gather the ones
-    /// ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103).
+    /// a plugin marketplace's catalog, Claude Code's or Codex's, recorded as
+    /// a source and its plugins listed, none gathered, read back from the
+    /// JSON the line prints, for a front end to list the plugins and gather
+    /// the ones ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103,
+    /// #104).
     ///
     /// Followed as it goes and stopped when asked, as a gather is
     /// ([`Followed::Gather`]): it fetches the catalog's repository. No
@@ -327,7 +328,7 @@ pub enum Task {
         reference: Option<String>,
     },
     /// `mindweaver gather marketplace [--ref <ref>] --plugin <name>...
-    /// <source>`: the plugins of a Claude Code marketplace called `plugins`
+    /// <source>`: the plugins of a plugin marketplace called `plugins`
     /// in its catalog gathered, each as a source of its own, in the order
     /// given (#103). Never `--all`, which a front end asks for by naming
     /// every plugin it lists, so the line says what was gathered.

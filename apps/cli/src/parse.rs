@@ -1608,12 +1608,14 @@ pub enum GatherCommand {
         credential: Credential,
     },
 
-    /// Take skills from the plugins a Claude Code marketplace lists: its
-    /// catalog, `.claude-plugin/marketplace.json`, is recorded as a source,
-    /// and each plugin chosen is gathered as a source of its own.
+    /// Take skills from the plugins a marketplace lists, Claude Code's or
+    /// Codex's: its catalog, `.claude-plugin/marketplace.json` or
+    /// `.agents/plugins/marketplace.json`, is recorded as a source, and each
+    /// plugin chosen is gathered as a source of its own.
     ///
     /// Only a plugin's skills are taken, and only from a plugin kept in git;
-    /// nothing a catalog names is ever run.
+    /// its MCP files are named and never imported, and nothing a catalog
+    /// names is ever run.
     //
     // One of the three and never two, as a group the usage says: a bare
     // line that gathered everything would fetch every plugin's repository,
