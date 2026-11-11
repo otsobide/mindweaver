@@ -695,6 +695,10 @@ fn each_create_error_of_its_own_gives_its_own_code() {
             "add_transport_not_mcp",
         ),
         (
+            CreateError::DefinitionNotMcp { kind: Kind::Rule },
+            "add_definition_not_mcp",
+        ),
+        (
             CreateError::KeyRepeated {
                 table: "env",
                 key: String::from("K"),

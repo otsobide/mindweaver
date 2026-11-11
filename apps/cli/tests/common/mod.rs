@@ -7,6 +7,8 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod contract;
+pub mod finder;
+pub mod mcp_registry;
 pub mod mother;
 pub mod panel;
 
@@ -477,14 +479,21 @@ pub fn untracked(work_tree: &Path) -> Vec<String> {
 /// A git repository holding these files, with one commit.
 pub fn repository(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();
+    repository_at(dir.path(), files);
+    dir
+}
+
+/// [`repository`], made at `dir`, a folder a fixture chose: the same
+/// commit, whose id is the same wherever it is made.
+pub fn repository_at(dir: &Path, files: &[(&str, &str)]) {
     for (path, contents) in files {
-        let file = dir.path().join(path);
+        let file = dir.join(path);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(file, contents).unwrap();
     }
 
-    let repo = gix::init(dir.path()).expect("initialize a repository");
-    let tree = write_tree(&repo, dir.path());
+    let repo = gix::init(dir).expect("initialize a repository");
+    let tree = write_tree(&repo, dir);
     let who = gix::actor::Signature {
         name: "Fixture".into(),
         email: "fixture@example.com".into(),
@@ -503,12 +512,11 @@ pub fn repository(files: &[(&str, &str)]) -> TempDir {
         .unwrap()
         .detach();
 
-    let head = fs::read_to_string(dir.path().join(".git").join("HEAD")).unwrap();
+    let head = fs::read_to_string(dir.join(".git").join("HEAD")).unwrap();
     let branch = head.trim().strip_prefix("ref: ").unwrap();
-    let reference = dir.path().join(".git").join(branch);
+    let reference = dir.join(".git").join(branch);
     fs::create_dir_all(reference.parent().unwrap()).unwrap();
     fs::write(reference, format!("{id}\n")).unwrap();
-    dir
 }
 
 pub fn write_tree(repo: &gix::Repository, dir: &Path) -> gix::ObjectId {

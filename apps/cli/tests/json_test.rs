@@ -983,6 +983,8 @@ struct Source {
     directory: String,
     name: String,
     pin: Option<String>,
+    parent: Option<String>,
+    entry: Option<String>,
 }
 
 /// What a shelf offer says of its licence: where it was read, beside what
@@ -992,6 +994,7 @@ struct Source {
 enum Licence {
     Manifest { text: String },
     File { file: String, text: Option<String> },
+    Plugin { text: String },
     Unknown,
 }
 
@@ -1116,7 +1119,8 @@ fn gather_list_as_json_holds_the_offers_the_text_lists() {
 }
 
 /// A source, as `gather sources --json` prints one: the ledger's row, its
-/// origin, how much of it the shelf holds of each kind, and when.
+/// origin, how much of it the shelf holds of each kind, when, and the
+/// licences what it holds there says.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Listed {
@@ -1125,6 +1129,14 @@ struct Listed {
     origin: String,
     shelved: Vec<KindCount>,
     gathered_at: Option<i64>,
+    licences: Vec<LicenceCount>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LicenceCount {
+    licence: String,
+    count: usize,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -1155,6 +1167,14 @@ fn gather_sources_as_json_holds_the_sources_the_text_lists() {
         }]
     );
     assert!(one.gathered_at.is_some());
+    // Said as `gather list` says it, of a skill declaring none.
+    assert_eq!(
+        one.licences,
+        [LicenceCount {
+            licence: String::from("unknown"),
+            count: 1
+        }]
+    );
     // The text lists it by the name `--from` takes, first.
     assert!(
         text.stdout.starts_with(&format!("{}  ", one.source.name)),
@@ -1168,6 +1188,197 @@ fn gather_sources_as_json_holds_the_sources_the_text_lists() {
     );
     assert!(warnings.is_empty());
     assert!(json.ok && text.ok);
+}
+
+/// A marketplace's catalog, as `gather marketplace --list --json` prints
+/// it (#103): the source it is, by the name it has, and every plugin its
+/// catalog lists, every field of each named.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarketplaceListing {
+    name: String,
+    url: String,
+    reference: Option<String>,
+    revision: Option<String>,
+    catalog: Catalog,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Catalog {
+    /// `claude-code` or `codex` (#104).
+    dialect: String,
+    /// Where the catalog is in its repository.
+    file: String,
+    name: Option<String>,
+    description: Option<String>,
+    owner: Option<String>,
+    entries: Vec<PluginEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PluginEntry {
+    name: String,
+    description: Option<String>,
+    version: Option<String>,
+    source: PluginPlace,
+    skills: Option<Vec<String>>,
+    licence: Option<String>,
+    declares: Vec<String>,
+    headers_helper: bool,
+    gatherable: bool,
+    gathered: Option<String>,
+}
+
+/// Where a plugin is, by `type`, beside what its entry says of it.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+enum PluginPlace {
+    Relative {
+        path: String,
+    },
+    Github {
+        repo: String,
+        #[serde(rename = "ref")]
+        reference: Option<String>,
+        sha: Option<String>,
+    },
+    Url {
+        url: String,
+        #[serde(rename = "ref")]
+        reference: Option<String>,
+        sha: Option<String>,
+    },
+    GitSubdir {
+        url: String,
+        path: String,
+        #[serde(rename = "ref")]
+        reference: Option<String>,
+        sha: Option<String>,
+    },
+    Npm {
+        package: Option<String>,
+    },
+    Archive,
+    Command,
+    Other {
+        kind: String,
+    },
+}
+
+#[test]
+fn gather_marketplace_list_as_json_holds_the_plugins_the_text_lists() {
+    let catalog = mindweaver_core::mother::MarketplaceMother::anthropic_skills();
+    let url = catalog.path().to_string_lossy().into_owned();
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--plugin", "document-skills"],
+    )
+    .unwrap();
+
+    let text = weaver(dir.path(), &["gather", "marketplace", &url, "--list"]).unwrap();
+    let json = weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--list", "--json"],
+    )
+    .unwrap();
+
+    let (listing, warnings): (MarketplaceListing, _) = enveloped(&json);
+    assert_eq!(
+        listing.name,
+        mindweaver_core::mother::MarketplaceMother::ANTHROPIC_SKILLS
+    );
+    assert_eq!(listing.url, url);
+    assert_eq!(listing.reference, None);
+    assert_eq!(listing.revision.as_ref().map(String::len), Some(40));
+    assert_eq!(listing.catalog.name.as_deref(), Some(listing.name.as_str()));
+    assert_eq!(listing.catalog.dialect, "claude-code");
+    assert_eq!(listing.catalog.file, ".claude-plugin/marketplace.json");
+    assert_eq!(listing.catalog.owner.as_deref(), Some("Keith Lazuka"));
+    assert!(listing.catalog.description.is_some());
+    let entries: Vec<(&str, Option<&str>)> = listing
+        .catalog
+        .entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.gathered.as_deref()))
+        .collect();
+    let gathered = format!("{}.document-skills", listing.name);
+    assert_eq!(
+        entries,
+        [
+            ("document-skills", Some(gathered.as_str())),
+            ("example-skills", None)
+        ]
+    );
+    let documents = &listing.catalog.entries[0];
+    assert_eq!(
+        documents.source,
+        PluginPlace::Relative {
+            path: String::from(".")
+        }
+    );
+    assert_eq!(documents.skills.as_ref().map(Vec::len), Some(4));
+    assert!(documents.gatherable && !documents.headers_helper);
+    assert!(documents.declares.is_empty());
+    assert_eq!((&documents.version, &documents.licence), (&None, &None));
+    assert!(documents.description.is_some());
+    // The text lists each plugin by the name `--plugin` takes, first.
+    for entry in &listing.catalog.entries {
+        assert!(
+            text.stdout.contains(&format!("\n  {}  ", entry.name)),
+            "{}",
+            text.stdout
+        );
+    }
+    assert!(warnings.is_empty());
+    assert!(json.ok && text.ok);
+}
+
+/// A Codex catalog (#104) is listed in the same envelope, by the same
+/// names, its dialect and its file saying which it is, each `local` plugin
+/// where it is in the repository.
+#[test]
+fn gather_marketplace_list_as_json_says_a_codex_catalogs_dialect_and_file() {
+    let catalog = mindweaver_core::mother::MarketplaceMother::openai_plugins();
+    let url = catalog.path().to_string_lossy().into_owned();
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+
+    let json = weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--list", "--json"],
+    )
+    .unwrap();
+
+    let (listing, warnings): (MarketplaceListing, _) = enveloped(&json);
+    assert_eq!(
+        listing.name,
+        mindweaver_core::mother::MarketplaceMother::OPENAI_CURATED
+    );
+    assert_eq!(listing.catalog.dialect, "codex");
+    assert_eq!(listing.catalog.file, ".agents/plugins/marketplace.json");
+    let places: Vec<(&str, &PluginPlace)> = listing
+        .catalog
+        .entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), &entry.source))
+        .collect();
+    let relative = |path: &str| PluginPlace::Relative {
+        path: path.to_owned(),
+    };
+    assert_eq!(
+        places,
+        [
+            ("tracker", &relative("plugins/tracker")),
+            ("design", &relative("plugins/design")),
+            ("meetings", &relative("plugins/meetings")),
+        ]
+    );
+    assert!(warnings.is_empty());
+    assert!(json.ok);
 }
 
 /// A loaded workspace that has gone is a warning beside what the rest

@@ -27,8 +27,9 @@
 //!   outside every `.mindweaver`, and goes to the command verbatim, so the
 //!   preview shows the folder it acts on; one marked to unlink is one an
 //!   entry points at. So is the folder an export writes into.
-//! - **A gather's source and a backup's repository** are an address, which
-//!   the command judges as one typed at a terminal, or such a folder.
+//! - **A gather's source, a taken search result's repository and a
+//!   backup's repository** are an address, which the command judges as one
+//!   typed at a terminal, or such a folder.
 //! - **A backup's token** is named by the variable holding it, one named
 //!   for a token (`policy::token_variable`), and never sent.
 //!
@@ -75,6 +76,11 @@ impl Admission<'_> {
             // A query names nothing on the disk, and the line asks only the
             // finders the workspace enables, with no token.
             Task::SearchSkills { .. } => {}
+            // A query, a server's name and a version name nothing on the
+            // disk: the registry is the official one, which the lines name
+            // no other than, and core holds a name to the registry's rule
+            // before anything is asked.
+            Task::SearchServers { .. } | Task::ImportServer { .. } => {}
             // An address is the gather's to judge, a credential in it among
             // what it refuses; a folder is held as a folder to link is. The
             // folder in the source and the reference are values, which the
@@ -82,11 +88,26 @@ impl Admission<'_> {
             Task::Gather { url, .. } => {
                 policy::source(url)?;
             }
+            // A result's repository is the source its gather is from, held
+            // as a gather's is, whatever finder named it; its folder and
+            // its branch are values the gather holds to its own rules, a
+            // folder climbing out of the repository among what it refuses.
+            // The rest of what the result says reaches no line.
+            Task::TakeSkill { hit } => {
+                policy::source(hit.repository.as_ref())?;
+            }
+            // A marketplace's repository is a source as a gather's is; the
+            // reference and the plugins' names are values the gather holds
+            // to its own rules, a name its catalog does not list refused
+            // before any plugin is fetched.
+            Task::ListMarketplace { source, .. } | Task::GatherPlugins { source, .. } => {
+                policy::source(source)?;
+            }
             // A source by its name, which names nothing on the disk: a value
             // core holds to its own rules, refusing one no source has, or
             // one that carries a credential, before anything is fetched or
             // removed.
-            Task::UpdateSources { .. } | Task::RemoveSource { .. } => {}
+            Task::UpdateSources { .. } | Task::RenameSource { .. } | Task::RemoveSource { .. } => {}
             // The branch and the message are values, which the backup
             // holds to its own rules, a branch git would refuse among them.
             Task::Backup { url, token_env, .. } => {

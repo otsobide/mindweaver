@@ -110,6 +110,43 @@ fn a_request_taking_rules_looks_in_no_folder_unless_one_is_named() {
     assert_eq!(default_folder(Kind::Mcp), None);
 }
 
+/// What a front end offers to gather is what a gather takes, each kind with
+/// the folder it is looked for in unsaid: skills from the whole repository,
+/// rules from a folder somebody names, and no MCP server, which a gather of
+/// would only say it cannot take.
+#[test]
+fn a_front_end_is_offered_every_kind_a_gather_takes_with_its_folder_unsaid() {
+    let offered = gatherables();
+
+    assert_eq!(
+        offered,
+        [
+            Gatherable {
+                kind: Kind::Skill,
+                folder: Some(String::from(DEFAULT_SUBDIRECTORY)),
+            },
+            Gatherable {
+                kind: Kind::Rule,
+                folder: None,
+            },
+        ]
+    );
+    for each in &offered {
+        assert_eq!(
+            each.folder.as_deref(),
+            default_folder(each.kind),
+            "{each:?}"
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(&offered).unwrap(),
+        serde_json::json!([
+            {"kind": "skill", "folder": "."},
+            {"kind": "rule", "folder": null},
+        ])
+    );
+}
+
 /// `at(None)` is the remote's HEAD again, not the branch asked for before.
 #[test]
 fn a_request_at_no_branch_goes_back_to_the_remote_s_head() {
@@ -1089,7 +1126,35 @@ fn each_gather_failure_names_its_path_and_gives_its_code() {
             "gathered_unhashed",
             "gathered_route_unusable",
             "gathered_unremoved",
+            "gathered_listed_missing",
         ]
+    );
+    let unlisted = Failure::Unlisted {
+        path: PathBuf::from("/w/.mindweaver/cache/s/plugins/deploy/skills/gone"),
+        route: String::from("./skills/gone"),
+        by: Looking::Entry,
+    };
+    assert_eq!(unlisted.code(), "gathered_listed_missing");
+    assert_eq!(
+        unlisted.path(),
+        Path::new("/w/.mindweaver/cache/s/plugins/deploy/skills/gone")
+    );
+    assert_eq!(
+        unlisted.to_string(),
+        "./skills/gone: listed by its plugin's catalog entry as a skill, and holds no `SKILL.md` \
+         inside the plugin, so nothing of it is taken"
+    );
+    // One a Codex manifest lists (#104) is said as its manifest's.
+    let by_manifest = Failure::Unlisted {
+        path: PathBuf::from("/w/.mindweaver/cache/s/plugins/deploy/skills/gone"),
+        route: String::from("./skills/gone"),
+        by: Looking::Manifest,
+    };
+    assert_eq!(by_manifest.code(), "gathered_listed_missing");
+    assert_eq!(
+        by_manifest.to_string(),
+        "./skills/gone: listed by its plugin's manifest as a skill, and holds no `SKILL.md` \
+         inside the plugin, so nothing of it is taken"
     );
 }
 
@@ -1273,6 +1338,14 @@ fn each_gather_error_of_its_own_gives_its_own_code() {
         (
             GatherError::NotGatherable { kind: Kind::Mcp },
             "kind_not_gatherable",
+        ),
+        (
+            GatherError::PluginEmpty {
+                url: UrlMother::https(),
+                path: String::from("plugins/deploy"),
+                looking: Looking::RootThenSkills,
+            },
+            "gather_plugin_empty",
         ),
         (
             GatherError::Read {

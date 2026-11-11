@@ -2492,6 +2492,17 @@ type derives `Serialize` from the start:
   it loads it by (`loaded_as`) and whether it could load it (`loadable`),
   as a shelf row's origin is flattened beside the ledger's row: what one
   workspace loads is nothing that list of the machine says.
+- **Read back by the panel since #114**: what `gather search --json` and
+  `gather mcp search --json` print in the envelope's `data`, which the
+  page of catalogs reads from a search's run, each written through a
+  derived type of its own (`finder::SkillsFound`, beside the hand-written
+  `Found` it writes, and `mcp_registry::ServerListing`), so its TypeScript
+  and its schema are read off the attributes serde writes by, under names
+  a scan's `Found` and the workspace's `Listing` and `Summary` leave free
+  (`ServerSummary`); a result (`finder::Hit`), which the panel sends back
+  to be taken and so is read too, its repository redacted again, and a
+  finder by its name (`Finder`, through `described::words!`). A status a
+  registry gives is any word, kept as written, so it is said as a string.
 - **Listed for the panel by #212**: the folders directly inside one
   (`browse::Folders`, each `Folder` and each `Crumb` of its trail), a path
   through `paths::lossy`, what a folder is a word (`browse::Is`, by its
@@ -2572,6 +2583,45 @@ type derives `Serialize` from the start:
   sources --json` prints whole; and what a gather took off the shelf, as
   `removed` on its `Report`. Names added, which move neither
   `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Listed by #103**: the marketplace a plugin is gathered from and its
+  name in the catalog, as `parent` (the marketplace's name) and `entry` on
+  a `ledger::Source`, `null` each for every other source, `marketplace`
+  one more word of a `SourceKind`, and a licence a plugin declares for a
+  skill that declares none, `{"from": "plugin", "text"}`, one more
+  variant of a `licence::Licence`; and what `gather marketplace --list
+  --json` prints (`marketplace::Listing`, its `Catalog`, each `Entry` and
+  where it is, a `Place` tagged by `type` beside what its entry says of
+  it, as Claude Code spells a source's kind, and what it keeps beside its
+  skills, `Extra`, a word each), which the TUI reads back as it reads a
+  search's results, and the panel's page of sources too (#113), through
+  the TypeScript and the JSON Schema written from it, each type under a
+  name of its own (`MarketplaceListing`, `MarketplaceCatalog`,
+  `PluginEntry`, `PluginPlace`, `PluginExtra`, and #104's
+  `MarketplaceDialect`), since the snapshot's
+  `Listing`, the ledger's `Entry` and an install's `Place` have the plain
+  ones. An entry the catalog lists that could not be read is a warning,
+  the envelope's, never data. Names added, which move neither
+  `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Counted by #113**: the licences what each source supplied says, as
+  `licences` on each of the snapshot's `sources`, a `LicenceCount` a
+  licence, in the words `gather list` says one in (`Licence::said`), most
+  first; and each kind a gather takes with the folder it looks in unsaid,
+  as the snapshot's `gatherable` (`gather::Gatherable`). Names added, which
+  move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Listed by #104**: the dialect a marketplace's catalog is read in and
+  where it was read, as `dialect` (`claude-code` or `codex`, a word
+  serialized by hand from `Dialect::slug` and described in TypeScript and
+  JSON Schema from it, `MarketplaceDialect`) and `file` on its `Catalog`;
+  and a plugin's app connectors, `apps`, one more word of an `Extra`.
+  Names added, which move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Listed by #107**: what a search of an MCP registry found
+  (`mcp_registry::Listing`), which `mindweaver gather mcp search --json`
+  prints, by hand, each entry as its `Summary`, since an entry keeps its
+  packages and remotes as the registry wrote them, for an import alone;
+  a `Summary` derived both ways, its status by the registry's word
+  (`mcp_registry::Status`, by hand, a word this build does not know kept
+  as written) and each way by its word, so the TUI reads it back as it
+  went out. Handed to no view, and so given no TypeScript.
 - **Not yet**, being older than the rule and handed to no front end so far:
   the ledger's record of an install (`InstallRecord`), and what an update or
   a change of agents would do as each plans it (`update::Plan`,
@@ -3387,8 +3437,9 @@ what it said of the shelf out of date, as it can any read's. What it could not
 read is named by its route in the source (`Failure::routed`), since the clone
 it read it from is gone; what is wrong with what it would take, by the path
 the gather would put it at. It exits as the gather would, on what could not be
-taken and on what is wrong, so a script can ask first. The panel refuses it as
-it refuses every gather (`Refusal::Unwatched`), and the TUI's gather form has
+taken and on what is wrong, so a script can ask first. The panel's page of
+sources runs it before it offers a gather, followed and stopped as a gather
+is ([the web panel's changes](#its-changes)), and the TUI's gather form has
 no key for it.
 
 ### A source pinned to a commit
@@ -3459,7 +3510,9 @@ and the licence it said it was under. So each row keeps, from schema 8 on:
   as written, else the first line that holds anything of a licence file
   directly in its folder (`LICENSE` or `LICENCE`, in any case, alone or
   followed by an extension or a `-`, the first by name), read up to 4 KiB and
-  kept to 200 characters, with the file's name, else `unknown`, which is said
+  kept to 200 characters, with the file's name, else, for a skill of a
+  marketplace's plugin (#103), the licence the plugin declares
+  (`Licence::Plugin`), else `unknown`, which is said
   rather than left out. Nothing is matched against SPDX or judged: which
   licences a workspace takes is somebody's policy, and a name guessed out of
   a file's words would be a fact nobody wrote. The repository's own licence,
@@ -3551,7 +3604,8 @@ and every command here takes.
 
 - **Listed** as the snapshot lists them (`view::ShelfSource::read`): the
   ledger's row, its origin, how much of it the shelf holds of each kind
-  (`shelved`) and when its last gather put that there (`gathered_at`, the
+  (`shelved`), the licences what it holds there says, each with how many
+  say it (`licences`, #113), and when its last gather put that there (`gathered_at`, the
   latest of its artifacts' times, a gather recording every artifact it
   takes, changed or not), counted from the shelf's rows in core, as every
   count a view shows is. From the rows rather than from the source's
@@ -3601,8 +3655,243 @@ The TUI's sources screen (`S`) is the snapshot's list, one picked: `u`
 gathers it again and `U` every one, each the task a gather's line is, run
 apart and stopped as a gather is (`Task::UpdateSources`), and `d` forgets it
 once somebody says yes (`Task::RemoveSource`), which every front end with no
-terminal asks about first (`Caution::Forgets`). The panel's page of them is
-#113's.
+terminal asks about first (`Caution::Forgets`). The panel's page of them
+(#113) is the same list, each by its name, and the same tasks, a rename
+among them (`Task::RenameSource`, `gather rename`), which the TUI has no
+key for ([its changes](#its-changes)).
+
+A marketplace (#103) is managed as every source is, by its name, and what
+is done to it reaches each plugin of it: `gather update` reads its catalog
+again and gathers each plugin of it gathered before as one gather of the
+marketplace (`sources::update`'s units), a plugin named alone gathered so
+too, and `gather remove` takes each plugin's folders before the
+marketplace's own and its rows with it, which `forget_source` cascades to
+through `parent_id`, the plan of each held to the rules a source's is
+before anything goes. A plugin removed alone is forgotten as any source
+is, and a later update of its marketplace gathers it no more.
+
+### Gathering from a Claude Code marketplace
+
+A Claude Code plugin marketplace is a git repository whose catalog,
+`.claude-plugin/marketplace.json`, lists plugins, each in the
+marketplace's own repository (`./plugins/deploy`, `./`, or a name bare
+under the catalog's `metadata.pluginRoot`) or in one of its own (`github`,
+`url`, `git-subdir`, each with an optional `ref` and `sha`). It is a
+source of its own kind (`SourceKind::Marketplace`), its catalog's
+repository, and each plugin gathered from it is a git source whose
+`parent_id` names it, known by its `entry`, what the catalog calls it
+([D-13](#d-13-sources-have-names-and-a-marketplace-is-a-parent), schema 9),
+and called after both, `acme-tools.deploy`, its shelf folder named the same
+way beside the marketplace's. By its entry rather than by where it is:
+where is the catalog's to say each time, and anthropics/skills lists two
+plugins that are both its whole repository, so a plugin's URL and folder
+are moved when the catalog moves it (`LedgerStore::child_for`), and the
+identity a gather finds a source by holds of the sources no marketplace
+lists. A plugin's `reference` is left out, its branch the catalog's to say
+each time as its pin is, so what was installed from it keeps its origin
+when the catalog moves it to another tag ([open
+questions](#open-questions)).
+
+`gather marketplace` (`marketplace::gather`) holds the workspace from the
+start, fetches the catalog's repository into a folder of the run's own,
+reads the catalog, and only then registers the marketplace and moves the
+clone into the cache, so a repository whose catalog does not read is never
+registered. `--list` stops there: the marketplace is recorded, the clone
+kept, its plugins listed, and nothing else fetched, so a catalog of two
+thousand plugins costs one clone. Its default name is the one the catalog
+gives itself when that is a name a source can have, numbered when another
+has it, and `owner-repo` otherwise. `--plugin` names the plugins to gather,
+refused whole for one the catalog does not list before any is fetched, and
+`--all` gathers each the catalog lists, past `marketplace::ASKED_BEYOND`
+(25) to gather only with `--yes`: without it the command reads the catalog
+first through `marketplace::read`, which writes nothing, its ledger only
+read, and says what it would gather. A plugin in the marketplace's
+repository is read from its clone; one of its own is fetched into a clone
+of its own in the cache, at its `ref`, at its `sha` when it has one, which
+is then the revision its shelf holds and the source's `pin`, as `gather git
+--pin` keeps one.
+
+What is taken of a plugin is its skills alone (`gather::plugin`), read as
+Claude Code reads a plugin rather than through `gather::LAYOUTS`: the
+folders its entry's `skills` lists, each a skill or a folder of skills,
+held inside the plugin's folder, a folder that holds none said
+(`gathered_listed_missing`); with none listed, a `SKILL.md` at its root, or
+else each folder of its `skills/` holding one. A folder that is no skill of
+Claude Code's, its `commands` or an example it ships, is no skill of the
+shelf's either. What it keeps or declares beside them (commands, agents,
+hooks, MCP and LSP servers, `marketplace::Extra`) is said in a note and
+left, installing whole plugins being out of the issue's scope. A skill that
+says nothing of its licence is under the plugin's (`Licence::Plugin`), as
+its entry or its own `.claude-plugin/plugin.json` declares it, a skill's
+own manifest or file first. Placing it is what a gather of a git source
+does from its last check on (`gather::placed`), so what a plugin offers no
+more goes, and the shelf and the ledger say one thing of it.
+
+A catalog is somebody else's JSON, read leniently and never obeyed. A key
+this build does not know is passed over. An entry that cannot be read (no
+name, a name no source or folder could be called after, a name two
+entries share in any case, a source naming nothing to fetch, a `sha` that
+is no commit in full, a path climbing out of the repository, a credential
+in a URL, which is never repeated) is a warning of its own code
+(`marketplace::UnreadEntry`), listed beside the rest and costing none of
+them. One that reads and that no gather takes is said and passed over
+(`marketplace::NotGathered`): one from npm or an archive, which is out of
+#103's scope; one whose source is a `command` to run, which is never run
+nor kept, whatever it says; one of a kind this build does not know; and
+one a catalog fetched from elsewhere names by a path or a `file://` URL on
+this machine, since a catalog from GitHub naming a folder of the machine it
+is gathered on would put that folder's skills on the shelf under its name
+(`marketplace_plugin_local`), where a catalog in a folder on this machine
+may name its neighbours. A `headersHelper`, a command printing the headers
+a fetch would send, is never run either, and said in a note. Under `--all`
+each is a note; named, it fails the command, as a skill that cannot be
+taken does, and the rest are gathered. The catalog file is read only
+inside the clone, to 8 MiB, and a plugin's manifest only inside it too, a
+link leading out of either not followed, as a skill's manifest is not.
+
+A plugin that fails, a repository that cannot be fetched among it, is said
+by its code beside the rest, and one new to the ledger that took nothing is
+forgotten again, clone and all: a plugin is a source once something of it
+is on the shelf. A cancel is honoured until a plugin starts placing, as a
+gather's is: one before the marketplace is registered leaves everything as
+it was, and one later stops the gather between two plugins, those before it
+gathered, those after it not tried. A token handed over goes to the
+catalog's host, and on to a plugin only on that same host, so a GitHub
+token never reaches a plugin kept on another forge.
+
+Rejected: gathering each plugin as an independent source, noted as listed
+by the marketplace, which is D-13's other option; listing a catalog through
+a gather's dry run, which would fetch it twice for a `--list` and record
+nothing for a later `--plugin` to find; and walking a plugin with
+`gather::LAYOUTS`, which would take a plugin's `.claude/skills`, or an
+example skill it ships, that Claude Code never loads from it.
+
+The TUI's marketplace screens are the commands: `m` on the shelf's page,
+or on a marketplace or a plugin of one in the sources screen, opens a form
+naming it (`Task::ListMarketplace`, `gather marketplace --list --json`,
+read back by the envelope's names as a search's results are), and `space`
+on its plugins ticks those to gather and `enter` gathers them
+(`Task::GatherPlugins`, `gather marketplace --plugin <name>...`), each run
+apart and stopped as a gather is. A plugin no gather takes is not ticked.
+
+### Gathering from a Codex marketplace
+
+#104 reads Codex's marketplaces and the plugins any marketplace lists as
+Codex and the Agent Plugins format write them, through the same command,
+the same parent and children and the same reader (`marketplace`): a
+second command, or a second kind of source, would have made which of them
+a repository is the user's to know before gathering it, and a catalog
+gathered under one could not be gathered again under the other. What
+Codex does is docs-only, read on 2026-11-10 in its documentation
+(developers.openai.com/codex/plugins/build) and its source
+(`codex-rs/core-plugins/src/marketplace.rs`, `manifest.rs`, `loader.rs`,
+`codex-rs/utils/plugins/src/plugin_namespace.rs`), and the Agent Plugins
+format's in its 1.0.0 specification (agent-plugins.org); none of it was run,
+the owner having no Codex subscription ([docs/agents.md](agents.md#codex)).
+
+**Which catalog, and in which dialect.** Codex keeps a catalog at
+`.agents/plugins/marketplace.json` and reads one at Claude Code's place too,
+as a marketplace it is compatible with, written in its own dialect there.
+So the file says where to look and not how to read: a repository is read
+at the first of `.claude-plugin/marketplace.json` and
+`.agents/plugins/marketplace.json` it keeps (`Dialect::ALL`), and the
+catalog there in the dialect its entries are written in
+(`Dialect::of_shape`). Claude Code's place first, so a repository #103 read
+goes on reading the catalog it read when it adds Codex's, and the plugins
+gathered from it are still found by their entries in it. One file, and no
+other once it is there: a catalog that does not read is said
+(`marketplace_catalog_unreadable`, naming the file), never passed over for
+the other, which would make which catalog a source is depend on a fault in
+one. The shape is what only one dialect writes and the other reads
+differently: Codex's `local` sources and the `policy` it requires of every
+entry, Claude Code's `github` sources, paths named bare and the
+`pluginRoot` they are read under. A catalog showing one dialect's marks
+alone is read in it wherever it is, since reading Claude Code's
+`pluginRoot` by Codex's rules would lose every plugin named under it, and
+Codex's `local` sources by Claude Code's every plugin its repository
+keeps; one showing both, or neither, as a list of `./` paths and URLs
+does, is read in the dialect of where it is. `--list --json` says which, as
+`catalog.dialect`, and where it read it, `catalog.file`. Rejected: deciding
+by the file alone, which reads Codex's catalog at Claude Code's place as
+plugins of an unknown kind, and by the shape alone, which cannot tell the
+catalog both read alike.
+
+**Codex's entries** are read as Codex resolves a source: a path only from
+the repository's root, `./`, written as a string or as a `local` source; a
+`url`, with a `path` a folder of that repository, as `git-subdir` is; and
+npm, said and passed over as Claude Code's is. Anything else Codex skips
+with a warning, and so does a gather: a source of a kind Codex has no way to
+fetch, `github` among them, and a `command`, which is then neither run nor
+kept, and a path named bare, which Codex refuses rather than read under a
+`pluginRoot` it does not have, each a warning of its own code
+(`marketplace_entry_unresolved`) beside the rest, never a reason to list
+nothing. What both dialects refuse alike, a path climbing out, a `sha` that
+is no commit in full, a credential, keeps the code it has in Claude Code's.
+`policy` and `category` are passed over, as every key a gather does not
+need is, and so is the catalog's `interface`, its title for Codex's app.
+
+**A plugin is read by the manifest it keeps**, whichever catalog lists it
+(`marketplace::Manifest`), the first of three, in the order Codex looks:
+a root `plugin.json` declaring the Agent Plugins `$schema`
+(`AGENT_PLUGINS_SCHEMA`, 1.0.0), Codex's `.codex-plugin/plugin.json`, and
+Claude Code's `.claude-plugin/plugin.json`, or none, which Claude Code
+reads a plugin without. A root `plugin.json` without that `$schema` is
+somebody else's file and passed over, as Codex passes it over; one
+declaring a version of the format this build does not read is refused,
+said and not gathered (`marketplace_plugin_schema_unknown`), rather than
+read as 1.0.0, which could take what a later version keeps elsewhere.
+Where its skills are is the format's (`gather::Looking`):
+
+- An Agent Plugins package's are each folder directly in its `skills/`
+  holding a `SKILL.md`, and nothing else, as its specification says
+  (sections 6.1 and 7.1): never a folder deeper, nor a `SKILL.md` at its
+  root, nor what its catalog entry lists, since no file overrides the
+  format's places.
+- A Codex plugin's are the folders its manifest's `skills` lists, a path
+  or a list of them, each a skill or a folder of skills as an entry's are,
+  and else each folder of its `skills/`. Codex walks those folders whole,
+  where a gather takes the folders directly in them, a folder holding a
+  `SKILL.md` being a skill with everything in it; every skill nested so in
+  openai/plugins is inside one that is a skill itself, so the two read it
+  alike ([open questions](#open-questions)).
+- A Claude Code plugin's are where #103 looks.
+
+What a catalog entry says comes first, then its manifest, for the folders
+listed as for the licence, as #103 reads an entry before a plugin's own
+manifest. The licence is the manifest's `license`, which the Agent
+Plugins format and Codex both write.
+
+**MCP files are named, never imported.** A plugin's MCP servers are in
+`.mcp.json` (Claude Code's and Codex's), the Agent Plugins format's
+`mcp.json`, or the file a Codex manifest's `mcpServers` names, and a
+gather names each it keeps, by its route from the plugin's folder, in the
+note that says what was left (`Plugin::mcp`, `Extra::listed`), so
+somebody can bring a server into the library by hand with `add mcp`; it
+reads none of them. Importing one is out of this roadmap's scope: a server
+is something an agent runs, which `add` and an install confirm one at a
+time. Codex's app connectors (`.app.json`, `apps`) are said too, an
+`Extra` of their own, and not brought in, which is out of #104's scope.
+
+**A plugin of nothing a gather takes is passed over.** Over a quarter of
+openai/plugins' entries hold no skill, only MCP servers and app
+connectors. #103 failed a plugin holding no skill (`gather_plugin_empty`),
+which would make `--all` of Codex's own catalog fail on each of them. A
+plugin holding no skill where its manifest says, and something else a
+gather does not take, is now what a plugin from npm is, said and not
+gathered (`NotGathered::Skillless`, `marketplace_plugin_skillless`): a note
+under `--all`, a failure when named. One holding nothing at all is still a
+failure, since that is a catalog naming the wrong folder. Its new source is
+forgotten, as a plugin that took nothing always is. Rejected: keeping the
+failure, which reads as Mindweaver's fault on the catalog it was asked to
+read.
+
+Nothing else moves: a Codex plugin is a git source whose parent is its
+marketplace, called after both, gathered again and forgotten through it,
+its pin its `sha`; the token reaches a plugin only on the catalog's host;
+a catalog fetched from elsewhere reaches no repository on this machine;
+and every file a gather reads of a plugin, its manifest among them, is read
+only inside the clone, to 1 MiB, a link leading out not followed, nor the
+plugin's folder looked in at all when it leads out.
 
 ### Following a gather, and stopping it
 
@@ -3670,7 +3959,7 @@ apart](#a-gather-runs-apart)). The panel's backend reports each step to the
 server, which streams it, and hands the server's cancel to the watch ([a run
 under way](#a-run-under-way-followed-and-stopped)). Which lines a front end
 follows so is one list, `task::Followed`, read off the parsed command as a
-refusal is: `gather git`, and `backup`
+refusal is: `gather git`, `gather marketplace`, and `backup`
 ([exporting and backing up the
 library](#exporting-and-backing-up-the-library)).
 
@@ -4163,10 +4452,17 @@ reads back as it goes out, its repository redacted again), never a table's
 columns, and draws each as the command's table does
 (`commands::search::rows`). `enter` on one runs `Task::Gather` of its
 repository, folder and branch, the line `--take` amounts to rather than
-`--take` itself, so the transcript gathers the same again however the
-finders answer by then. The panel has no page for it yet; its server runs a
-`search_skills` task as any other, which asks the finders the workspace
-enables with no token.
+`--take` itself (`Task::taking`), so the transcript gathers the same again
+however the finders answer by then.
+
+**The panel** searches from its page of catalogs (#114, [its
+views](#its-views)): the same `search_skills` task, which asks the finders
+the workspace enables with no token, run through the runner and read back
+from the line's JSON as the TUI's is; a result is taken by a `take_skill`
+task carrying it back whole, whose line is `Task::taking`'s, so the three
+take a result by one function. Where each finder is asked is the
+launch's, `mindweaver ui --finder-url`, never a request's
+([launching it](#launching-it-mindweaver-ui)).
 
 Rejected: reading the TUI's results back from the HTTP cache once the line
 is over, which a search asked with a token could not be read from and which
@@ -4184,8 +4480,9 @@ official MCP Registry,
 (`API`), which the registry froze as stable while it is in preview, and
 makes one of its servers into a definition of the library's ([what an MCP
 server's definition declares](#what-an-mcp-servers-definition-declares)).
-Nothing calls it from a command yet, and nothing in it writes a file:
-`mindweaver gather mcp` (#107) is the first front end to.
+Nothing in it writes a file: `mindweaver gather mcp` (#107) writes what it
+makes through `add`'s own path ([bringing a server into the
+library](#bringing-a-server-into-the-library)).
 
 **Reading it.** A `Registry` is an address and an `http::Client`:
 `Registry::official`, or `Registry::at` for a mirror serving the same API,
@@ -4230,7 +4527,8 @@ it can be, so two are ordered once read (`mcp_registry/time.rs`, with no
 date library, as the ledger keeps its times) rather than as text, where
 `.7Z` sorts after `.72Z`. An answer is cached as every catalog's is, when
 the client was given a cache; a listing is the front end's to hold and
-refresh, for as long as it runs (the TUI's search, #107). Lenient, as every
+refresh, for as long as it runs, which none does yet (an [open
+question](#open-questions)). Lenient, as every
 read is: a server's fields core reads are typed and every other one read
 past (`wire.rs`), a list Go writes as `null` reads as empty, a server in a
 page that does not read is a warning beside the rest
@@ -4367,6 +4665,102 @@ its docs, reads no server of the file; and a copy of the whole registry
 kept and refreshed, tens of thousands of servers, which a search narrow
 enough to choose from never needs.
 
+### Bringing a server into the library
+
+`mindweaver gather mcp` (#107) is the first front end of [the official MCP
+Registry](#the-official-mcp-registry): `search QUERY` lists what
+`Registry::search` finds, and `add SERVER` writes what `Registry::import`
+makes of one version into the workspace's library, a dry run until it is
+told `--yes`. Both ask the official registry unless `--registry` names a
+mirror, which is how every test asks one on loopback. Nothing either does
+starts a server, nor asks one anything: a definition is text until
+`install` gives it to a project's agents.
+
+**A search lists each server by its summary**
+(`mcp_registry::Summary`): the name `add` takes, its version, its status by
+the registry's word and each way it is started or reached by its word
+(`Way::word`: a package's registry type, a remote's transport as a
+definition writes its `type`), in the order `--way` counts them. Its
+`--json` is the listing (`Listing`, written through a derived
+`ServerListing`, each entry as its summary, since an entry keeps its
+packages and remotes as the registry wrote them, for an import to read),
+which reads back as it went out, so
+the TUI's results are read from the line's JSON as the skill
+directories' are. The table leaves the description to `--json`: a
+publisher's description is free text a column a line cannot hold, and
+`add`'s dry run says what the server is. A search that stops before it
+reads anything, a query the registry refuses among it, is refused; one
+that stops after is a warning beside what it read.
+
+**An add is `add`'s.** The text an import makes is written through
+`lifecycle::add`, from a definition given whole (`Start::Definition`),
+its name and description set as a template's are, every other byte kept,
+so what sits beside it in the folder, a file already where it goes and
+whatever `validate` refuses are judged by the function that judges every
+server added, with the codes it refuses with (`add_exists`,
+`add_name_unfit`, `add_mcp_unfit`), and a stale record under the name is
+dropped as `add` drops one. The dry run is `lifecycle::would_add`, every
+check `add` makes before it writes and then whether something is where
+it would go, so the line without `--yes` refuses what the line with it
+would and writes nothing, not even the library's folder. Writing the
+text from the import with a writer of its own was the other way, and is
+rejected: it would be a second place deciding what a server added is held
+to.
+
+What the line says is what a person consents to: the server's name, its
+version and its status, the way written when the registry lists more
+than one, what an agent would run or the address it would reach as the
+definition writes it (`Runs::of_transport`, each input between its
+braces, since what each agent is given is its own renderer's, said by
+`install`), each variable it reads and where it would be written. What the
+import says beside it (`Note`: deprecated, unversioned, over server-sent
+events, what was left out) is a `note:` with its code, which fails
+nothing; what the cache could not do is a warning, which does. Its
+`--version` is the server's: the subcommand takes no `--version` of its
+own, which `propagate_version` would give it and clap refuses beside it.
+
+**Over https, away from this machine.** `Registry::at` refuses plain
+http to anywhere but loopback (`mcp_registry_base_insecure`), as a skill
+directory's address is held (`finder::Search::at`): what a registry
+answers is a program every agent of a project will start, which nothing
+on the way should be able to change. Its answers are kept in the
+workspace's HTTP cache for `FRESH_FOR`, ten minutes, once it is made, so a
+search and an add soon after it ask the registry once.
+
+**Not followed.** A search asks a page at a time, which one narrow enough
+to choose from reads in one request, and an add asks for one version; core
+reports no step of either and takes no cancel, so neither line is in
+`task::Followed`, and each runs where a read of the disk runs, the TUI's
+own thread and the panel's writer (an [open question](#open-questions)).
+Neither is refused a front end without a terminal: nothing prompts, and
+an add writes only with `--yes`, which takes nothing away, so no
+`Caution` either.
+
+**The TUI** searches from the shelf's page: `r` opens the form
+(`Searched::Servers`), whose task (`Task::SearchServers`) is `mindweaver
+gather mcp search --json <query>`; `enter` on a server runs
+`Task::ImportServer` of its name and the version listed, the dry run, shown
+as a page whose `y` runs the same task told yes, so a definition is
+written only once what it would be has been read, as the install screen
+shows each agent's line before it applies. Neither task names a
+registry: a front end asks the official one, or the mirror `mindweaver ui
+--registry` was started with, so a browser sends no address a line would
+take a program from. The panel's page of catalogs (#114) runs both tasks
+as the TUI does: the search read back from its line's JSON, the add's dry
+run shown, then the same task told yes ([its changes](#its-changes)).
+
+**Tested** with no network: the CLI's suites serve [#106's recorded
+answers](#the-official-mcp-registry) from a server each test starts on
+127.0.0.1 (`tests/common/mcp_registry.rs`), a version by its recording, a
+latest by the version recorded as latest, the search for `airtable` by its
+three pages, and any other search by one page of the recorded latest
+versions whose name holds it, each as it was recorded.
+`mcp_registry_test.rs` runs the lines in process, the add without `--yes`
+writing nothing among them; the end-to-end suite (`e2e/importing.rs`)
+holds the binary to the reference's output, a PATH of programs that would
+say they ran among it; and the TUI's suite drives `r`, `enter` and `y`,
+holding each line it hands over and running it against the same registry.
+
 ### Why the ledger is SQLite
 
 Everything else Mindweaver writes is a file a person opens: TOML with comments
@@ -4468,6 +4862,18 @@ constant beside it:
    each artifact gathered](#what-is-kept-of-each-artifact-gathered), #99).
    The source's `pin`, which step 7 made, is written by every gather from
    this version on, so this step adds nothing for it.
+9. On `sources`, `entry`, what a Claude Code marketplace's catalog calls a
+   plugin gathered from it, beside the `parent_id` step 7 made, naming the
+   marketplace: a plugin is known by its marketplace and its entry, unique
+   behind `sources_by_entry`, and `sources_by_identity` is made again to
+   hold of the sources no marketplace lists alone, since two entries of
+   one catalog may both be its whole repository, as anthropics/skills's
+   are ([gathering from a Claude Code
+   marketplace](#gathering-from-a-claude-code-marketplace), #103). A
+   marketplace is a source of kind `marketplace`, which no step need make,
+   the kind being text, nor does `plugin`, one more word of an artifact's
+   `licence_from`. Nothing older is filled in: no build before this one
+   gathered from a marketplace.
 
 An older ledger is migrated step by step, so one made two versions ago ends
 where one made today begins, and two rules hold for every step:
@@ -7469,8 +7875,11 @@ of it a browser may name.
   the preview shows the folder the command acts on. A mark to unlink, or
   what `mind unload` takes out, must be one an entry points at too.
 - **A gather's source as an address, or a folder named as one to link is**
-  (`policy::source`). An address, a URL whose scheme is not `file` or git's
-  `host:path`, is a value, which the gather holds to its own rules as it
+  (`policy::source`). An address, a URL whose scheme is not `file`, git's
+  `host:path`, or GitHub's `owner/repo`, at a branch or tag after an `@`,
+  which a gather reads as GitHub's address wherever it is typed
+  (`url::located`) and the page of sources takes (#113), is a value, which
+  the gather holds to its own rules as it
   holds one typed at a terminal: one carrying a credential is refused
   there (`credentials_in_url`), saying nothing of it, and none is ever
   prompted for ([a gather never prompts](#following-a-gather-and-stopping-it)).
@@ -7481,7 +7890,20 @@ of it a browser may name.
   (`path_in_mindflayer`). The folder in the source and the reference are
   values the gather holds to its own rules. What a gather can reach is no
   more than a page holding the token could already: link any folder and
-  read its skills ([open questions](#open-questions)).
+  read its skills ([open questions](#open-questions)). A search result
+  sent back to be taken (`take_skill`) is held the same way by its
+  repository, whatever finder named it, the rest of what it says going to
+  no line but its folder and branch, values the gather holds to its own
+  rules.
+- **No catalog's address, nor a token for one.** A search of the skill
+  directories or of the MCP Registry, and an add from the registry, carry
+  a query, a server's name and a version, which name nothing on the disk:
+  where each is asked is the launch's (`mindweaver ui --registry`,
+  `--finder-url`, held at launch to the rules the line holds them to),
+  never a request's, since what a registry answers is a program every
+  agent of a project will start, and a finder's answer what a take
+  gathers. A task has no field for either, and no token goes with a
+  search, so GitHub's code search is never asked from the panel.
 - **A scan only under the folders the browser names** (`Query::Scan`), each
   held to the same rule as a folder to link, and refused with its code
   otherwise before anything is walked; none named is the workspace's root,
@@ -8060,6 +8482,30 @@ change was sent nor which commands it ran. Not "nothing a request sent",
 which a read sends in its query, and which somebody passing a log on
 would take at its word.
 
+`--registry URL` and `--finder-url FINDER=URL` (#114) name the catalogs
+the panel's searches and adds ask in place of each command's own: an MCP
+registry serving the official one's API, a mirror, and a skill directory
+at another address that speaks its API, a GitHub Enterprise server's or
+a test's on loopback, as `gather mcp --registry` and `gather search
+--finder-url` do. They are the launch's, as its home and agent homes are
+(`PanelBackend::asking`, `task::Catalogs`): no task has a field for an
+address, so a browser never names where a line asks, nor where a
+program agents start comes from. The task module puts them on the lines
+that ask, `--registry` on a `search_servers` and an `import_server`,
+`--finder-url` on a `search_skills` (`Task::commands_asking`), so the
+line previewed, run and kept in the transcript names the catalog it
+asked and asks it again pasted at a terminal. Each is held as the panel
+starts to the rules the line would hold it to, over https or plain http
+on this machine, a `FINDER=URL` naming a finder (`ui::catalogs`, through
+`Registry::at`, `finder::addressed` and `Search::at`), so a launch naming
+one no line would ask fails with the line's code before anything
+listens, rather than every search sent from the panel afterwards. Which
+finders are asked is still the workspace's `finders`: `--finder-url`
+moves one, and enables none. Rejected: an environment variable read by
+every command, which would move where any line asks behind its back,
+and a key of `weaver.toml`, which would have a workspace copied or
+loaded decide where its user's panel takes programs from.
+
 The runtime is tokio's with one thread: every query goes to the blocking pool
 and every run to the server's writer thread, so it only moves bytes. `--dev`
 serves the panel through its dev server ([through the panel's dev
@@ -8528,8 +8974,8 @@ relative to where the document is served, and as `info.version`.
 ### Its views
 
 Ten pages draw the snapshot ([the read model](#the-read-model)), an
-eleventh a scan beside it and a twelfth what an update would do, each a
-file under `src/pages`:
+eleventh a scan beside it, a twelfth what an update would do and a
+thirteenth what a search's run printed, each a file under `src/pages`:
 
 - **The overview** (`/`) names the workspace, where it is and why that one,
   counts what it holds from the snapshot's `summary`, a card for every kind
@@ -8617,8 +9063,46 @@ file under `src/pages`:
   name, summary or origin, each with its `origin`, the commit it was taken
   at and when.
 - **The sources** (`/sources`) lists where the shelf is filled from, each
-  with its `origin`, branch, folder, commit and what it supplied, and the
-  latest actions the ledger logged (`history`), newest first.
+  by its name, with its `origin`, branch, folder, pin, commit, the
+  licences what it supplied says and how many say each (`licences`, core's
+  count of the shelf's rows in the words `gather list` says a licence in),
+  what it supplied and when, and each plugin gathered of a marketplace
+  under it, the sources whose `parent` names it; then the latest actions
+  the ledger logged (`history`), newest first. Above them, the form adding
+  one, offering each kind a gather takes and leaving unsaid the folder each
+  is looked for in unless one is named (`gatherable`, `gather::gatherables`),
+  both the snapshot's rather than a list of kinds in TypeScript, which
+  would offer an MCP server a gather only refuses
+  ([its changes](#its-changes)).
+- **Catalogs** (`/catalogs`, #114), below them, searches the skill
+  directories the workspace enables and the MCP Registry
+  (`SkillSearch.vue`, `ServerSearch.vue`): each search a run, read back
+  as described below, each result as core listed it, a take and an add
+  its changes ([its changes](#its-changes)).
+
+A search of a catalog is a run, never a query: the line is the network,
+followed and stopped as a gather is when it asks the skill directories
+([searching the skill directories](#searching-the-skill-directories)),
+and it is the TUI's own (`f` and `r` on the shelf's page), whose results
+are read from what the line printed. So are the panel's: `search_skills`
+and `search_servers` are previewed, shown and run through the runner as
+every change is, and the page reads the envelope the line's `--json`
+printed (`src/api/catalogs.ts`), its `data` typed from Rust as the
+search's own types (`SkillsFound`, `ServerListing`), holding it for as long
+as the page is open, as a dry run's words are held. What the line said on
+stderr, a finder skipped for want of a token among it, is drawn under the
+results by its code, and a line that did not run says why, by its code,
+in its place. The runner is told the page draws what the run printed
+(`ask`'s `drawn`), so the toast saying how it ended leaves the JSON out.
+A query answered by the backend calling core's search itself was the
+other way, rejected: it would be a path into core beside the command's,
+take no cancel, and have the backend, not a line, decide where a catalog
+is asked. Nothing the page shows of a result is worked out: a result
+with no folder or no branch says what the line does then, the whole
+repository at its default branch, in words, as a source's page says a
+branch none was asked for, and a result is never a link, since a
+browser following a finder's address is a request the panel did not
+preview.
 
 A project holds a copy of one of the library's own when core names it
 among `library.holders`, and the copy is its artifact of that kind and
@@ -8680,7 +9164,8 @@ an artifact in a holder among its scopes; `resync` and `command_finished`
 mark all of those, since a command can change what nothing watches; and
 `command_started`, `progress`, `cancelling` and `busy` mark nothing, since
 a run says nothing of the disk until it finishes, however long a gather
-takes, which the page following one draws (#113). Those
+takes, which the runner's dialog draws, its words and a bar of its counts
+(#113). Those
 queries, and the matrix's plan and the preview of its lines, which are of
 the disk as it stands (`src/api/plan.ts`, keyed `plan` and `preview`), and
 what an update would do, which is too (`src/api/updates.ts`, keyed
@@ -8836,7 +9321,10 @@ was let go.
   say. A cancel the server refuses, the run over already, changes nothing,
   and is said nowhere beside it.
 - **How it went is a toast, and what it said a drawer.** A toast says what
-  ran, or which line failed, and what the lines printed. When a run failed,
+  ran, or which line failed, and what the lines printed, but for a page
+  that draws what they printed itself, as the page of catalogs draws a
+  search's results, which asks so (`ask`'s `drawn`): its toast says only
+  what ran, or why a line did not. When a run failed,
   or said a line with a code, the warnings drawer (`WarningsDrawer.vue`)
   opens, every warning, note and error under the line that said it, each
   with its code beside its words and an icon chosen by that code: a plain
@@ -8981,6 +9469,36 @@ What the pages offer:
   over beside the lines rather than letting the panel set it was the
   choice: which install waits for one is core's, and the confirmation is
   the one place a yes may come from.
+- **A source added, gathered again, renamed and forgotten, from the page
+  of sources** (#113), each the task a terminal's line is. A git
+  repository's form (`SourceForm.vue`) sends `Task::Gather`, its fields the
+  line's values as typed but for the white space around them, its `name`,
+  `pin` and `dry_run` added for it (`--name`, `--pin`, `--dry-run`, each left
+  out when it says nothing): the dry run first, whose report the page shows
+  once it ran, then the same task without it, offered only while the
+  fields say what the dry run was of, as a removal everywhere is offered
+  once its dry run is read. A kind core gives no folder unsaid has the
+  button wait for one named, that being what `gatherable` says, never a
+  rule of the panel's. A Claude Code marketplace's is its catalog listed
+  first (`Task::ListMarketplace`, `gather marketplace --list --json`), whose
+  report the page reads back as the envelope it is, `data` being core's
+  `marketplace::Listing`, written into TypeScript and JSON Schema as
+  `MarketplaceListing` (`src/plugins.ts`), as the TUI reads the same line
+  into the same type, then a box for each plugin it lists (`PluginPicker.vue`),
+  one no gather takes (`gatherable`) listed and never ticked, and the ticked
+  gathered by name in the catalog's order (`Task::GatherPlugins`), never
+  `--all`, so the line says what it gathers. Each source's card
+  (`SourceCard.vue`) gathers it again (`Task::UpdateSources` of its name,
+  and the page every one at once), renames it (`Task::RenameSource`,
+  `gather rename`, which the command judges by the rules `--name` is held
+  to), forgets it once its dry run is read, asked about by
+  `Caution::Forgets`, and, of a marketplace, lists its plugins again. A
+  gather, an update and a listing are followed in the dialog, a bar of each
+  step's counts beside its words (`<progress>`, its value and maximum the
+  step's own numbers, no style attribute for the CSP to refuse), and once
+  one is over, what it said stays on the page, each line by its code, a
+  stop among it, after the toast has gone. No task of it carries a token
+  (D-16).
 - **A load and an unload, from the page of loads**: a workspace this
   machine knows by the path the snapshot lists it by, offered only where
   core says the workspace can load it (`loadable`), or any other by the
@@ -8999,6 +9517,21 @@ What the pages offer:
   workspace above a project (`Task::LoadHere`), is no page's: the panel is
   launched on a workspace, and loads into that one
   ([open questions](#open-questions)).
+- **A search, a take and an add, from the page of catalogs** (#114): a
+  search of the skill directories (`Task::SearchSkills`) or of the MCP
+  Registry (`Task::SearchServers`), its query sent without the white
+  space around it, as the TUI's form sends it, and nothing else, no
+  address and no token; a result taken by sending it back whole, as the
+  search printed it in `hits` (`Task::TakeSkill`), never a gather the
+  panel puts together, so which folder a result naming none is gathered
+  from, and the kind a take gathers, are said by the one function the
+  TUI's take and `--take` follow (`Task::taking`), as the panel's marks
+  are turned into lines by `Task::minds`; and a server added from the
+  registry, the add's dry run first (`Task::ImportServer` without `yes`),
+  whose words the page shows once it ran, then the same task told yes,
+  offered only then, as a removal everywhere is. A take is followed and
+  stopped as a gather is, its repository held to the path policy as a
+  gather's source is ([what a browser may name](#what-a-browser-may-name)).
 - **An install, an update of every project and a link, from the command
   palette**, each the task of the page offering the same change: one box's
   plan applied as the matrix applies its marks, **Update all**'s, and the
@@ -9376,7 +9909,16 @@ variable no agent can refer to, `github` given another transport, and
 plans of the team's server and of one of the library's own; and
 `served.json` a server added, one changed, and the team's server
 installed by the plan's task, which writes nothing, then by its
-confirmation's. No token is in any of them: a fixture is a file of the
+confirmation's. `searched.json` is what the page of catalogs sends,
+in turn, to the first workspace, its `weaver.toml` listing skills.sh, and
+served by a backend asking skills.sh and the MCP Registry on loopback, as
+`ui --finder-url --registry` launches it (`common::finder::SkillsSh`,
+`common::mcp_registry::Registry`): a search of the skill directories
+finding a repository on the disk and one on GitHub, the first taken as
+the search printed it, a search of the registry from #106's recordings,
+and a server's add, its dry run then its yes; each catalog's port reads
+as a fixed address, and each search's printed envelope is held to its
+data's schema. No token is in any of them: a fixture is a file of the
 repository, so what core refuses there is a variable's name. So
 the panel's tests render what core says rather than what a person drew,
 and a field the snapshot adds, renames or fills differently reaches them.
@@ -9566,10 +10108,25 @@ and Codex. The skill, ticked into both, has to be copied where each agent
 reads it, in each; unticked out of one, confirmed, gone from there alone;
 each batch's line shown before it runs; and the same lines, typed into the
 copy, have to leave both projects holding the same files. From a load
-rather than the shelf, which only a gather from a git source fills, and the
-suite builds nothing a git source makes; an offer from the shelf is
-installed with `--from` as one from a load is, and the views' suites draw
-one from their fixture. That the ledger a batch leaves is the one its
+rather than the shelf, which only a gather from a git source fills; an
+offer from the shelf is installed with `--from` as one from a load is, and
+the views' suites draw one from their fixture.
+
+`e2e/sources.spec.ts` takes `gatherable`, a workspace that gathered
+nothing beside `acme-skills`, a repository holding one skill, made with
+git as the demo's repositories are (`environment.ts`'s `git` and
+`repository`), its `SKILL.md` the one file written by hand, as somebody's
+work is. Added from the page of sources by its `file://` URL, what a gather
+would take has to be shown first, the snapshot still listing no source,
+then the gather, each line shown before it runs; its skill has to be on
+the shelf, its licence on its source's card, and the twin given the same
+line has to hold the same shelf. A gather again of a source on a server
+the spec holds the requests of on loopback, registered by a gather the
+server turned away (run apart, `runApart`, so the spec's own process can
+answer it), stopped while it waits on that server, has to leave the
+snapshot's shelf and sources as they were, read by the API with the
+token as Bearer, and to say so by the gather's code. The repository is on
+this machine since the suite reaches no network. That the ledger a batch leaves is the one its
 lines leave run in the CLI, every hash and action logged, is the backend
 suite's to hold (`backend_test.rs`), which reads it.
 
@@ -9584,6 +10141,26 @@ each line shown first, has to be in `.mcp.json`, `.codex/config.toml` and
 and the value in none of them nor in the library; the run's own warning
 says Codex reads it only in a project it trusts, by its code; and the twin
 given the same lines has to hold the same files.
+
+`e2e/search.spec.ts` takes `searchable` (#114): a workspace whose
+`weaver.toml` lists skills.sh in `finders`, the one key no command writes,
+written in by hand as a person writes it, and a repository beside it made
+with git, holding a skill. Its builder also starts the catalogs on
+loopback (`e2e/catalogs.ts`), one server in the worker answering as
+skills.sh answers a search, naming that repository, and as the MCP
+Registry answers its API, with #106's recording of a server read from
+core's fixtures, and hands back the options its `mindweaver ui` is
+launched with, `--registry` and `--finder-url` naming them (`Launched`),
+which `own` passes to `serve` and stops after the test. A skill searched
+for and taken has to be on the shelf, each line the dialog shows the
+CLI's, and the twin given the line has to hold the same shelf; a server
+searched for, its dry run read, writing nothing, and then added, has to
+be in the library, written as the same line writes it into the twin but
+for when it was fetched. Nothing reaches the network, which the catalogs'
+own record of what they were asked holds. A line of the twin's asking
+them runs apart (`succeedApart`), since one run as every other spec's is,
+waiting for the line with nothing else running here, would keep the
+server in the same process from answering until the line gave up on it.
 
 `e2e/palette.spec.ts` takes `assignable` too, and drives the palette with
 the keyboard alone once the sidebar's **Search** has the focus: opened by
@@ -9738,9 +10315,10 @@ root, nothing chosen; the matrix with a box ticked and another unticked, the
 plan's lines below them, never applied; the page of updates, its edited copy left
 with why; the preview of linking what Discover marked, then, once that has
 run, an unlink asked about and cancelled, and the transcript; and last the
-dry run of removing one of the library's own everywhere, which changes
-nothing, taken after the transcript it would otherwise join, once the toast
-saying it ran has gone from over what it said; and `platform` loaded from
+dry run of removing one of the library's own everywhere, and the dry run
+of a gather of the team's repository on the page of sources, which change
+nothing, each taken after the transcript it would otherwise join, once the
+toast saying it ran has gone from over what it said; and `platform` loaded from
 the page of loads, after every other page is taken without it, so no other
 picture changes with it. Chromium
 alone, since the images are the same in WebKit, which does not run
@@ -12825,7 +13403,9 @@ the library written only with `--yes`, on the command line and from the
 install screen alike. #106 makes a server the official registry lists into
 one ([the official MCP Registry](#the-official-mcp-registry)), the
 registry's subset of `server.json` this format was shaped as, with the
-registry as its provenance, and writes nothing yet.
+registry as its provenance, and #107 writes it into the library through
+`add`'s own path ([bringing a server into the
+library](#bringing-a-server-into-the-library)), never starting it.
 
 Checking it, #18 added MCP checks to `scripts/agent-probe`, run by hand.
 Claude Code's and OpenCode's ran on 2026-11-05; Codex's were not run, since
@@ -12986,9 +13566,18 @@ record and every `origin` the envelope and the snapshot hold spell it.
 #100 carried out refreshing and removing one ([managing the
 sources](#managing-the-sources)), each by its name: `gather sources` lists
 what a command takes, `gather rename` changes it, `gather update` gathers
-again and `gather remove` forgets. A marketplace's children, which #103
-brings, are what a removal of their parent will cascade to through
-`parent_id`; a git source has none.
+again and `gather remove` forgets. #103 carried out the marketplace
+([gathering from a Claude Code
+marketplace](#gathering-from-a-claude-code-marketplace)): a parent source
+of its own kind, each plugin a git source gathered only when named or by a
+confirmed `--all`, known by its entry (schema 9's `entry` beside
+`parent_id`), at its pin when its entry has one, and gathered again and
+forgotten with its marketplace, `parent_id` cascading. #104 carried the
+same model to Codex's marketplaces and the Agent Plugins format's
+packages ([gathering from a Codex
+marketplace](#gathering-from-a-codex-marketplace)), with no kind of source
+of their own: a catalog's dialect is read off where it is and how it is
+written each time it is read.
 
 ### D-14: Core owns HTTP, behind a seam
 
@@ -13019,6 +13608,8 @@ lasts.
 #106 reads the MCP Registry through it ([the official MCP
 Registry](#the-official-mcp-registry)), retrying nothing either: a rate
 limit ends a listing as any failure does, said beside what was read.
+#107's commands read it with the workspace's cache, and refuse a
+registry over plain http away from this machine.
 
 ### D-15: Skill search is GitHub plus opt-in finders
 
@@ -13489,10 +14080,27 @@ repository, stays on `gix`.
   `gather git` is another source, offering the same skills under another
   origin. Telling a branch that is the default from one that is not would
   ask the remote, which reading a finder's answer should not.
-- **The panel has no search yet.** Its server runs a `search_skills` task,
-  and reports the finder asked, but no page sends one or lists what it
-  found: what the TUI's results screen shows waits for a page of the
-  shelf's to show it.
+- **The panel's results last as long as its page.** What a search found
+  is read back from its run and held by the page of catalogs, so leaving
+  the page or a reload forgets it, and the same search is a run again,
+  shown first, answered from the HTTP cache for ten minutes but for
+  GitHub's. Keeping what a search found where every answer is, in Vue
+  Query by its query, waits for somebody to want results across pages;
+  and a search from another tab or a script is not drawn here, its
+  results being its own run's.
+- **A registry search is not followed.** `gather mcp search` and `add`
+  report no step and take no cancel, so they run where a read of the disk
+  runs, the TUI's own thread and the panel's writer, for as long as the
+  registry takes to answer, within the HTTP client's timeout a page. A
+  narrow search reads one page; one as wide as `mcp` reads up to twenty.
+  Following one, a page at a time and stopped between two, waits for a
+  search somebody finds slow.
+- **No front end refreshes a registry's listing.** `Registry::refresh`
+  asks only what changed since a listing, but the TUI runs the search's
+  line again rather than hold what it read, the line's answers kept in
+  the HTTP cache for ten minutes, and so does the panel, which holds a
+  listing only for as long as its page of catalogs is open: a refresh
+  would be a line of its own, which no command has.
 
 - **What ssh asks during a backup.** `git` is told never to prompt, but the
   ssh it runs for an ssh URL asks for a key's passphrase or a host key on
@@ -14255,11 +14863,54 @@ repository, stays on `gix`.
   to keep as it was is pinned; a gather that kept what is gone until told
   was the other way, which would leave the shelf offering what no source
   has.
-- **What a removal of a parent leaves.** A marketplace's children (#103)
-  are rows whose `parent_id` cascades from their parent's, which
-  `forget_source` would take with it, but `gather remove` takes away only
-  the folders of the source named: a parent's removal has to take each
-  child's clone and shelf folders too, and say each, once children exist.
+- **A plugin's branch is not kept.** A marketplace's plugin is recorded
+  with no `reference`, its branch the catalog's to say each time, so what
+  was installed from it keeps its origin when the catalog moves it to
+  another tag (#103). `gather sources` then shows its pin, which a gather
+  writes, but not the branch it was fetched at, and an install's origin
+  says nothing of it. Keeping the branch would show it, at the price of
+  either moving every origin with the catalog or keeping one the catalog no
+  longer says.
+- **One origin for a plugin and its marketplace's repository.** A plugin
+  kept in its marketplace's repository has that repository's URL for its
+  origin, as a git source of it gathered with `gather git` has: both offer
+  a skill of one name under one origin, as two folders of one repository
+  do ([one origin for two folders of one repository](#open-questions)),
+  and `--from` then takes the plugin's name.
+- **What of a plugin is not taken.** A marketplace's plugin is gathered for
+  its skills alone, and its commands, agents, hooks, MCP and LSP servers
+  and app connectors are said and left (#103, #104), the files it keeps
+  MCP servers in named. Taking an MCP server a plugin declares into the
+  library, or installing a plugin whole, is a decision of its own, which
+  the hooks above all make one to take with care: a hook runs a command.
+- **A Codex plugin's skills are taken a folder down.** Codex walks the
+  folders a plugin's manifest lists, or its `skills/`, whole (#104), and a
+  gather takes the folders directly in them, as it takes a Claude Code
+  plugin's: a skill a folder deeper, under one holding no `SKILL.md`,
+  reaches Codex and not the shelf. None of openai/plugins' is so; a walk
+  as Codex walks would take an example a skill ships, which the layouts
+  of `gather git` were written to leave.
+- **What Codex reads of a marketplace is docs-only.** Its catalog's two
+  places, the order it looks for a plugin's manifest and where it finds a
+  plugin's skills are read from its documentation and source on
+  2026-11-10, not run (#104). Codex's `.agents/plugins/api_marketplace.json`,
+  which it reads after `marketplace.json`, and Cursor's
+  `.cursor-plugin/` catalog and manifest, which it reads too, are not read
+  by a gather; were a catalog to keep its plugins there alone, it would be
+  said to have no catalog.
+- **A lone Agent Plugins package through `gather git`.** A repository that
+  is one package, with no catalog, is gathered by `gather git` through its
+  layouts (#101), which take `skills/<namespace>/<skill>` and a `SKILL.md`
+  at the root besides the folders the format reads (#104). Reading such a
+  repository as its format does would need `gather git` to read a
+  manifest, which no layout does.
+- **A cancel after the marketplace is recorded.** A gather of a marketplace
+  registers it once its catalog reads and before any plugin is fetched, so
+  a cancel while a plugin is fetched leaves the marketplace recorded, its
+  clone in the cache, and the plugins before it gathered, where a gather of
+  a git source cancelled leaves nothing. Recording the marketplace only
+  once its first plugin placed would leave `--list`, which places nothing,
+  recording nothing.
 - **Which kind a source holding nothing is gathered again as.** A source
   keeps no kind of its own: `gather update` reads off the shelf which
   kinds it holds, and gathers one it holds nothing of, whose every gather
@@ -14267,8 +14918,8 @@ repository, stays on `gix`.
   the kind each gather of it took would answer it, at the price of a
   schema step.
 - **The TUI renames no source.** Its sources screen gathers again and
-  forgets; `gather rename` is the command line's, and the panel's page of
-  sources (#113) the place a form for it would go first.
+  forgets; `gather rename` is the command line's and the panel's page of
+  sources' (#113), whose card has a field for it.
 - **An update or a rename with nothing gathered makes the default
   workspace.** `gather update --all` and `gather rename` open the ledger to
   write, as `gather git` does, so on a machine with none they make

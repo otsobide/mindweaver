@@ -25,9 +25,11 @@ use std::sync::Arc;
 
 use common::*;
 use mindweaver_cli::backend::{PanelBackend, Query};
+use mindweaver_cli::task::Catalogs;
 use mindweaver_core::hash;
 use mindweaver_core::ledger::{Action, Outcome as Logged, Taken};
 use mindweaver_core::licence::Licence;
+use mindweaver_core::mother::GitRepositoryMother;
 use mindweaver_core::SourceKind;
 use mindweaver_server::{Backend, Underway};
 use serde_json::{json, Value};
@@ -561,10 +563,13 @@ fn asked(backend: &PanelBackend, query: Value) -> Value {
 }
 
 /// `json` as it reads wherever it was made: `dir` as [`HOME`], each
-/// project's id as [`IDS`] says, `/` between the parts of a path.
+/// project's id as [`IDS`] says, `/` between the parts of a path, and the
+/// folder a source gathered by its path under `dir` is kept in as it is
+/// named under [`HOME`] ([`slugged`]).
 fn pinned(json: &str, dir: &Path, root: Option<&Path>) -> String {
     let escaped = serde_json::to_string(&dir.to_string_lossy()).unwrap();
     let mut json = json.replace(escaped.trim_matches('"'), HOME);
+    json = json.replace(&slugged(&dir.to_string_lossy()), &slugged(HOME));
     if let Some(root) = root {
         // Only those this fixture built: the candidates are not in every
         // one.
@@ -581,6 +586,24 @@ fn pinned(json: &str, dir: &Path, root: Option<&Path>) -> String {
     } else {
         json
     }
+}
+
+/// `path` as the folder a source at it is kept in begins: each run of what
+/// is neither a letter, a digit, `.` nor `_` one `-`, the rest lowercase,
+/// and no `-` at either end, as the ledger names a source's folder from
+/// its URL. Spelled again here, since the fixture only has to find the
+/// temporary folder's part of a name, which the ledger's own function is
+/// no part of the public API to give.
+fn slugged(path: &str) -> String {
+    let mut out = String::new();
+    for character in path.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '.' | '_') {
+            out.push(character.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_owned()
 }
 
 /// Write `json` as the fixture `name`.
@@ -930,6 +953,96 @@ fn write_what_previewing_and_running_a_few_tasks_is_answered_with() {
         );
     }
     write("commands", &json);
+}
+
+/// Where the fixtures say the catalogs on loopback were, in place of the
+/// ports the system picked: the MCP registry, then skills.sh.
+const REGISTRY_AT: &str = "http://127.0.0.1:4100";
+const SKILLS_SH_AT: &str = "http://127.0.0.1:4200";
+
+/// What the panel's page of catalogs sends, previewed and run in turn on
+/// the workspace [`workspace`] builds, its `weaver.toml` listing skills.sh
+/// in `finders` as a person writes the key in, and served as `mindweaver
+/// ui --registry --finder-url skills.sh=` serves it, each catalog a server
+/// on loopback: a search of the skill directories for `commit`, which
+/// skills.sh answers with `commit-style`, in `you/src/house-rules`, a
+/// repository on this disk, and `pdf`, in `acme/skills` on GitHub; the
+/// first of those taken, sent back as the search printed it; a search of
+/// the registry for `mcp`, answered from #106's recordings; and
+/// `ai.clawfetch/mcp` added from it, its dry run, then told yes.
+///
+/// Nothing reaches the network: the repository is taken from this disk,
+/// and `acme/skills` is only listed.
+#[test]
+fn write_what_searching_the_catalogs_from_the_panel_is_answered_with() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("you");
+    let root = workspace(&home);
+    let marker = root.join(WEAVER_DIR).join(WEAVER_CONFIG);
+    let text = fs::read_to_string(&marker).unwrap().replacen(
+        "loaded = [",
+        "finders = [\"skills.sh\"]\nloaded = [",
+        1,
+    );
+    fs::write(&marker, text).unwrap();
+    let source = home.join("src").join("house-rules");
+    repository_at(
+        &source,
+        &[(
+            "skills/commit-style/SKILL.md",
+            &skill_file("commit-style", "How this repo writes commit messages"),
+        )],
+    );
+    let directory = common::finder::SkillsSh::answering(&[
+        ("commit-style", source.to_str().unwrap(), 56),
+        ("pdf", "acme/skills", 2263),
+    ]);
+    let registry = common::mcp_registry::Registry::recorded();
+    let backend = PanelBackend::launch(&root, &Lookup::default())
+        .unwrap()
+        .asking(Catalogs {
+            registry: Some(registry.url()),
+            finders: vec![directory.finder_url()],
+        });
+    let mut answers: Vec<Value> = Vec::new();
+    let mut run = |sent: Value| {
+        let task: Task = serde_json::from_value(sent.clone()).unwrap();
+        let preview = backend
+            .preview(&task)
+            .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
+        let outcome = backend.run(task, &Underway::unfollowed()).unwrap();
+        let ran = json!({"lines": preview.lines, "outcome": outcome});
+        answers.push(json!({"task": sent, "preview": preview, "ran": ran}));
+        answers.last().unwrap()["ran"]["outcome"].clone()
+    };
+
+    let searched = run(json!({"type": "search_skills", "query": "commit"}));
+    let found: Value = serde_json::from_str(searched["runs"][0]["stdout"].as_str().unwrap())
+        .unwrap_or_else(|error| panic!("{error}: {searched}"));
+    let hit = found["data"]["hits"][0].clone();
+    assert_eq!(hit["name"], "commit-style", "{found}");
+    run(json!({"type": "take_skill", "hit": hit}));
+    run(json!({"type": "search_servers", "query": "mcp"}));
+    for yes in [false, true] {
+        run(json!({
+            "type": "import_server", "server": "ai.clawfetch/mcp", "version": "0.4.0", "yes": yes,
+        }));
+    }
+
+    let json = serde_json::to_string_pretty(&answers).unwrap() + "\n";
+    let json = json
+        .replace(&registry.url(), REGISTRY_AT)
+        .replace(&directory.url(), SKILLS_SH_AT);
+    let json = pinned(&json, dir.path(), Some(&root));
+    assert!(!json.contains(&*dir.path().to_string_lossy()), "{json}");
+    for (index, answer) in answers.iter().enumerate() {
+        assert_eq!(answer["ran"]["outcome"]["ok"], true, "{index}: {json}");
+    }
+    assert!(root
+        .join(WEAVER_DIR)
+        .join("library/mcp/clawfetch-mcp.toml")
+        .is_file());
+    write("searched", &json);
 }
 
 /// The workspace [`assigning`] builds, in a home [`acquainted`] with it
@@ -1828,7 +1941,7 @@ fn write_what_each_change_the_library_s_copies_send_is_answered_with() {
         let folder = dir.join("you").join("backup");
         json!({"type": "export", "folder": folder.to_str().unwrap(), "kinds": kinds, "yes": yes})
     };
-    let sent: [(&dyn Fn(&Path) -> Value, bool); 4] = [
+    let sent: [Sent; 4] = [
         (&|dir| export(dir, json!([]), false), true),
         (&|dir| export(dir, json!(["skill"]), true), true),
         (&|_| backup(Some("GITHUB_TOKEN")), false),
@@ -1873,6 +1986,12 @@ fn write_what_each_change_the_library_s_copies_send_is_answered_with() {
     write("kept", &json);
 }
 
+/// A task a fixture sends, built from the temporary folder it is built in,
+/// beside a flag saying how the fixture runs it: whether at all, for the
+/// copies of the library, and whether stopped at its first step, for the
+/// sources.
+type Sent<'a> = (&'a dyn Fn(&Path) -> Value, bool);
+
 /// A run numbered 1 that asks itself to stop on the first step it reports,
 /// as the server's cancel would: what an export, which reports none, never
 /// meets.
@@ -1908,4 +2027,377 @@ fn write_the_steps_a_backup_reports() {
 
     let json = serde_json::to_string_pretty(&steps).unwrap() + "\n";
     write("steps", &json);
+}
+
+/// What `acme-skills`, the repository [`sourcing`] gathers, holds: two
+/// skills, `format` declaring the licence it is under, and `triage` beside
+/// a licence file, which declares none.
+const ACME_SKILLS: [(&str, &str); 3] = [
+    (
+        "skills/format/SKILL.md",
+        "---\nname: format\ndescription: Format the code the way the team does\nlicense: MIT\n---\n\n# format\n\nRun the formatter, then read what it changed.\n",
+    ),
+    (
+        "skills/triage/SKILL.md",
+        "---\nname: triage\ndescription: Sort new issues by what they need\n---\n\n# triage\n\nLabel it, size it, and say who could take it.\n",
+    ),
+    (
+        "skills/triage/LICENSE",
+        "Apache License\nVersion 2.0, January 2004\n",
+    ),
+];
+
+/// What `team-rules` holds: two rules kept in `rules`, beside the licence
+/// every rule there is under, and a README a gather of rules leaves.
+const TEAM_RULES: [(&str, &str); 4] = [
+    (
+        "rules/git/commits.md",
+        "# Commits\n\nSay why in the subject.\n",
+    ),
+    (
+        "rules/style/comments.md",
+        "# Comments\n\nComment the why, not the what.\n",
+    ),
+    ("rules/LICENSE", "MIT License\n"),
+    ("README.md", "# Team rules\n"),
+];
+
+/// What `acme-tools`, the repository nothing gathers until the page adds
+/// it, holds: two skills.
+const ACME_TOOLS: [(&str, &str); 2] = [
+    (
+        "skills/lint/SKILL.md",
+        "---\nname: lint\ndescription: Tidy the code before a commit\n---\n\n# lint\n\nRun the linter.\n",
+    ),
+    (
+        "skills/review/SKILL.md",
+        "---\nname: review\ndescription: Read a change before it lands\n---\n\n# review\n\nRead the diff.\n",
+    ),
+];
+
+/// What `tools-market`, the Claude Code marketplace [`sourcing`] gathers a
+/// plugin of, holds: its catalog, calling itself `acme-tools`, and two
+/// plugins of its own, `formatter`, with hooks beside its skill, and
+/// `review`, one skill at its root, beside one from npm, which no gather
+/// takes.
+fn tools_market() -> Vec<(String, String)> {
+    let catalog = json!({
+        "name": "acme-tools",
+        "owner": {"name": "Acme"},
+        "metadata": {"description": "Acme's tools for Claude Code"},
+        "plugins": [
+            {"name": "formatter", "source": "./plugins/formatter", "description": "Tidy the code", "version": "1.2.0", "license": "Apache-2.0"},
+            {"name": "review", "source": "./plugins/review", "description": "Read a change"},
+            {"name": "from-npm", "source": {"source": "npm", "package": "@acme/x"}, "description": "A package from npm"},
+        ],
+    });
+    vec![
+        (
+            String::from(".claude-plugin/marketplace.json"),
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        ),
+        (
+            String::from("plugins/formatter/skills/tidy/SKILL.md"),
+            skill_file("tidy", "Tidy the code"),
+        ),
+        (
+            String::from("plugins/formatter/hooks/hooks.json"),
+            String::from("{}\n"),
+        ),
+        (
+            String::from("plugins/review/SKILL.md"),
+            skill_file("review", "Read a change"),
+        ),
+    ]
+}
+
+/// A repository at `you/src/<name>` under `home`, holding `files` in one
+/// commit made at a fixed time, so its id is the same at every run: its
+/// path, as a person on this machine types it.
+fn source_at(home: &Path, name: &str, files: &[(&str, &str)]) -> String {
+    let path = home.join("src").join(name);
+    GitRepositoryMother::write(&path, files);
+    GitRepositoryMother::commit(&path);
+    path.to_str().unwrap().to_owned()
+}
+
+/// The commit the repository at `path` holds.
+fn commit_of(path: &str) -> String {
+    gix::open(path).unwrap().head_id().unwrap().to_string()
+}
+
+/// `you/Sources`, a workspace whose shelf is filled from repositories beside
+/// it, which the panel's page of sources draws and changes, built as
+/// somebody would build it, each source gathered by its path, as the page
+/// names a folder on this machine:
+///
+/// - `src/acme-skills`, [`ACME_SKILLS`], gathered as it is, and called
+///   `src-acme-skills`, from its path;
+/// - `src/team-rules`, [`TEAM_RULES`], gathered as rules from `rules`,
+///   called `team-rules` and pinned to its commit;
+/// - `src/acme-tools`, [`ACME_TOOLS`], which nothing gathered yet;
+/// - `src/tools-market`, a Claude Code marketplace ([`tools_market`]),
+///   called `acme-tools` after its catalog, its plugin `formatter`
+///   gathered under it, `acme-tools.formatter`.
+fn sourcing(home: &Path) -> PathBuf {
+    let root = home.join("Sources");
+    fs::create_dir_all(&root).unwrap();
+    weaver(&root, &["init"]).unwrap();
+
+    let skills = source_at(home, "acme-skills", &ACME_SKILLS);
+    let gathered = weaver(&root, &["gather", "git", &skills]).unwrap();
+    assert!(gathered.ok, "{gathered:?}");
+    let rules = source_at(home, "team-rules", &TEAM_RULES);
+    let pin = commit_of(&rules);
+    let gathered = weaver(
+        &root,
+        &[
+            "gather",
+            "git",
+            "--kind",
+            "rules",
+            "--path",
+            "rules",
+            "--name",
+            "team-rules",
+            "--pin",
+            &pin,
+            &rules,
+        ],
+    )
+    .unwrap();
+    assert!(gathered.ok, "{gathered:?}");
+    source_at(home, "acme-tools", &ACME_TOOLS);
+    let files = tools_market();
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
+    let market = source_at(home, "tools-market", &files);
+    let gathered = weaver(
+        &root,
+        &["gather", "marketplace", "--plugin", "formatter", &market],
+    )
+    .unwrap();
+    assert!(gathered.ok, "{gathered:?}");
+
+    pin_times(&root);
+    root
+}
+
+/// The workspace [`sourcing`] builds, as the panel is answered with it: what
+/// its page of sources draws, each source with its name, its pin and the
+/// licences what it supplied says.
+#[test]
+fn write_the_snapshot_of_a_workspace_filled_from_sources() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("you");
+    let root = sourcing(&home);
+
+    let json = answered(&root, &Lookup::default());
+
+    let json = pinned(&json, dir.path(), Some(&root));
+    assert!(!json.contains(&*dir.path().to_string_lossy()), "{json}");
+    let snapshot: Value = serde_json::from_str(&json).unwrap();
+    let names: Vec<&str> = snapshot["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|source| source["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "src-acme-skills",
+            "team-rules",
+            "acme-tools",
+            "acme-tools.formatter"
+        ],
+        "{json}"
+    );
+    assert_eq!(snapshot["sources"][3]["parent"], "acme-tools", "{json}");
+    assert!(snapshot["sources"][1]["pin"].is_string(), "{json}");
+    assert_eq!(
+        snapshot["sources"][0]["licences"],
+        json!([
+            {"licence": "Apache License", "count": 1},
+            {"licence": "MIT", "count": 1},
+        ])
+    );
+    write("sources", &json);
+}
+
+/// Each change the panel's page of sources sends, previewed, then run on
+/// the workspace [`sourcing`] builds, as it was built, with what the
+/// backend answers: `acme-tools` added, its dry run first, then gathered,
+/// then gathered and stopped at its first step, before anything is placed;
+/// `src-acme-skills` gathered again, then every source; `src-acme-skills`
+/// renamed, then renamed to a name `team-rules` has, which is refused;
+/// `team-rules` forgotten, its dry run first; `src-acme-skills` gathered
+/// again and stopped at its first step; and the plugins of the marketplace
+/// `acme-tools` listed, then its `review` gathered.
+#[test]
+fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
+    let tools = |dir: &Path| {
+        let path = dir.join("you").join("src").join("acme-tools");
+        path.to_str().unwrap().to_owned()
+    };
+    let gather = |dir: &Path, dry_run: bool| {
+        json!({
+            "type": "gather", "url": tools(dir), "folder": ".", "reference": null,
+            "kind": "skill", "name": null, "pin": null, "dry_run": dry_run,
+        })
+    };
+    let rename = |to: &str| json!({"type": "rename_source", "from": "src-acme-skills", "to": to});
+    let remove = |yes: bool| json!({"type": "remove_source", "name": "team-rules", "yes": yes});
+    // Each task, and whether its run asks itself to stop at its first step.
+    let again = |_: &Path| json!({"type": "update_sources", "names": ["src-acme-skills"]});
+    let market = |dir: &Path| {
+        let path = dir.join("you").join("src").join("tools-market");
+        path.to_str().unwrap().to_owned()
+    };
+    let sent: [Sent; 12] = [
+        (&|dir| gather(dir, true), false),
+        (&|dir| gather(dir, false), false),
+        (&|dir| gather(dir, false), true),
+        (&again, false),
+        (&|_| json!({"type": "update_sources", "names": []}), false),
+        (&|_| rename("acme-skills"), false),
+        (&|_| rename("team-rules"), false),
+        (&|_| remove(false), false),
+        (&|_| remove(true), false),
+        (&again, true),
+        (
+            &|dir| json!({"type": "list_marketplace", "source": market(dir), "reference": null}),
+            false,
+        ),
+        (
+            &|dir| {
+                json!({
+                    "type": "gather_plugins", "source": market(dir), "reference": null,
+                    "plugins": ["review"],
+                })
+            },
+            false,
+        ),
+    ];
+
+    let mut answers = Vec::new();
+    let mut written = Vec::new();
+    for (sent, stopped) in sent {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("you");
+        let root = sourcing(&home);
+        let sent = sent(dir.path());
+        let backend = PanelBackend::launch(&root, &Lookup::default()).unwrap();
+        let task: Task = serde_json::from_value(sent.clone()).unwrap();
+        let preview = backend
+            .preview(&task)
+            .unwrap_or_else(|refusal| panic!("{sent}: {}: {}", refusal.code, refusal.message));
+        let underway = if stopped {
+            cancelled_at_first_step()
+        } else {
+            Underway::unfollowed()
+        };
+        let outcome = backend.run(task, &underway).unwrap();
+        let ran = json!({"lines": preview.lines, "outcome": outcome});
+        let answer = json!({"task": sent, "preview": preview, "ran": ran});
+        let json = serde_json::to_string(&answer).unwrap();
+        let json = pinned(&json, dir.path(), Some(&root));
+        assert!(!json.contains(&*dir.path().to_string_lossy()), "{json}");
+        written.push(serde_json::from_str::<Value>(&json).unwrap());
+        answers.push(answer);
+    }
+
+    let run = |index: usize| &answers[index]["ran"]["outcome"]["runs"][0];
+    let said = |index: usize| run(index)["stdout"].as_str().unwrap_or_default().to_owned();
+    for index in [0, 1, 2] {
+        assert_eq!(answers[index]["preview"]["cancellable"], true, "{index}");
+    }
+    assert!(said(0).contains("would add"), "{}", answers[0]);
+    assert!(said(1).contains("2 skills: 2 added"), "{}", answers[1]);
+    assert_eq!(
+        run(2)["error"]["code"],
+        "gather_cancelled",
+        "{}",
+        answers[2]
+    );
+    assert_eq!(answers[3]["ran"]["outcome"]["ok"], true, "{}", answers[3]);
+    assert_eq!(answers[4]["ran"]["outcome"]["ok"], true, "{}", answers[4]);
+    assert!(
+        said(5).starts_with("renamed source src-acme-skills to acme-skills"),
+        "{}",
+        answers[5]
+    );
+    assert_eq!(
+        run(6)["error"]["code"],
+        "source_name_taken",
+        "{}",
+        answers[6]
+    );
+    assert!(
+        said(7).starts_with("would forget the source team-rules"),
+        "{}",
+        answers[7]
+    );
+    assert!(answers[7]["preview"]["confirm"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(answers[8]["preview"]["confirm"][0]["caution"], "forgets");
+    assert!(
+        said(8).starts_with("forgot the source team-rules"),
+        "{}",
+        answers[8]
+    );
+    // Stopped, it says so of the source it stopped at, by the gather's code.
+    assert_eq!(run(9)["error"], Value::Null, "{}", answers[9]);
+    assert_eq!(
+        run(9)["stderr"][0]["code"],
+        "gather_cancelled",
+        "{}",
+        answers[9]
+    );
+    // The catalog, as JSON in the envelope, `formatter` said gathered and
+    // the npm package not gathered; then `review` gathered.
+    let listed: Value = serde_json::from_str(&said(10)).unwrap();
+    let entries = listed["data"]["catalog"]["entries"].as_array().unwrap();
+    assert_eq!(entries[0]["gathered"], "acme-tools.formatter", "{listed}");
+    assert_eq!(entries[2]["gatherable"], false, "{listed}");
+    assert_eq!(answers[11]["preview"]["cancellable"], true);
+    assert!(said(11).contains("acme-tools.review"), "{}", answers[11]);
+    let json = serde_json::to_string_pretty(&written).unwrap() + "\n";
+    write("gathered", &json);
+}
+
+/// Each step a gather reports, as the backend tells the panel it
+/// (`progress`'s `Step`): what the panel draws while one runs, a bar where
+/// the step counts, and stops offering a stop at once it places.
+#[test]
+fn write_the_steps_a_gather_reports() {
+    use mindweaver_cli::progress::{Progress, Step};
+
+    let steps: Vec<Step> = [
+        Gather::Connecting,
+        Gather::Receiving {
+            done: 120,
+            total: Some(340),
+        },
+        Gather::Resolving {
+            done: 80,
+            total: None,
+        },
+        Gather::CheckingOut {
+            done: 12,
+            total: Some(12),
+        },
+        Gather::Harvesting { done: 1, total: 2 },
+        Gather::Placing { done: 1, total: 2 },
+    ]
+    .into_iter()
+    .map(|step| Step::of(Progress::Gather(step)))
+    .collect();
+
+    let json = serde_json::to_string_pretty(&steps).unwrap() + "\n";
+    write("gathering", &json);
 }

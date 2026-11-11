@@ -208,9 +208,22 @@ under `apps/` with its own `Makefile`:
   registry gives it (`mcp_registry`), and one of its servers made into a
   definition's text, every input read from a variable, never a secret's
   value, and a manual step said where no command of its registry type
-  starts it (`mcp_registry::import`), none of it called from a command yet
-  (#107 is its first caller), the ledger (through
-  `port::LedgerStore`), installing, keeping installs out of git
+  starts it (`mcp_registry::import`), a registry asked over https, or
+  plain http on this machine alone, and what a search lists of each
+  server (`mcp_registry::Summary`, each way by its word, `Way::word`),
+  gathering from a plugin marketplace (`marketplace`: its catalog,
+  Claude Code's `.claude-plugin/marketplace.json` or Codex's
+  `.agents/plugins/marketplace.json`, read leniently and never obeyed, in
+  the dialect its place and its shape say, `Dialect`,
+  `Catalog`, each plugin an `Entry` and where it is a `Place`, recorded
+  as a source of its own kind and listed, `Listing`, and each plugin
+  chosen gathered as a source of its own, its child, through
+  `gather::plugin`, read by the manifest it keeps, an Agent Plugins
+  package's root `plugin.json`, Codex's or Claude Code's, `Manifest`,
+  `Format`, where its skills are looked for, `gather::Looking`,
+  `Gathered`, what no gather takes `NotGathered`), the
+  ledger (through `port::LedgerStore`), installing, keeping installs out
+  of git
   (`exclude`), a project's rules rendered into the block of its `AGENTS.md`
   (`agents_md`) and into Claude's rules folder (`claude_rules`), whether
   Claude reads that block and the `@AGENTS.md` import in a project's
@@ -312,7 +325,13 @@ under `apps/` with its own `Makefile`:
   (agents, share, targets), `gather`, `install`, `update` and `migrate`
   (each at both levels), `search` (mindweaver gather search, which reads
   the token GitHub's code search is asked with, and takes a result through
-  `gather`'s own function), `adopt` (mindweaver adopt), `export` and
+  `gather`'s own function), `registry` (mindweaver gather mcp search and
+  add, an MCP registry's server written into the library through `add`'s
+  own path, a dry run without `--yes`), `marketplace` (mindweaver gather
+  marketplace, which asks first for `--all` past the bound through a read
+  that writes nothing, and says what came of each plugin, what `gather
+  update` says of a marketplace too), `adopt` (mindweaver adopt), `export`
+  and
   `backup` (mindweaver export, mindweaver backup, which reads the token
   `--token-env` names) and `ui` (the panel, at
   both levels).
@@ -333,7 +352,10 @@ under `apps/` with its own `Makefile`:
   `Refusal`, what a front end with no terminal does not run,
   `Caution`, what a line takes away, which such a front end asks about
   first, and `Followed`, what a line does that a front end follows while
-  it runs and can stop, a gather, a backup and a search. `src/progress.rs`
+  it runs and can stop, a gather, a backup and a search, and `Catalogs`,
+  the MCP registry and skill directories `mindweaver ui --registry` and
+  `--finder-url` name, which the backend has the task module put on the
+  lines that ask them (`Task::commands_asking`). `src/progress.rs`
   says each one's steps in words, the line `mindweaver gather` draws and
   the TUI's box, and as the `Step` the panel's backend reports, paced
   (`progress::reported`).
@@ -411,8 +433,10 @@ under `apps/` with its own `Makefile`:
   `src/api/folders.ts` the query of the folders inside one, read again
   each time the explorer opens (`useFolders`),
   `src/api/draft.ts` the query of what core says of
-  a draft as it is typed (`useJudged`), and `src/api/workspaces.ts` the
-  query of what the header may switch to (`useWorkspaces`).
+  a draft as it is typed (`useJudged`), `src/api/workspaces.ts` the
+  query of what the header may switch to (`useWorkspaces`), and
+  `src/api/catalogs.ts` what a search of the catalogs found, read back
+  from what its run's line printed (`searched`).
   `src/pages/` holds one
   page per route (file routes): the overview (`index`), the projects
   (`projects`), a project's page (`project`, which `src/routes.ts` names by
@@ -426,10 +450,14 @@ under `apps/` with its own `Makefile`:
   the query), the library's MCP servers, each as each agent would be
   given it, and the form adding one or changing how the one the query
   names is started (`mcp`), the workspaces it loads and those this machine knows
-  (`loads`), the shelf (`shelf`) and the sources (`sources`). `src/address.ts` reads and changes
+  (`loads`), the shelf (`shelf`), the sources (`sources`) and the
+  catalogs, the skill directories and the MCP Registry searched, a
+  skill taken and a server added (`catalogs`). `src/address.ts` reads and changes
   the query a page keeps its state in, `src/library.ts` finds the projects
   holding one of the library's own, `src/boxes.ts` a box of the matrix in
   the snapshot, for the matrix and the command palette alike,
+  `src/plugins.ts` reads back what a listing of a marketplace's plugins
+  printed, as core's `MarketplaceListing`,
   `src/markdown.ts` draws a skill's
   markdown from its tokens, and `src/time.ts` says the ledger's times.
   `src/components/` holds the frame
@@ -452,11 +480,17 @@ under `apps/` with its own `Makefile`:
   library exported into a folder and backed up to a git repository, a
   token named only by its variable (`ExportForm`, `BackupForm`), the
   removal of one of the library's own everywhere, dry run first
-  (`RemoveOffer`), its rename (`RenameForm`), the editor, CodeMirror in a
+  (`RemoveOffer`), its rename (`RenameForm`), a source added, what a
+  gather of it would take or what a marketplace lists said first
+  (`SourceForm`), one listed with what can be done to it, a marketplace's
+  plugins under it (`SourceCard`), the plugins a marketplace's catalog
+  lists, to tick those to gather (`PluginPicker`), the editor, CodeMirror in a
   shadow root of its own (`MarkdownEditor`), what core says of a draft
   (`DraftVerdict`), the form of an MCP server's transport, each of its
   fields an option's value and a secret a variable's name
-  (`ServerForm`), the
+  (`ServerForm`), a search of the skill directories and its results,
+  each taken by sending it back (`SkillSearch`), and of the MCP Registry,
+  each server added once its dry run was read (`ServerSearch`), the
   matrix's grid, drawn a screen at a time (`AssignGrid`), and
   what the runner draws beside the pages:
   `CommandRunner`, which makes it and says how each task ended in a toast,
@@ -469,7 +503,8 @@ under `apps/` with its own `Makefile`:
   libraries for the CSP. `src/*.d.ts` are written by the Vite plugins and
   committed, and so is `src/api/generated/`, written from Rust by `make
   web/types`. `e2e/` is the browser suite: `run.ts` its driver,
-  `environment.ts` what every process it starts runs in, `fixture.ts` the
+  `environment.ts` what every process it starts runs in, git and a line
+  run apart among it, `fixture.ts` the
   workspaces it builds with the commands, `panel.ts` what the specs share,
   and the specs; `playwright.config.ts`, beside `vite.config.ts`, starts
   `mindweaver ui` over the shared workspace. Beside the suite, through the same
@@ -644,7 +679,12 @@ These are easy to break from a single file without noticing.
   rule for which lines they are, which `backend_test` holds the minds
   screen and the panel to, the same folders for the same marks, though the
   panel names a folder inside the workspace by its absolute path where the
-  screen names it by its route. What a front end with
+  screen names it by its route. So does a search's result the panel
+  takes: it sends the result back whole as the search printed it
+  (`Task::TakeSkill`), never a gather, and the task module turns it into
+  the line the TUI's take and `--take` run (`Task::taking`). A search of
+  the catalogs is a run of the search's line, never a query, whose
+  printed JSON the page reads back as the TUI does. What a front end with
   no terminal does not run is one list, `task::Refusal`, read off the
   parsed command by a match with no wildcard (`Refusal::of_mind`,
   `of_weaver`), so a new command says whether it is refused before it
@@ -652,13 +692,21 @@ These are easy to break from a single file without noticing.
   task carries no token, no variable's name and no `--gh`, so its lines
   hand none over: a gather's token comes from a shell alone. It carries
   its kind (`kind`, skills when a task leaves it out), which the TUI's
-  form never sets otherwise. The TUI's search of the skill directories, on
+  form never sets otherwise, and a name, a pin and a dry run (`name`,
+  `pin`, `dry_run`, none when a task leaves them out), which the panel's
+  page of sources sets, its dry run first. The TUI's search of the skill directories, on
   the shelf's page, is `Task::SearchSkills`, `mindweaver gather search
   --json`, its results read back from the JSON the line printed, by the
   names the envelope gives them, never a table's columns, and a result
   taken is the `Task::Gather` of its repository, folder and branch, the
   line `--take` amounts to, so the transcript gathers the same again
-  however the finders answer by then; it carries no token either. `edit` is
+  however the finders answer by then; it carries no token either. Its
+  search of the MCP Registry, `r` there, is `Task::SearchServers`,
+  `mindweaver gather mcp search --json`, read back the same way, and a
+  server picked is `Task::ImportServer` of its name and the version
+  listed, the dry run, shown as a page whose `y` runs the same task told
+  yes (`Reader::writes`); neither names a registry, so a browser sends no
+  address a line would take a program from. `edit` is
   refused in an editor and with `--contents -`, standard input, and run
   with `--contents FILE` (`Refusal::of_edit`); the one task that builds
   that line, the panel's save (`Task::Save`, its text and the hash it was
@@ -724,7 +772,18 @@ These are easy to break from a single file without noticing.
   takes away only the folders the ledger records as the source's, one
   folder name under the cache and under each shelf and never a link,
   before its rows, leaving every installation from it recorded, orphaned
-  (`LedgerStore::installed_from`).
+  (`LedgerStore::installed_from`). A marketplace, Claude Code's or
+  Codex's, is a source of its own kind whichever dialect its catalog is
+  in, and each plugin gathered from it a git source whose
+  `parent_id` names it, known by its `entry` in the catalog rather than by
+  where it is (`LedgerStore::child_for`, `sources_by_entry`), which the
+  catalog says each time, so `sources_by_identity` holds of the sources
+  no marketplace lists alone; a plugin is called after both
+  (`acme-tools.deploy`), at the `sha` its entry pins as its `pin`, with no
+  `reference` of its own. `gather update` and `gather remove` of a
+  marketplace reach each plugin of it, a plugin named alone gathered again
+  through its marketplace (`sources::update`, `sources::reached`, a
+  `Removal`'s `plugins`).
 - **Output is built, then printed.** Commands return an `Outcome` (stdout
   text, stderr lines, ok), so tests assert on the exact text a user sees.
   The two that run until they are stopped write as they run, the TUI its
@@ -741,7 +800,9 @@ These are easy to break from a single file without noticing.
 - **Reading commands print JSON in one envelope, and its names are a
   contract.** A reading command's `--json` (`list`, `show`, `validate`,
   `templates`, `status` and `doctor` at both levels, `workspaces`, `scan`,
-  `gather list`, `gather sources` and `gather search`) prints `render::json`'s `{"version": 2, "data": ..., "warnings":
+  `gather list`, `gather sources`, `gather search`, `gather mcp search`
+  and `gather marketplace --list`) prints `render::json`'s `{"version": 2,
+  "data": ..., "warnings":
   [...], "coded_warnings": [...]}`, never a shape of its own, with what its
   text says on stderr as `warning:` lines in `warnings`, the same lines
   with their codes in `coded_warnings`, and the exit status its text has;
@@ -1206,14 +1267,18 @@ These are easy to break from a single file without noticing.
     a scan is to look under or the explorer is to list, by an absolute,
     normalized path outside every `.mindweaver`, verbatim, each folder a
     listing holds held to the policy again and left out when refused
-    (`browse`). A gather's source is an address, held to the gather's own
+    (`browse`). A gather's source is an address, GitHub's `owner/repo`
+    among them, held to the gather's own
     rules, which refuse a credential in it, or a folder on this machine,
     as a path or a `file://` URL, held as a folder to link is
-    (`policy::source`), and so is a backup's repository; the folder an
+    (`policy::source`), and so are a backup's repository and the
+    repository of a search's result sent back to be taken; the folder an
     export writes into is held as a folder to link is, and a backup's
     token is named only by the variable holding it, one named for a token
     (`policy::token_variable`), never sent. The
-    browser supplies no `-C`, `--home`, `-W` or agent home: the backend runs
+    browser supplies no `-C`, `--home`, `-W` or agent home, nor where a
+    search or an add from a registry asks (`ui --registry`, `--finder-url`,
+    the launch's, held at launch to the line's rules): the backend runs
     every line with the launch's, against the workspace it acts on, the one
     it was launched on or one switched to since, named with `-W` in the
     line. A switch names a workspace only by its path as core's list of
@@ -1275,7 +1340,37 @@ These are easy to break from a single file without noticing.
     here is taken from a finder on this machine alone. Every word of one
     is made printable. A finder asked elsewhere than its own address
     (`--finder-url`, `Search::at`) is asked over https, or plain http to
-    this machine alone (`finder_url_invalid`).
+    this machine alone (`finder_url_invalid`), and so is an MCP registry
+    (`--registry`, `Registry::at`, `mcp_registry_base_insecure`), whose
+    answer is a program agents start. What an import from one makes is
+    written only through `add`'s own path (`lifecycle::add`,
+    `create::Start::Definition`), and said beforehand by the same checks
+    (`lifecycle::would_add`), never by a writer of its own, and nothing it
+    names is ever started.
+  - A marketplace's catalog is somebody else's JSON too (`marketplace`),
+    read only inside its clone, to 8 MiB, a link leading out refused
+    (`marketplace_catalog_outside`): an entry that cannot be read, a name
+    no source could be called after or two entries called one name among
+    it, is said by its code (`marketplace::UnreadEntry`) and costs none
+    beside it, and a key it does not know is passed over. Nothing it
+    names is ever run: a `command` source is refused with a message
+    (`marketplace_command_refused`), a `headersHelper` said and never run,
+    and npm and archive plugins are passed over, said. A catalog fetched
+    from elsewhere reaches no repository on this machine, a path or a
+    `file://` URL (`marketplace_plugin_local`). In Codex's dialect an
+    entry Codex does not resolve, a `github` or `command` source or a path
+    without `./`, is skipped, said (`marketplace_entry_unresolved`). A
+    plugin's skills are only the folders its entry or its manifest lists,
+    or the agent its manifest is written for finds in it, an Agent Plugins
+    package's only directly in its `skills/` and never deeper, each held
+    inside the plugin's folder (`gathered_listed_missing`); its manifest
+    is read only inside the clone, to 1 MiB, and one of a newer Agent
+    Plugins version refused (`marketplace_plugin_schema_unknown`); its
+    commands, agents, hooks, MCP and LSP servers and app connectors are
+    said and left, the files it keeps MCP servers in (`.mcp.json`,
+    `mcp.json`) named and never read nor imported, a plugin of nothing
+    else said and passed over (`marketplace_plugin_skillless`); and a
+    token goes on to a plugin only on the catalog's own host.
   - A project's artifact directories must stay inside the project, and so
     must the folders its `targets` name, outside `.mind` and any
     `.mindweaver` too (`misplaced_target`): refused when a change names one,
@@ -1852,7 +1947,13 @@ These are easy to break from a single file without noticing.
   skills in each layout a gather reads, `layouts` and `with_skills_in`,
   one that is one skill, `one_skill`, and one keeping rules by their routes
   in a folder beside its README and its licence, `with_rules_in`,
-  `ShelfMother`, among it a shelf of rules, `rules_into`),
+  `ShelfMother`, among it a shelf of rules, `rules_into`, and
+  `MarketplaceMother`, a marketplace's repository keeping its catalog,
+  among it one modelled on anthropics/skills, `anthropic_skills`, one
+  listing as many plugins of repositories of their own as asked,
+  `listing`, a plugin's files, `plugin`, a Codex marketplace, `codex`
+  and `codex_catalog`, one modelled on openai/plugins, `openai_plugins`,
+  and an Agent Plugins package's files, `agent_plugins_package`),
   and what a Mindflayer build left under its names (`MindflayerMother`:
   a workspace in a `.mindflayer`, and a project's blocks, exclude lines and
   rule files for Claude as that build wrote them, records included).
@@ -1909,7 +2010,15 @@ These are easy to break from a single file without noticing.
   asks skills.sh or api.claude-plugins.dev, whose terms D-15 has the owner
   read first: the CLI's end to end asks a server on loopback in their place
   (`--finder-url`, `e2e/searching.rs`), and the TUI's tests stand a
-  `Runner` in for the line.
+  `Runner` in for the line. Nor is the MCP Registry: core's suite hands
+  `mcp_registry` a fake answering what the registry sent when it was
+  recorded (`tests/fixtures/mcp-registry`), and the CLI's suites serve
+  the same recordings from a server they start on 127.0.0.1
+  (`common::mcp_registry`, `--registry`), the TUI's `Runner` naming it
+  in each line the screen hands over, and the panel's backend asks it and
+  skills.sh on loopback (`common::finder::SkillsSh`) as `ui --registry
+  --finder-url` launches it (`PanelBackend::asking`). The browser suite
+  starts both in its worker (`e2e/catalogs.ts`), from the same recordings.
 - Git sources are built in-process with `gix` (`common::repository`): no
   network and no `git` binary. A CLI fixture's project is a repository given
   `mind init` (`common::new_project`), so a local install keeps its copies out
@@ -1933,9 +2042,10 @@ These are easy to break from a single file without noticing.
   installs zsh so that both shells run there.
 - The CLI end to end is `apps/cli/tests/e2e_test.rs`, one target whose
   modules under `tests/e2e/` group the use cases by what a person is
-  doing (projects, authoring, installing, gathering, searching, updating,
-  reading, workspaces, settings, adopting, removing, loading, exporting,
-  upgrading, json, mistakes). Each test is one use case: it builds its own
+  doing (projects, authoring, installing, gathering, searching,
+  marketplaces, importing, updating, reading, workspaces, settings,
+  adopting, removing, loading, exporting, upgrading, json, mistakes).
+  Each test is one use case: it builds its own
   scenario (`e2e/scenario.rs`, `Scenario`), runs one command line as a
   person types it, and holds its exit status, stdout and stderr word for
   word, and what it left on the disk. A scenario is a temporary folder read
@@ -2103,8 +2213,18 @@ These are easy to break from a single file without noticing.
   each change the library's forms for a copy of it send, previewed and
   run each on the workspace as built, the backup that names a token's
   variable previewed alone and the one that names none stopped at its
-  first step, before it reaches any repository (`kept.json`), and each
-  step a backup reports (`steps.json`), none of them holding a token.
+  first step, before it reaches any repository (`kept.json`), each
+  step a backup reports (`steps.json`), and, of the first workspace
+  listing skills.sh and served asking the catalogs on loopback, what its
+  page of catalogs sends in turn, a search of each catalog, a result
+  taken and a server's add, dry run then yes (`searched.json`, each
+  catalog's port read as a fixed address), and, of a workspace filled
+  from repositories beside it and a marketplace's plugin
+  (`sources.json`), each change its page of sources sends, previewed and
+  run each on the workspace as built, a gather's dry run, one stopped at
+  its first step and a marketplace's catalog listed among them
+  (`gathered.json`), and each step a gather reports (`gathering.json`),
+  none of them holding a token.
   `tests/panel.ts` reads them and
   mounts the panel at an address, answering its queries with them, and a
   task with its preview and its run, told finished on the stream before
@@ -2148,8 +2268,11 @@ These are easy to break from a single file without noticing.
   something takes a workspace and a `mindweaver ui` of its own (`own`, built by
   `changeable`, or what the spec's `building` names, `assignable` for the
   matrix's, `updatable` for updating and removing, `authorable` for
-  editing, adding and renaming in the library or `serveable` for adding
-  an MCP server and assigning it, beside a copy of it
+  editing, adding and renaming in the library, `serveable` for adding
+  an MCP server and assigning it, `searchable` for searching the
+  catalogs, whose builder starts them on loopback and hands back the
+  options its server is launched with (`Launched`), or `gatherable` for
+  adding a source from a repository beside it, beside a copy of it
   and served by `serve`, through
   `environment.ts` as every process is, with what the spec's `variables`
   set in its environment alone, an MCP server's secret drawn as the run

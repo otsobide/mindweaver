@@ -476,10 +476,13 @@ mind migrate --names [--yes]
 
 mindweaver                 # the TUI: everything below, a key each
 mindweaver ui [--port PORT] [--no-open] [--dev] [--token-file PATH] [--log]
+              [--registry URL] [--finder-url FINDER=URL]...
                            # the control panel, in a browser, until Ctrl-C;
                            # mind ui is the same; with --no-open and
                            # --token-file, its API for scripts alone; with
-                           # --log, what it answered and how long each took
+                           # --log, what it answered and how long each took;
+                           # with --registry and --finder-url, the catalogs
+                           # its searches ask instead of each one's own
 mindweaver init [PATH] [--skills DIR] [--rules DIR]
                            # create a .mindweaver here, or in PATH
 mindweaver activate [DIR] [--shell SHELL]
@@ -528,6 +531,12 @@ mindweaver gather git <URL> [--kind KIND] [--path DIR] [--ref REF] [--pin COMMIT
                            # the branch is at; with --dry-run, say what it
                            # would take; with --token-env or --gh, log in
                            # over https with a token for this run
+mindweaver gather marketplace <SOURCE> --list|--plugin NAME...|--all [--yes] [--ref REF] [--name NAME] [--json] [--token-env VAR|--gh]
+                           # record a plugin marketplace, Claude Code's or
+                           # Codex's, and list the plugins its catalog
+                           # lists, or gather the skills of those named, or
+                           # of every one, each a source of its own; --all
+                           # past 25 needs --yes
 mindweaver gather list [--json]
                            # what is on the shelf or loaded, and where from
 mindweaver gather sources [--json]
@@ -541,11 +550,19 @@ mindweaver gather rename <NAME> <NEW>
                            # call a source something else
 mindweaver gather remove <NAME> [--yes]
                            # forget a source, its skills on the shelf and
-                           # its clone; what was installed from it stays,
-                           # orphaned; without --yes, say what would go
+                           # its clone, and a marketplace's plugins with it;
+                           # what was installed from it stays, orphaned;
+                           # without --yes, say what would go
 mindweaver gather search <QUERY> [--finder F]... [--token-env VAR|--gh] [--finder-url F=URL]... [--take N|--json]
                            # the skills the directories weaver.toml enables
                            # find; --take gathers one
+mindweaver gather mcp search <QUERY> [--registry URL] [--json]
+                           # the MCP servers the registry lists whose name
+                           # holds QUERY, with their versions and status
+mindweaver gather mcp add <SERVER> [--version V] [--name N] [--way N] [--registry URL] [--yes]
+                           # say what a registry's server would be written as
+                           # and an agent would run; with --yes, write it into
+                           # the library; nothing is started either way
 mindweaver install         # a screen for putting skills, rules and MCP
                            # servers into its projects
 mindweaver install (-p PROJECT)...|--all-projects <NAME> [--from ORIGIN] [--force] [--yes]
@@ -1386,8 +1403,9 @@ other-rules  https://github.com/other/rules  path agents                  1 skil
 ([machine-readable output](#machine-readable-output)), each as the control
 panel's snapshot lists it: the source's fields as `gather list --json` gives
 them, its `origin`, `shelved`, how many of each kind the shelf holds of it,
-and `gathered_at`, in Unix seconds, `null` while the shelf holds nothing of
-it.
+`gathered_at`, in Unix seconds, `null` while the shelf holds nothing of
+it, and `licences`, each licence what the shelf holds of it says, as
+`gather list` says it, with how many say it, most first.
 
 `gather rename` calls a source something else, held to the rules `--name`
 is held to, and refused for a name another source has, with the same
@@ -1578,6 +1596,215 @@ the TUI, `f` on the shelf's page searches the finders `weaver.toml`
 enables, with no token, and `enter` on a result gathers it, as
 `mindweaver gather git [--path <folder>] [--ref <branch>] <url>`.
 
+### Gathering from a Claude Code marketplace
+
+A Claude Code plugin marketplace is a repository whose catalog,
+`.claude-plugin/marketplace.json`, lists plugins, each kept in the
+marketplace's own repository or in one of its own. `gather marketplace`
+records the marketplace as a source and, with `--list`, lists what its
+catalog lists, gathering none of it:
+
+```
+$ mindweaver gather marketplace acme/tools --list
+acme-tools: https://github.com/acme/tools at 5c6d7e8
+  formatter  ./plugins/formatter                                                          Format the code
+  review     ./plugins/review                                                             Read a change
+  docs       https://github.com/acme/mono, path tools/docs                                Write the docs
+  deploy     github acme/deploy                             pinned 4f9c2a7                Ship the service
+  from-npm   npm @acme/x                                                    not gathered  A package from npm
+  runner     command                                                        not gathered  Run a script
+
+6 plugins listed, none gathered
+```
+
+The marketplace is `owner/repo` on GitHub, `owner/repo@ref` at a branch or
+tag, any git URL, or a folder on this machine, and is called what its
+catalog calls itself, `acme-tools` here, unless `--name` says otherwise,
+numbered when another source has that name. Only the catalog's repository
+is fetched: a catalog listing thousands of plugins, as the community's
+directories do, is listed without fetching any of them.
+
+`--plugin` gathers the plugins named, once each, and only their skills,
+each plugin a source of its own called after the marketplace and its name
+in the catalog. One in the marketplace's own repository is read from its
+clone, and one in a repository of its own is fetched from there, at the
+commit its entry pins it to when it pins one:
+
+```
+$ mindweaver gather marketplace acme/tools --plugin formatter --plugin deploy
+acme-tools: https://github.com/acme/tools at 5c6d7e8, 6 plugins listed
+
+acme-tools.formatter: https://github.com/acme/tools at 5c6d7e8
+  added  format  Format the code
+
+1 skill: 1 added, 0 updated, 0 unchanged
+
+acme-tools.deploy: https://github.com/acme/deploy at 4f9c2a7, pinned
+  added  ship  Ship the service
+
+1 skill: 1 added, 0 updated, 0 unchanged
+note: formatter: its hooks are not gathered: only a plugin's skills are
+```
+
+A plugin's skills are the folders its entry lists in `skills`, as
+anthropics/skills lists each of its two plugins' (each a skill, or a
+folder of skills); with none listed, a `SKILL.md` at the plugin's root
+makes it one skill, and otherwise each folder of its `skills/` holding one
+is. What else a plugin keeps or declares, its commands, agents, hooks, MCP
+and LSP servers, is said in a note and left where it is, the file it keeps
+MCP servers in named, `.mcp.json`, and never imported. A skill that says
+nothing of its licence is under the plugin's, as its entry or its own
+`.claude-plugin/plugin.json` declares it, which `gather list` shows. The
+skills install as any on the shelf do, `--from acme-tools.formatter` naming
+the plugin when another source offers the same name.
+
+`--all` gathers every plugin the catalog lists. Past 25 to gather it lists
+them, says what it would take and gathers nothing, writing nothing, unless
+`--yes` says to go ahead:
+
+```
+$ mindweaver gather marketplace acme/directory --all
+...
+120 plugins to gather, more than 25 at once: nothing gathered: add --yes to gather every one, or name the ones wanted with --plugin
+```
+
+Only a plugin kept in git is gathered: one from npm or an archive is said
+and passed over, and so is one whose source is a command to run, which
+Mindweaver never runs, whatever it says; nor does it run the
+`headersHelper` an entry names, which it says in a note. A plugin a catalog
+fetched from elsewhere names by a path or a `file://` URL on this machine is
+not gathered either: a catalog reaches no repository of the machine it is
+gathered on, where one in a folder on this machine may name its neighbours.
+Under `--all` each is a note; named with `--plugin`, a warning, and the
+command exits non-zero, the rest gathered all the same:
+
+```
+$ mindweaver gather marketplace acme/tools --plugin runner
+acme-tools: https://github.com/acme/tools at 5c6d7e8, 6 plugins listed
+warning: runner: its source is a command to run, which Mindweaver never runs: only a plugin kept in git is gathered
+```
+
+A plugin named that the catalog does not list is refused before any is
+gathered. One whose entry cannot be read, a name used twice or none at all,
+a source that names nothing to fetch or a `sha` that is no commit in full,
+is a warning beside the rest, never a reason to list nothing; a key the
+catalog holds that this build does not know is passed over. One that
+cannot be fetched is a warning too, and the rest are gathered. `--list
+--json` prints the marketplace and every plugin, where it is and whether it
+is gathered, in the envelope ([machine-readable
+output](#machine-readable-output)).
+
+`gather sources` lists a marketplace with its plugins under it:
+
+```
+$ mindweaver gather sources
+acme-tools              https://github.com/acme/tools                                           marketplace
+  acme-tools.deploy     https://github.com/acme/deploy                          pinned 4f9c2a7  1 skill      gathered 2026-11-10 14:07 UTC
+  acme-tools.formatter  https://github.com/acme/tools   path plugins/formatter                  1 skill      gathered 2026-11-10 14:07 UTC
+```
+
+`gather update acme-tools` reads its catalog again and gathers again each
+plugin of it gathered before, as the catalog says it is now: from where it
+is, at the commit it pins; one it no longer lists is said, and left as it
+was. A plugin named alone, `gather update acme-tools.deploy`, is gathered
+again through its marketplace in the same way. `gather remove acme-tools`
+forgets the marketplace and each plugin of it, every one's clone and shelf
+folder, saying each, and leaves what was installed from them orphaned:
+
+```
+$ mindweaver gather remove acme-tools
+would forget the source acme-tools, gathered from https://github.com/acme/tools
+would remove its clone, at /home/you/Projects/.mindweaver/cache/github.com-acme-tools
+would forget its plugin acme-tools.deploy, gathered from https://github.com/acme/deploy
+would remove its 1 skill from the shelf, at /home/you/Projects/.mindweaver/skills/github.com-acme-tools.deploy
+would remove its clone, at /home/you/Projects/.mindweaver/cache/github.com-acme-tools.deploy
+would forget its plugin acme-tools.formatter, gathered from https://github.com/acme/tools
+would remove its 1 skill from the shelf, at /home/you/Projects/.mindweaver/skills/github.com-acme-tools.formatter
+would leave format installed in collapse, orphaned
+nothing removed: add --yes to go ahead
+```
+
+A token handed over with `--token-env` or `--gh` goes to the catalog's
+host, and on to a plugin only on that same host. In the TUI, `m` on the
+shelf's page, or on a marketplace in the sources screen, lists one's
+plugins; `space` ticks those to gather and `enter` gathers them, as
+`mindweaver gather marketplace --plugin <name>... <source>`.
+
+### Gathering from a Codex marketplace
+
+A Codex marketplace keeps its catalog at
+`.agents/plugins/marketplace.json`, each plugin a `local` source in the
+marketplace's own repository, a `url` or a `git-subdir`, beside the
+`policy` and `category` Codex requires, which a gather passes over.
+`gather marketplace` reads it as it reads Claude Code's, its options doing
+the same:
+
+```
+$ mindweaver gather marketplace acme/codex-tools --list
+acme-codex: https://github.com/acme/codex-tools at 5c6d7e8
+  design   ./plugins/design
+  tracker  ./plugins/tracker
+  release  ./plugins/release
+
+3 plugins listed, none gathered
+```
+
+A repository keeping both catalogs is read at Claude Code's. Wherever a
+catalog is, it is read in the dialect its entries are written in: Codex's
+`local` sources and `policy`, or Claude Code's `github` sources and paths
+named bare under its `pluginRoot`; where they say both, or neither, as a
+catalog of `./` paths and URLs says, by where it is. `--list --json` says
+which in `catalog.dialect`, `codex` or `claude-code`, and where it read it
+in `catalog.file`.
+
+A plugin is read by the manifest it keeps, whichever catalog lists it,
+the first of these: an Agent Plugins package's root `plugin.json`,
+declaring the format's `$schema`, whose skills are each folder directly
+in its `skills/` that holds a `SKILL.md`, never one deeper, nor a
+`SKILL.md` at its root, nor what its entry lists; Codex's
+`.codex-plugin/plugin.json`, whose skills are the folders its `skills`
+lists, or else each folder of its `skills/`; and Claude Code's
+`.claude-plugin/plugin.json`, or none, read as above. The licence it
+declares is the one a skill of it saying none is under. A package of a
+later version of the Agent Plugins format than this build reads is said
+and not gathered.
+
+What a plugin keeps beside its skills is said, Codex's app connectors
+among it, and the files it keeps MCP servers in are named, `.mcp.json` or
+the Agent Plugins format's `mcp.json`, and never imported: `mindweaver add
+mcp` writes a server into the library when you want one. A plugin of
+nothing but those, as many of Codex's own are, is said and passed over
+under `--all`, and named with `--plugin`, fails the command:
+
+```
+$ mindweaver gather marketplace acme/codex-tools --all
+acme-codex: https://github.com/acme/codex-tools at 5c6d7e8, 3 plugins listed
+
+acme-codex.design: https://github.com/acme/codex-tools at 5c6d7e8
+  added  design-to-code  Turn a design into code
+
+1 skill: 1 added, 0 updated, 0 unchanged
+
+acme-codex.release: https://github.com/acme/codex-tools at 5c6d7e8
+  added  tag  Tag a release
+
+1 skill: 1 added, 0 updated, 0 unchanged
+note: design: its agents, MCP servers (`.mcp.json`) and app connectors are not gathered: only a plugin's skills are
+note: tracker: holds no skill, only MCP servers (`.mcp.json`) and app connectors, so nothing of it is gathered: only a plugin's skills are
+note: release: its MCP servers (`mcp.json`) are not gathered: only a plugin's skills are
+```
+
+An entry Codex cannot resolve, a source of a kind it does not fetch,
+`github` among them, or a path not written from the repository's root
+with `./`, is skipped as Codex skips it, with a warning, and the rest are
+listed all the same, the command exiting non-zero:
+
+```
+$ mindweaver gather marketplace acme/codex-tools --list
+...
+warning: forge: its source is of the kind `github`, which Codex does not resolve, so it is not listed, as Codex skips it
+```
+
 ### What a workspace keeps
 
 ```
@@ -1599,8 +1826,8 @@ enables, with no token, and `enter` on a result gathers it, as
                   updated it, if it did
   lock            held by a command while it changes the workspace
   cache/<source>/ the clone, kept so a gather can be looked at afterwards
-  cache/http/     what the skill directories answered a search, kept ten
-                  minutes
+  cache/http/     what the skill directories and the MCP Registry
+                  answered, kept ten minutes
   skills/<source>/<name>/SKILL.md
   rules/<source>/<route>.md
                   what was gathered, by the source it came from
@@ -2317,7 +2544,9 @@ with its `code` and `message`.
 The commands that report what is there take `--json`, at either level:
 `list`, `show`, `validate`, `templates`, `status` and `doctor`, and `mindweaver
 workspaces`, `mindweaver scan`, `mindweaver gather list`, `mindweaver
-gather sources` and `mindweaver gather search`. Each prints what it read in
+gather sources`, `mindweaver gather search`, `mindweaver gather mcp
+search` and `mindweaver gather marketplace --list`. Each prints what it
+read in
 one envelope, the same for every command, so a script or an agent reads
 them all one way, and reads what a workspace holds, its own artifacts and
 each project's, their templates, what it can install from elsewhere and
@@ -2403,6 +2632,15 @@ warning: /home/you/Projects/collapse/skills/broken/SKILL.md: the file does not s
   counts them, and the `finders` that found it; the finders `asked`, those
   `skipped` for want of a token, and each finder that failed and each result
   dropped in `failures`, each with its `code` and `message`.
+- `gather mcp search`: the `query`, and each server found in `servers`, by
+  the `name` `gather mcp add` takes, its `version`, `title` and
+  `description`, its `status` (`active` or `deprecated`, or a word this
+  Mindweaver does not know, as the registry wrote it) and `status_message`,
+  when it was `updated_at`, and the `ways` it is started or reached, each by
+  its word (`npm`, `pypi`, `oci`, `http`, `sse` and the like) in the order
+  `--way` counts them; `as_of`, the newest time the registry gave anything
+  listed, and `whole`, false when the listing stopped short, which a
+  warning says.
 - `status`, `workspaces` and `scan`: the reports shown in [what each project
   has](#what-each-project-has), [the weavers this machine
   knows](#the-weavers-this-machine-knows) and [commands](#commands).
@@ -2790,8 +3028,8 @@ Every key runs a command you could have typed, through the same parser:
 | `x` | export the library into a folder, a kind at a time when some are unticked; ticking `replace` lets it change or remove what an earlier export wrote there, once you say yes | `mindweaver export [--kind <kind>]... [--yes] <folder>` |
 | `b` | back the library up to a git repository, on a branch, with a message and the variable a token is read from when you type them, showing each step; `esc` stops it, until it starts pushing | `mindweaver backup [--branch <branch>] [--kind <kind>]... [--message <message>] [--token-env <variable>] <url>` |
 | `L` | load another workspace's own skills and rules; enter on a loaded one unloads it | `mindweaver load <path>`, `mindweaver unload <path>` |
-| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>` |
-| `S` | the sources the shelf is filled from: `u` gathers the one picked again and `U` every one, each showing how far it has got, `esc` stopping it until it starts placing; `d` forgets the one picked, once you say yes | `mindweaver gather update <name>`, `mindweaver gather update --all`, `mindweaver gather remove --yes <name>` |
+| `s` | what is on the shelf; there, `f` searches the skill directories `weaver.toml` enables, with no token, showing which it is asking (`esc` stops it before the next), and `enter` on a result gathers it from its folder; `r` searches the MCP Registry, `enter` on a server shows what adding it would write, and `y` there writes it into the library; `m` lists the plugins a plugin marketplace's catalog lists, `space` ticks those to gather and `enter` gathers them | `mindweaver gather list`; `mindweaver gather search --json <query>`, and with `enter`, `mindweaver gather git [--path <folder>] [--ref <branch>] <url>`; `mindweaver gather mcp search --json <query>`, then `mindweaver gather mcp add --version <version> <server>`, and with `y`, the same with `--yes`; `mindweaver gather marketplace --list --json [--ref <branch>] <source>`, and with `enter`, `mindweaver gather marketplace [--ref <branch>] --plugin <name>... <source>` |
+| `S` | the sources the shelf is filled from: `u` gathers the one picked again and `U` every one, each showing how far it has got, `esc` stopping it until it starts placing; `d` forgets the one picked, once you say yes; `m` lists the plugins of the marketplace picked, or of the one a plugin picked is listed by | `mindweaver gather update <name>`, `mindweaver gather update --all`, `mindweaver gather remove --yes <name>` |
 | `w` | the weavers this machine knows, the one in use marked | `mindweaver workspaces` |
 | `i` | install skills, rules and MCP servers from the workspace's own, a loaded workspace, or the shelf; `tab` switches between them, and `v` turns the screen round to every project for one of them | `mindweaver install` opens it; `a` runs `mindweaver install -p <project>... --from <origin> <kind:name>`, with `--yes` for an MCP server from elsewhere than the library once `a` has shown what each agent would run, and `mindweaver uninstall -p <project>... <kind:name>` |
 | `R` | read the disk again | nothing: it changes nothing |
@@ -2883,6 +3121,7 @@ parser, one at a time. A command that would open a screen, an editor or a
 shell, or read standard input, is refused, and so is a path outside what
 the workspace allows, each with a reason and a code. A gather or a backup
 runs as any change does, its dialog showing each step as it takes it, with
+a bar of how far it has got where the step counts what it does, and
 **Stop**, which stops it until it starts placing what it read on the shelf,
 or pushing, as in the TUI; past that, the dialog says it is too late to
 stop, and it finishes. The first Ctrl-C (or, on Unix, the `SIGTERM` `kill`
@@ -2944,7 +3183,10 @@ and changes how one is started from its **MCP servers** page, brings what is ins
 takes out what nothing offers from **Updates**, removes one of the
 library's own everywhere, its dry run first, edits, adds and renames the
 library's own, adopts a skill somebody keeps in a project's agents'
-folders, loads and unloads other workspaces from **Loads**, and switches
+folders, loads and unloads other workspaces from **Loads**, adds sources,
+gathers them again, renames and forgets them from **Sources**, searches the
+skill directories and the MCP Registry from **Catalogs**, taking a skill
+onto the shelf and adding a server to the library, and switches
 to another workspace from the header, and installs, updates all and links
 from the command palette (below) too; everything else is still a command
 away.
@@ -3227,12 +3469,92 @@ machine knows it.
 **The shelf** lists everything gathered, filtered by kind or by name,
 summary or origin, each with the commit it was taken at, when, and its
 origin as `--from` takes it: the address it came from, with `#` and the
-branch when one was asked for. **Sources** lists where the shelf is filled
-from, each with that same origin, the branch, the folder harvested, the
-commit last gathered and what it supplied, and below them what happened
-lately: the latest gathers, installs, uninstalls, relinks and adoptions the
-ledger logged, newest first, with every URL in them shown without
-credentials. An empty shelf names `mindweaver gather git`.
+branch when one was asked for. An empty shelf names `mindweaver gather
+git`.
+
+**Sources** lists where the shelf is filled from, each by the name
+`--from` takes, with that same origin, the branch, the folder harvested,
+the commit it is pinned to, if any, the commit last gathered, the licences
+what it supplied says, each with how many say it, what it supplied and
+when, and a Claude Code marketplace with the plugins gathered of it under
+it. Below them is what happened lately: the latest gathers, installs,
+uninstalls, relinks and adoptions the ledger logged, newest first, with
+every URL in them shown without credentials.
+
+**Add a source**, above the list, gathers a git repository or a Claude
+Code marketplace, each a command shown before it runs. A repository, as
+`gather git` takes it (an address, `owner/repo`, `owner/repo@ref`, a
+folder's address on GitHub or GitLab, or the absolute path of one on this
+machine, typed or chosen with **Browse**), takes skills or rules, from the
+folder named, at the branch named, called the name typed and pinned to
+the commit typed, each left out of the line when it is left empty. **See
+what it would take** runs it with `--dry-run` first, which writes nothing
+and shows what a gather would add, update, leave and take off the shelf;
+**Gather** then runs the same line without it, offered only while the
+fields say what the dry run was of. A marketplace's catalog is listed
+first, `mindweaver gather marketplace --list --json`, which records the
+marketplace as a source and gathers none of its plugins; each plugin it
+lists is then a box, with where it is, its version, its licence, the
+source it was gathered as and what it holds that is not gathered, one no
+gather takes listed and never ticked, and the plugins ticked are gathered
+by name, `mindweaver gather marketplace --plugin <name>... <source>`. No
+token is typed here, nor sent: a private repository logs in as the
+server's machine's git credential helpers do, and a token is handed over
+from a shell alone.
+
+Each source is gathered again (`mindweaver gather update <name>`), or
+every one at once (`--all`), renamed (`mindweaver gather rename`, refused
+by its code for a name another source has), and forgotten, what forgetting
+it would do shown first (`mindweaver gather remove <name>`), then the line
+with `--yes`, a confirmation since it deletes what it put on the shelf
+and its clone and leaves what was installed from it orphaned. A
+marketplace's card lists its plugins again, to gather more of them. A
+gather, an update or a listing is followed while it runs, with its bar and
+**Stop**, and once it is over, stopped or not, what it said stays on the
+page, each line with its code, after the toast has gone.
+
+**Catalogs**, below them, finds skills and MCP servers to take, and takes
+them with the commands the CLI uses. Each search is a change like any
+other, its line shown before it runs, and what it found is read from what
+the line printed: your browser asks no catalog anything, and is never
+given one's address.
+
+- **Skill directories** asks the directories your workspace's
+  `weaver.toml` lists in `finders` ([searching the skill
+  directories](#searching-the-skill-directories)): type what to look for
+  and **Search** runs `mindweaver gather search --json <query>`, followed
+  as a gather is, each directory it asks shown as it asks it, with
+  **Stop**. Each skill found is listed as the command lists it: its name,
+  the finders that found it, its repository, the branch a finder named,
+  its folder there, or none, when the whole repository is gathered, and
+  its installs or stars. **Take** gathers one onto the shelf, `mindweaver
+  gather git [--path <folder>] [--ref <branch>] <repository>`, the line
+  `--take` would run, shown first. GitHub's code search needs a token,
+  which the panel never hands over, so it is never asked from here, and
+  the line says so; search it from a terminal with `--gh` or
+  `--token-env`. With no finder listed but GitHub's, the default, a
+  search runs nothing and says why (`finder_none_asked`).
+- **MCP Registry** asks the official registry ([from the MCP
+  Registry](#from-the-mcp-registry)): **Search** runs `mindweaver gather
+  mcp search --json <query>`, listing each server by the name the
+  registry gives it, its version, its status by the registry's word, what
+  it is for and each way it is started or reached. **See what adding it
+  writes** runs the add's dry run, `mindweaver gather mcp add --version
+  <version> <server>`, and shows what it said: what an agent would run or
+  reach, the variables it reads and where it would be written, writing
+  nothing. Only then does **Add to the library** run the same line with
+  `--yes`, shown first, which writes the definition into the library, for
+  **MCP servers** to show and **Assign** to install. Nothing is started
+  either way.
+
+`mindweaver ui --registry <url>` has every search and add of the panel's
+ask that registry in place of the official one, a mirror serving the same
+API, and `--finder-url <finder>=<url>`, once for each, a skill directory
+at another address that speaks its API, as the command's own options do:
+each over https, or plain http on this machine, held to that as the panel
+starts, and named on every line that asks it, so a line copied from the
+panel asks the same catalog. Only whoever starts the panel names them; a
+browser names no address.
 
 **Assign** is a matrix of everything there is to install against every
 project: a row for each skill, rule and MCP server the library, a loaded workspace or
@@ -4454,6 +4776,166 @@ A project an older Mindweaver made keeps none either: one a `mind.toml`
 marks whatever folders it has, and one a `settings.json` marks unless its
 `directories` name a folder for them, as somebody may have written there by
 hand. Adding one to either otherwise points at `mind migrate` first.
+
+### From the MCP Registry
+
+The official [MCP Registry](https://registry.modelcontextprotocol.io) lists
+servers as their publishers describe them. `gather mcp search` lists those
+whose name holds what you look for, three characters or more, each by the
+name the registry gives it, its latest version, its status and each way
+it is started or reached, a package by its registry (`npm`, `pypi`, `oci`,
+`nuget`, `mcpb`) and a server already running by its transport (`http`,
+`sse`):
+
+```
+$ mindweaver gather mcp search airtable
+ai.waystation/airtable                           0.3.1   active  http, sse
+com.airtable/mcp                                 0.1.0   active  http
+com.insightfulpipe/airtable                      1.0.0   active  http
+com.mcparmory/airtable                           1.0.3   active  pypi, oci
+io.github.Automations-Project/airtable-user-mcp  2.1.1   active  npm
+io.github.domdomegg/airtable-mcp-server          1.14.0  active  npm, oci, mcpb
+io.github.mrfentmen/airtable-mcp                 1.1.0   active  npm
+io.github.pipeworx-io/airtable                   0.2.1   active  npm, http
+```
+
+`--json` adds each one's title and description ([machine-readable
+output](#machine-readable-output)). A search reads the registry a page at a
+time, and one as wide as `mcp` stops after two thousand servers and says
+so, with what it read. A query shorter than three characters asks nothing:
+
+```
+$ mindweaver gather mcp search ab
+error: `ab` is too short to search for: the registry takes 3 characters or more
+```
+
+`gather mcp add` makes one of them a definition of the library's, by its
+name and, with `--version`, a version other than the latest. Without
+`--yes` it writes nothing and says what it would write: the server's
+version and status, what an agent would run or the address it would
+reach, each variable it reads where the agents run, and where it would go:
+
+```
+$ mindweaver gather mcp add io.github.buildkite/buildkite-mcp-server
+io.github.buildkite/buildkite-mcp-server 0.7.0, active
+  runs: docker run -i --rm -e BUILDKITE_API_TOKEN ghcr.io/buildkite/buildkite-mcp-server:0.7.0
+  reads $BUILDKITE_API_TOKEN (a secret) where the agents run
+would create mcp buildkite-mcp-server at /home/you/Projects/.mindweaver/library/mcp/buildkite-mcp-server.toml
+nothing written: add --yes to go ahead
+$ mindweaver gather mcp add io.github.buildkite/buildkite-mcp-server --yes
+io.github.buildkite/buildkite-mcp-server 0.7.0, active
+  runs: docker run -i --rm -e BUILDKITE_API_TOKEN ghcr.io/buildkite/buildkite-mcp-server:0.7.0
+  reads $BUILDKITE_API_TOKEN (a secret) where the agents run
+created mcp buildkite-mcp-server at /home/you/Projects/.mindweaver/library/mcp/buildkite-mcp-server.toml
+```
+
+Nothing is started, then or ever by Mindweaver: the definition is what an
+agent starts once `install` gives it to a project, as any server of the
+library. It is written as `add` writes one, held to the same rules, and
+says where it came from:
+
+```toml
+# An MCP server imported from an MCP registry: each agent's own entry
+# for it is written from this file, and `show` says how each agent is
+# given it.
+format = 1
+name = "buildkite-mcp-server"
+description = "MCP server exposing Buildkite API data (pipelines, builds, jobs, tests) to AI tooling and editors."
+
+# How an agent starts it: the program, what it is started with, and what
+# its environment is given beside the agent's own.
+[transport]
+type = "stdio"
+command = "docker"
+args = ["run", "-i", "--rm", "-e", "BUILDKITE_API_TOKEN", "ghcr.io/buildkite/buildkite-mcp-server:0.7.0"]
+env = { BUILDKITE_API_TOKEN = "{BUILDKITE_API_TOKEN}" }
+
+# What is supplied when an agent starts it, each written between braces
+# where it goes and read from the environment variable it names: no value
+# is written here, and a secret never.
+[[inputs]]
+name = "BUILDKITE_API_TOKEN"
+kind = "env"
+description = "Buildkite API token for authentication. Get one from https://buildkite.com/user/api-access-tokens"
+required = true
+secret = true
+env_var = "BUILDKITE_API_TOKEN"
+
+# Where it came from: the registry, what it names the server, and the
+# version imported.
+[provenance]
+registry = "https://registry.modelcontextprotocol.io"
+upstream_name = "io.github.buildkite/buildkite-mcp-server"
+version = "0.7.0"
+fetched_at = 2026-11-10T12:00:00Z
+```
+
+A package is started by its registry's command, pinned to its version:
+`npx -y <package>@<version>` for npm, `uvx <package>==<version>` for PyPI,
+`dnx <package>@<version>` for NuGet, and `docker run -i --rm` for an image,
+each of its variables passed into the container with `-e`. What the
+registry leaves to whoever runs the server is read from an environment
+variable, and a secret's value is never written, whatever the registry
+holds there; one it calls optional is left out, and said. It is named
+after its owner and its own name, `--name` naming it otherwise. A server
+listing more than one way is written from the first an agent reaches with
+nothing installed, a server over streamable HTTP, then a package, then
+one over server-sent events, and `--way` writes another, by its place
+from 1:
+
+```
+$ mindweaver gather mcp add ai.biel/biel-ai
+ai.biel/biel-ai 2.0.0, active
+  way 1 of 2 (http); --way writes another: 2 sse
+  reaches: https://mcp.biel.ai/v2/{project_slug}/mcp
+  reads $BIEL_AI_PROJECT_SLUG where the agents run
+would create mcp biel-ai at /home/you/Projects/.mindweaver/library/mcp/biel-ai.toml
+nothing written: add --yes to go ahead
+$ mindweaver gather mcp add ai.biel/biel-ai --way 2
+ai.biel/biel-ai 2.0.0, active
+  way 2 of 2 (sse); --way writes another: 1 http
+  reaches: https://mcp.biel.ai/sse?project_slug={project_slug}&domain={domain}
+  reads $BIEL_AI_PROJECT_SLUG and $BIEL_AI_DOMAIN where the agents run
+would create mcp biel-ai at /home/you/Projects/.mindweaver/library/mcp/biel-ai.toml
+nothing written: add --yes to go ahead
+note: https://mcp.biel.ai/sse?project_slug={project_slug}&domain={domain}: reached over server-sent events, which the MCP specification has replaced, and which Codex and OpenCode do not take
+```
+
+A `note:` says what you may want to know before writing it, and fails
+nothing: a server its publisher deprecated, with why, is added all the
+same.
+
+```
+$ mindweaver gather mcp add ai.agentlookups/greenlight --yes
+ai.agentlookups/greenlight 1.0.0, deprecated
+  reaches: https://solar.agentlookups.ai/mcp
+created mcp agentlookups-greenlight at /home/you/Projects/.mindweaver/library/mcp/agentlookups-greenlight.toml
+note: deprecated by its publisher: GreenLight closed on 2026-09-28 because its answers could not be kept correct; the server answers 410 Gone. Notice: https://solar.agentlookups.ai/
+```
+
+What no command of its registry's starts is never guessed: an MCP bundle,
+a Rust crate, a registry this Mindweaver does not know, or a package that
+serves over HTTP once started is a step to take by hand, said with what to
+do, and nothing is written. Neither is a server deleted from the registry,
+a version it does not hold, nor one of a name the library holds already,
+whose file is left as it is:
+
+```
+$ mindweaver gather mcp add app.internetmonitor/internet-monitor --yes
+error: `app.internetmonitor/internet-monitor` is started or reached in no way Mindweaver writes; by hand: an MCP bundle at https://github.com/andrscrrn/internet-monitor-mcp/releases/download/v1.0.2/internet-monitor.mcpb (SHA-256 6414b553daf4ab512828dcc53143c1170bfdb30fde001388731329e6acf3df52), which Mindweaver does not install: download it, check it against its SHA-256, and install it in each agent by hand
+$ mindweaver gather mcp add ai.clawfetch/mcp --version 9.9.9 --yes
+error: the registry holds no version 9.9.9 of `ai.clawfetch/mcp`
+$ mindweaver gather mcp add ai.clawfetch/mcp --yes
+error: /home/you/Projects/.mindweaver/library/mcp/clawfetch-mcp.toml: already exists, and is left alone
+```
+
+`--registry` asks a mirror serving the registry's API instead, over https,
+or plain http on this machine alone, since what it answers is a program
+agents will start. What the registry answered is kept in the workspace's
+`cache/http` for ten minutes, once the workspace is made, so a search and
+an add made soon after it ask once. In the TUI, `r` on the shelf's page
+searches the official registry, `enter` on a server shows what adding it
+would write, and `y` there writes it.
 
 ## Upgrading
 

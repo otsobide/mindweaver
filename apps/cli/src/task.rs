@@ -27,6 +27,7 @@
 //! command of exactly these words ([`shell`]).
 
 use clap::Parser as _;
+use mindweaver_core::finder::Hit;
 use mindweaver_core::gather;
 use mindweaver_core::install::Change;
 use mindweaver_core::mcp;
@@ -35,7 +36,9 @@ use mindweaver_core::{codes, hash, Agent, Kind, Names, Share, WeaverWorkspace, Q
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{Cli, Command, Editing, GatherCommand, Given, WeaverCli, WeaverCommand};
+use crate::{
+    Cli, Command, Editing, GatherCommand, Given, RegistryCommand, WeaverCli, WeaverCommand,
+};
 
 /// What an `agents` line says, as the toggles have it.
 ///
@@ -261,19 +264,62 @@ pub enum Task {
     /// `mindweaver workspaces`: the workspaces this machine knows, the one in
     /// use marked, to read.
     Workspaces,
-    /// `mindweaver gather search --json <query>`: the skill directories
-    /// the workspace enables asked what they find, read back from the JSON
-    /// the line prints, for a front end to list and take one from with a
-    /// [`Gather`](Task::Gather) of its repository and its folder (#108).
+    /// `mindweaver gather search [--finder-url <finder>=<url>]... --json
+    /// <query>`: the skill directories the workspace enables asked what
+    /// they find, read back from the JSON the line prints, for a front end
+    /// to list and take one from with a [`Gather`](Task::Gather) of its
+    /// repository and its folder (#108), or, from the panel, a
+    /// [`TakeSkill`](Task::TakeSkill) of it.
     ///
     /// No token, nor the name of a variable holding one: a front end hands
     /// none over (D-16), so the line asks no finder that needs one, GitHub's
     /// code search, and says so. JSON, since what a front end takes is what
     /// it reads, by the names the envelope's `data` gives each result, never
-    /// a table's columns read back.
+    /// a table's columns read back. Each finder at its own address, unless
+    /// the front end was told another where it was started ([`Catalogs`]):
+    /// the task names none.
     SearchSkills { query: String },
+    /// `mindweaver gather git [--path <folder>] [--ref <branch>]
+    /// <repository>`: a skill a search of the skill directories found
+    /// ([`SearchSkills`](Task::SearchSkills)), gathered from its repository
+    /// and its folder there, at the branch a finder named, by the line
+    /// `gather search --take` amounts to ([`Task::taking`]).
+    ///
+    /// What the panel sends to take a result it listed: the result as the
+    /// search's JSON gave it, sent back whole, never a gather it puts
+    /// together, so which folder a result naming none is gathered from, and
+    /// which kind a take gathers, are said by the one function the TUI's
+    /// take and `--take` follow too, never again in TypeScript, as the
+    /// panel's marks are turned into lines by [`Task::minds`]. Its
+    /// repository is held to the path policy as a gather's source is, and
+    /// it carries no token, as a gather's task carries none.
+    TakeSkill { hit: Hit },
+    /// `mindweaver gather mcp search [--registry <url>] --json <query>`:
+    /// the official MCP Registry asked for the servers whose name holds the
+    /// query, read back from the JSON the line prints, by the names the
+    /// envelope's `data` gives each server, for a front end to list and add
+    /// one from with an [`ImportServer`](Task::ImportServer) (#107).
+    ///
+    /// The official registry, as the command asks unless told another, or
+    /// the mirror the front end was told where it was started
+    /// ([`Catalogs`]): a task names no registry, so a browser sends no
+    /// address for a line to ask and take a program from.
+    SearchServers { query: String },
+    /// `mindweaver gather mcp add [--registry <url>] [--version <version>]
+    /// [--yes] <server>`: the official registry's server, or the front
+    /// end's mirror's ([`Catalogs`]), by the name it gives it, written
+    /// into the workspace's library as a definition with `yes`; without
+    /// it the dry run, which writes nothing and says what an agent would
+    /// run or reach, what a front end shows before it asks for the yes.
+    /// Nothing is started either way. The latest version unless `version`
+    /// names one.
+    ImportServer {
+        server: String,
+        version: Option<String>,
+        yes: bool,
+    },
     /// `mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]
-    /// <url>`.
+    /// [--name <name>] [--pin <commit>] [--dry-run] <url>`.
     ///
     /// `kind` is what is taken, skills unless it says rules, as the
     /// command's `--kind` is: added after the rest (#111), and skills when
@@ -282,12 +328,51 @@ pub enum Task {
     /// looks in unsaid (`gather::default_folder`), so a task of rules from
     /// the whole repository says `--path .`, which core asks of a gather of
     /// rules.
+    ///
+    /// `name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,
+    /// added after the rest for the panel's page of sources (#113), each
+    /// none, or false, when a task leaves it out, as one sent before they
+    /// were there does: what the source is called and the commit it is
+    /// pinned to, each a value core holds to its own rules, and whether the
+    /// line only says what a gather would take, writing nothing, which the
+    /// page runs first. No token, nor the name of a variable holding one
+    /// (D-16).
     Gather {
         url: String,
         folder: String,
         reference: Option<String>,
         #[serde(default = "gathered_kind")]
         kind: Kind,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        pin: Option<String>,
+        #[serde(default)]
+        dry_run: bool,
+    },
+    /// `mindweaver gather marketplace --list --json [--ref <ref>] <source>`:
+    /// a plugin marketplace's catalog, Claude Code's or Codex's, recorded as
+    /// a source and its plugins listed, none gathered, read back from the
+    /// JSON the line prints, for a front end to list the plugins and gather
+    /// the ones ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103,
+    /// #104).
+    ///
+    /// Followed as it goes and stopped when asked, as a gather is
+    /// ([`Followed::Gather`]): it fetches the catalog's repository. No
+    /// token, as a gather's task carries none.
+    ListMarketplace {
+        source: String,
+        reference: Option<String>,
+    },
+    /// `mindweaver gather marketplace [--ref <ref>] --plugin <name>...
+    /// <source>`: the plugins of a plugin marketplace called `plugins`
+    /// in its catalog gathered, each as a source of its own, in the order
+    /// given (#103). Never `--all`, which a front end asks for by naming
+    /// every plugin it lists, so the line says what was gathered.
+    GatherPlugins {
+        source: String,
+        reference: Option<String>,
+        plugins: Vec<String>,
     },
     /// `mindweaver gather update <name>...`: each source named gathered
     /// again, as it was gathered, or every one, `--all`, when `names` is
@@ -295,6 +380,11 @@ pub enum Task {
     /// ([`Followed::Gather`]), and carrying no token, as a gather's task
     /// carries none.
     UpdateSources { names: Vec<String> },
+    /// `mindweaver gather rename <from> <to>`: the source called `from`
+    /// called `to` from now on, what `gather sources` lists and `--from`
+    /// takes, held by core to the rules `gather git --name` is. What was
+    /// installed from it is found where it was, its origin naming no name.
+    RenameSource { from: String, to: String },
     /// `mindweaver gather remove [--yes] <name>`: the source called `name`
     /// forgotten, what it put on the shelf and its clone taken away, and
     /// what was installed from it left orphaned, which is asked about first
@@ -649,7 +739,10 @@ impl Task {
     /// exception, a read that builds the screen `mindweaver install` opens rather
     /// than a line run, and a refresh changes nothing.
     pub fn commands(&self) -> Vec<Vec<String>> {
-        self.commands_saving_in(&WeaverWorkspace::scratch_route_under(Names::Mindweaver))
+        self.lines(
+            &WeaverWorkspace::scratch_route_under(Names::Mindweaver),
+            &Catalogs::default(),
+        )
     }
 
     /// [`commands`](Self::commands), as they run in `workspace`: a save's
@@ -657,11 +750,40 @@ impl Task {
     /// ([`WeaverWorkspace::scratch_route`]), which one a Mindflayer build
     /// made keeps in its `.mindflayer`, where the text for it is put.
     pub fn commands_in(&self, workspace: &WeaverWorkspace) -> Vec<Vec<String>> {
-        self.commands_saving_in(&workspace.scratch_route())
+        self.commands_asking(workspace, &Catalogs::default())
     }
 
-    /// The lines, a save's text read from the scratch folder at `scratch`.
-    fn commands_saving_in(&self, scratch: &str) -> Vec<Vec<String>> {
+    /// [`commands_in`](Self::commands_in), each search and add asking the
+    /// catalogs `catalogs` names in place of each command's own: what the
+    /// panel's backend runs, as `mindweaver ui` was told them.
+    pub fn commands_asking(
+        &self,
+        workspace: &WeaverWorkspace,
+        catalogs: &Catalogs,
+    ) -> Vec<Vec<String>> {
+        self.lines(&workspace.scratch_route(), catalogs)
+    }
+
+    /// The gather that takes `hit`, a skill a search found: skills, from
+    /// its repository and its folder there ([`Hit::folder`]), at the branch
+    /// a finder named. What `gather search --take` gathers, the TUI's take
+    /// runs and the panel's ([`TakeSkill`](Task::TakeSkill)) amounts to, so
+    /// the three take a result by one line.
+    pub fn taking(hit: &Hit) -> Task {
+        Task::Gather {
+            url: hit.repository.to_string(),
+            folder: hit.folder().to_owned(),
+            reference: hit.reference.clone(),
+            kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
+        }
+    }
+
+    /// The lines, a save's text read from the scratch folder at `scratch`,
+    /// and each search and add asking the catalogs `catalogs` names.
+    fn lines(&self, scratch: &str, catalogs: &Catalogs) -> Vec<Vec<String>> {
         match self {
             Task::InitWorkspace => vec![words(&["mindweaver", "init"], &[])],
             Task::InitProject => vec![words(&["mind", "init"], &[])],
@@ -772,11 +894,41 @@ impl Task {
                     .map_or_else(Vec::new, |batch| batch.commands())
             }
             Task::Shelf => vec![words(&["mindweaver", "gather", "list"], &[])],
+            // Where a catalog is asked first, as it is the first thing the
+            // line was told, then what it is asked.
             Task::SearchSkills { query } => {
-                vec![words(
-                    &["mindweaver", "gather", "search", "--json"],
-                    &[query],
-                )]
+                let mut head = owned(&["mindweaver", "gather", "search"]);
+                for finder in &catalogs.finders {
+                    head.extend(option("--finder-url", finder));
+                }
+                head.push(String::from("--json"));
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[query])]
+            }
+            Task::TakeSkill { hit } => Task::taking(hit).lines(scratch, catalogs),
+            Task::SearchServers { query } => {
+                let mut head = owned(&["mindweaver", "gather", "mcp", "search"]);
+                head.extend(catalogs.registered());
+                head.push(String::from("--json"));
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[query])]
+            }
+            // `--yes` before the server, as `remove` has it before the name.
+            Task::ImportServer {
+                server,
+                version,
+                yes,
+            } => {
+                let mut head = owned(&["mindweaver", "gather", "mcp", "add"]);
+                head.extend(catalogs.registered());
+                if let Some(version) = version {
+                    head.extend(option("--version", version));
+                }
+                if *yes {
+                    head.push(String::from("--yes"));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[server])]
             }
             Task::Workspaces => vec![words(&["mindweaver", "workspaces"], &[])],
             Task::Gather {
@@ -784,11 +936,15 @@ impl Task {
                 folder,
                 reference,
                 kind,
+                name,
+                pin,
+                dry_run,
             } => {
                 let mut head = owned(&["mindweaver", "gather", "git"]);
                 // The kind a gather takes unsaid and the folder a gather of
                 // that kind looks in unsaid are left out, so the line reads
-                // the way somebody would type it.
+                // the way somebody would type it, and so is each option
+                // that says nothing.
                 if *kind != gather::DEFAULT_KIND {
                     head.extend(option("--kind", kind.folder()));
                 }
@@ -798,8 +954,43 @@ impl Task {
                 if let Some(reference) = reference {
                     head.extend(option("--ref", reference));
                 }
+                if let Some(name) = name {
+                    head.extend(option("--name", name));
+                }
+                if let Some(pin) = pin {
+                    head.extend(option("--pin", pin));
+                }
+                if *dry_run {
+                    head.push(String::from("--dry-run"));
+                }
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[url])]
+            }
+            Task::RenameSource { from, to } => {
+                vec![words(&["mindweaver", "gather", "rename"], &[from, to])]
+            }
+            Task::ListMarketplace { source, reference } => {
+                let mut head = owned(&["mindweaver", "gather", "marketplace", "--list", "--json"]);
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[source])]
+            }
+            Task::GatherPlugins {
+                source,
+                reference,
+                plugins,
+            } => {
+                let mut head = owned(&["mindweaver", "gather", "marketplace"]);
+                if let Some(reference) = reference {
+                    head.extend(option("--ref", reference));
+                }
+                for plugin in plugins {
+                    head.extend(option("--plugin", plugin));
+                }
+                let head: Vec<&str> = head.iter().map(String::as_str).collect();
+                vec![words(&head, &[source])]
             }
             Task::UpdateSources { names } if names.is_empty() => {
                 vec![words(&["mindweaver", "gather", "update", "--all"], &[])]
@@ -972,7 +1163,10 @@ impl Task {
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[])]
             }
-            Task::ApplyInstall { changes } => changes.iter().flat_map(Task::commands).collect(),
+            Task::ApplyInstall { changes } => changes
+                .iter()
+                .flat_map(|change| change.lines(scratch, catalogs))
+                .collect(),
             Task::OpenInstall => vec![words(&["mindweaver", "install"], &[])],
             Task::Refresh => Vec::new(),
         }
@@ -999,8 +1193,13 @@ impl Task {
                 | Task::Save { .. }
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
-                | Task::Gather { .. }
+                | Task::Gather { dry_run: false, .. }
+                | Task::TakeSkill { .. }
+                | Task::ListMarketplace { .. }
+                | Task::GatherPlugins { .. }
+                | Task::ImportServer { yes: true, .. }
                 | Task::UpdateSources { .. }
+                | Task::RenameSource { .. }
                 | Task::RemoveSource { yes: true, .. }
                 | Task::Export { .. }
                 | Task::Backup { .. }
@@ -1113,10 +1312,12 @@ impl Task {
 /// it from then on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Followed {
-    /// `mindweaver gather git`, and `mindweaver gather update`, a gather of
-    /// each source in turn: the network, for as long as it takes, reported
-    /// step by step through core's `gather::Watch`, and stopped by its
-    /// cancel until it starts placing what it read on the shelf.
+    /// `mindweaver gather git`, `mindweaver gather marketplace`, a gather
+    /// of its catalog and of each plugin chosen in turn, and `mindweaver
+    /// gather update`, a gather of each source in turn: the network, for as
+    /// long as it takes, reported step by step through core's
+    /// `gather::Watch`, and stopped by its cancel until it starts placing
+    /// what it read on the shelf.
     Gather,
     /// `mindweaver backup`: the network too, through the system's `git`,
     /// reported step by step through core's `backup::Watch`, checking out,
@@ -1174,6 +1375,7 @@ impl Followed {
         match command {
             Some(WeaverCommand::Gather(
                 GatherCommand::Git { .. }
+                | GatherCommand::Marketplace { .. }
                 | GatherCommand::Update { .. }
                 | GatherCommand::Search { take: Some(_), .. },
             )) => Some(Followed::Gather),
@@ -1213,6 +1415,14 @@ impl Followed {
                     | GatherCommand::Rename { .. }
                     | GatherCommand::Remove { .. },
                 )
+                // An MCP registry, asked a page at a time, which a search
+                // narrow enough to choose from reads in one request, and
+                // one server's version for an add: core reports no step of
+                // either and takes no cancel, so neither is followed, and
+                // each runs as a read of the disk does (an open question).
+                | WeaverCommand::Gather(GatherCommand::Mcp(
+                    RegistryCommand::Search { .. } | RegistryCommand::Add { .. },
+                ))
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1386,8 +1596,12 @@ impl Refusal {
                 // A search asks the skill directories over the network too,
                 // followed and stopped between finders ([`Followed::Search`]),
                 // and with `--take` is a gather.
+                // A marketplace's catalog and plugins are fetched and
+                // followed as a gather is, and nothing a catalog names is
+                // ever run.
                 | WeaverCommand::Gather(
                     GatherCommand::Git { .. }
+                    | GatherCommand::Marketplace { .. }
                     | GatherCommand::Update { .. }
                     | GatherCommand::Search { .. },
                 )
@@ -1398,6 +1612,12 @@ impl Refusal {
                     | GatherCommand::Rename { .. }
                     | GatherCommand::Remove { .. },
                 )
+                // An MCP registry over the network, which asks nothing of
+                // a terminal, and the library, written only with `--yes`
+                // through `add`'s own path; nothing either line starts.
+                | WeaverCommand::Gather(GatherCommand::Mcp(
+                    RegistryCommand::Search { .. } | RegistryCommand::Add { .. },
+                ))
                 | WeaverCommand::Install { .. }
                 | WeaverCommand::Uninstall { .. }
                 | WeaverCommand::Update { .. }
@@ -1577,12 +1797,18 @@ impl Caution {
             // offers, which no yes could keep there.
             Some(WeaverCommand::Gather(
                 GatherCommand::Git { .. }
+                | GatherCommand::Marketplace { .. }
                 | GatherCommand::List { .. }
                 | GatherCommand::Sources { .. }
                 | GatherCommand::Update { .. }
                 | GatherCommand::Rename { .. }
                 | GatherCommand::Search { .. },
             )) => Vec::new(),
+            // An add only adds: it refuses a file already where it would
+            // write, as `add` does, so a yes takes nothing away.
+            Some(WeaverCommand::Gather(GatherCommand::Mcp(
+                RegistryCommand::Search { .. } | RegistryCommand::Add { .. },
+            ))) => Vec::new(),
             #[cfg(feature = "ui")]
             Some(WeaverCommand::Ui(_)) => Vec::new(),
             None
@@ -1683,6 +1909,36 @@ fn at(holder: &Holder, command: &[&str], positionals: &[&str]) -> Vec<String> {
     let mut head: Vec<&str> = start.iter().map(String::as_str).collect();
     head.extend_from_slice(command);
     words(&head, positionals)
+}
+
+/// Where a front end's searches ask in place of each command's own
+/// addresses: the MCP registry a `search_servers` or an `import_server`
+/// line names with `--registry`, and each skill directory a
+/// `search_skills` line names with `--finder-url`, as `mindweaver ui` was
+/// told them when it was started.
+///
+/// Whoever starts the front end's, never a task's: a browser sends no
+/// address a line would ask, nor take a program from, so a task has no
+/// field for one, as it has none for a token or a `-W`; and every line
+/// asking one names it, so what the panel previews and the transcript
+/// keeps reach the same catalog pasted at a terminal. None by default: the
+/// official registry, and each finder at its own address.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Catalogs {
+    /// The registry, as `--registry` takes it.
+    pub registry: Option<String>,
+    /// Each finder's address, `FINDER=URL` as `--finder-url` takes it.
+    pub finders: Vec<String>,
+}
+
+impl Catalogs {
+    /// `--registry` and the registry, when one is named.
+    fn registered(&self) -> Vec<String> {
+        self.registry
+            .as_deref()
+            .map(|registry| option("--registry", registry))
+            .unwrap_or_default()
+    }
 }
 
 /// `line`, naming the workspace at `root` with `-W`, right after the

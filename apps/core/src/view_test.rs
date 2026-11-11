@@ -57,3 +57,56 @@ fn building_a_snapshot_runs_no_scan() {
     assert_eq!(scan::scans(), before + 1);
     assert!(found.found.iter().any(|found| !found.linked));
 }
+
+/// What a source supplied says of its licences is counted by the words a
+/// listing says each in, most first and then by those words: one `MIT` in
+/// a manifest and one in a file are one licence, a file whose line could
+/// not be read is said by its name, an artifact that says nothing is
+/// `unknown`, and one gathered before licences were kept is in no count.
+#[test]
+fn a_source_counts_the_licences_what_it_supplied_says_by_their_words() {
+    use crate::mother::{ArtifactNameMother, GatheredMother, LicenceMother, SourceMother};
+
+    let source = SourceMother::create("https://github.com/acme/skills", None);
+    // A row of its own, which a mother's id drawn at random may not be.
+    let other = Source {
+        id: source.id + 1,
+        ..SourceMother::create("https://github.com/other/skills", None)
+    };
+    let with = |licence: Option<Licence>, from: &Source| Gathered {
+        licence,
+        ..GatheredMother::create(Kind::Skill, ArtifactNameMother::random(), from.clone())
+    };
+    let shelf = [
+        with(Some(LicenceMother::manifest("MIT")), &source),
+        with(Some(Licence::Unknown), &source),
+        with(Some(LicenceMother::file("LICENSE", Some("MIT"))), &source),
+        with(Some(LicenceMother::file("COPYING-NOTICE", None)), &source),
+        with(None, &source),
+        with(Some(LicenceMother::manifest("Apache-2.0")), &other),
+    ];
+
+    let listed = ShelfSource::all(vec![source.clone(), other], &shelf);
+
+    let counted = |listed: &ShelfSource| -> Vec<(String, usize)> {
+        listed
+            .licences
+            .iter()
+            .map(|each| (each.licence.clone(), each.count))
+            .collect()
+    };
+    assert_eq!(
+        counted(&listed[0]),
+        [
+            (String::from("MIT"), 2),
+            (String::from("COPYING-NOTICE"), 1),
+            (String::from("unknown"), 1),
+        ]
+    );
+    assert_eq!(counted(&listed[1]), [(String::from("Apache-2.0"), 1)]);
+    assert!(ShelfSource::all(vec![source], &[])[0].licences.is_empty());
+    assert_eq!(
+        serde_json::to_value(&listed[1].licences).unwrap(),
+        serde_json::json!([{"licence": "Apache-2.0", "count": 1}])
+    );
+}

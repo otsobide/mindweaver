@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, Parser};
 
+use mindweaver_core::finder::Finder;
+use mindweaver_core::value::Redacted;
 use mindweaver_core::DEFAULT_SUBDIRECTORY;
 
 use super::*;
@@ -14,7 +16,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 41] = [
+const TAGS: [&str; 47] = [
     "init_workspace",
     "init_project",
     "link",
@@ -39,8 +41,14 @@ const TAGS: [&str; 41] = [
     "shelf",
     "workspaces",
     "search_skills",
+    "take_skill",
+    "search_servers",
+    "import_server",
     "gather",
+    "list_marketplace",
+    "gather_plugins",
     "update_sources",
+    "rename_source",
     "remove_source",
     "export",
     "backup",
@@ -129,32 +137,101 @@ fn every(value: &str) -> Vec<Task> {
         Task::Shelf,
         Task::Workspaces,
         Task::SearchSkills { query: owned() },
+        Task::TakeSkill {
+            hit: hit(value, true),
+        },
+        Task::TakeSkill {
+            hit: hit(value, false),
+        },
+        Task::SearchServers { query: owned() },
+        Task::ImportServer {
+            server: owned(),
+            version: Some(owned()),
+            yes: false,
+        },
+        Task::ImportServer {
+            server: owned(),
+            version: None,
+            yes: true,
+        },
         Task::Gather {
             url: owned(),
             folder: owned(),
             reference: Some(owned()),
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: owned(),
             folder: owned(),
             reference: None,
             kind: Kind::Rule,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: Some(owned()),
             kind: Kind::Rule,
+            name: None,
+            pin: None,
+            dry_run: false,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: owned(),
+            reference: Some(owned()),
+            kind: Kind::Skill,
+            name: Some(owned()),
+            pin: Some(owned()),
+            dry_run: false,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: String::from(DEFAULT_SUBDIRECTORY),
+            reference: None,
+            kind: Kind::Rule,
+            name: Some(owned()),
+            pin: None,
+            dry_run: true,
+        },
+        Task::ListMarketplace {
+            source: owned(),
+            reference: Some(owned()),
+        },
+        Task::ListMarketplace {
+            source: owned(),
+            reference: None,
+        },
+        Task::GatherPlugins {
+            source: owned(),
+            reference: Some(owned()),
+            plugins: vec![owned(), String::from("plain")],
+        },
+        Task::GatherPlugins {
+            source: owned(),
+            reference: None,
+            plugins: vec![owned()],
         },
         Task::UpdateSources {
             names: vec![owned(), String::from("plain")],
+        },
+        Task::RenameSource {
+            from: owned(),
+            to: owned(),
         },
         Task::UpdateSources { names: Vec::new() },
         Task::RemoveSource {
@@ -375,6 +452,21 @@ fn every(value: &str) -> Vec<Task> {
         ]);
     }
     tasks
+}
+
+/// A skill a search found, `value` in every field a line names: its
+/// repository, and, when `placed`, its folder and its branch, which a
+/// result at the root of its repository's default branch names neither of.
+fn hit(value: &str, placed: bool) -> Hit {
+    Hit {
+        name: String::from("plain"),
+        repository: Redacted::new(value),
+        path: placed.then(|| value.to_owned()),
+        reference: placed.then(|| value.to_owned()),
+        installs: Some(56),
+        stars: None,
+        finders: vec![Finder::SkillsSh],
+    }
 }
 
 /// How a server is started, `value` in every field, as a program, or as an
@@ -790,9 +882,57 @@ fn an_update_is_the_line_the_cli_takes_and_forced_only_when_asked() {
     }
 }
 
-/// What the TUI's sources screen asks for, each the line somebody would
-/// type: one source gathered again, several, every one, and one forgotten,
-/// which alone is asked about first, its dry run not.
+/// What the TUI's marketplace screens ask for, each the line somebody would
+/// type (#103): a catalog listed, as JSON for the screen to read back, and
+/// the plugins ticked gathered by name, each followed as a gather is, none
+/// asked about first, and a value led by a dash kept from being read as an
+/// option.
+#[test]
+fn a_marketplace_s_task_is_the_line_the_cli_takes() {
+    let listed = |source: &str, reference: Option<&str>| Task::ListMarketplace {
+        source: source.to_owned(),
+        reference: reference.map(str::to_owned),
+    };
+    let gathered = |source: &str, plugins: &[&str]| Task::GatherPlugins {
+        source: source.to_owned(),
+        reference: None,
+        plugins: owned(plugins),
+    };
+
+    for (task, said) in [
+        (
+            listed("acme/tools", None),
+            "mindweaver gather marketplace --list --json acme/tools",
+        ),
+        (
+            listed("acme/tools", Some("v2")),
+            "mindweaver gather marketplace --list --json --ref v2 acme/tools",
+        ),
+        (
+            listed("-odd", Some("-v2")),
+            "mindweaver gather marketplace --list --json --ref=-v2 -- -odd",
+        ),
+        (
+            gathered("acme/tools", &["formatter", "deploy"]),
+            "mindweaver gather marketplace --plugin formatter --plugin deploy acme/tools",
+        ),
+        (
+            gathered("acme/tools", &["-odd"]),
+            "mindweaver gather marketplace --plugin=-odd acme/tools",
+        ),
+    ] {
+        assert_eq!(task.commands(), [line(said)], "{task:?}");
+        assert!(task.writes(), "{task:?}");
+        assert!(task.runs_apart(), "{task:?}");
+        assert_eq!(task.cautions(), Vec::new(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
+    }
+}
+
+/// What the TUI's sources screen and the panel's page of them ask for, each
+/// the line somebody would type: one source gathered again, several, every
+/// one, one renamed, and one forgotten, which alone is asked about first,
+/// its dry run not.
 #[test]
 fn a_source_s_task_is_the_line_the_cli_takes() {
     let names = |names: &[&str]| Task::UpdateSources {
@@ -801,6 +941,10 @@ fn a_source_s_task_is_the_line_the_cli_takes() {
     let remove = |name: &str, yes| Task::RemoveSource {
         name: name.to_owned(),
         yes,
+    };
+    let rename = |from: &str, to: &str| Task::RenameSource {
+        from: from.to_owned(),
+        to: to.to_owned(),
     };
 
     for (task, said, writes, cautions) in [
@@ -840,11 +984,70 @@ fn a_source_s_task_is_the_line_the_cli_takes() {
             true,
             vec![(0, Caution::Forgets)],
         ),
+        (
+            rename("acme-skills", "team-skills"),
+            "mindweaver gather rename acme-skills team-skills",
+            true,
+            Vec::new(),
+        ),
+        (
+            rename("acme-skills", "-odd"),
+            "mindweaver gather rename -- acme-skills -odd",
+            true,
+            Vec::new(),
+        ),
     ] {
         assert_eq!(task.commands(), [line(said)], "{task:?}");
         assert_eq!(task.writes(), writes, "{task:?}");
         assert_eq!(task.cautions(), cautions, "{task:?}");
         assert_eq!(task.refusal(), None, "{task:?}");
+    }
+}
+
+/// What the panel's page of sources sends to add one (#113): `gather git`
+/// with every option a person could type but a token, each only when it
+/// says something, its dry run first, which writes nothing, then the
+/// gather, which writes, neither asked about, and each followed as it runs.
+#[test]
+fn a_gather_task_names_the_source_and_its_pin_and_runs_dry_when_asked() {
+    let gather = |name: Option<&str>, pin: Option<&str>, dry_run| Task::Gather {
+        url: String::from("acme/skills"),
+        folder: String::from(DEFAULT_SUBDIRECTORY),
+        reference: Some(String::from("main")),
+        kind: Kind::Skill,
+        name: name.map(str::to_owned),
+        pin: pin.map(str::to_owned),
+        dry_run,
+    };
+    let pin = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3";
+
+    for (task, said, writes) in [
+        (
+            gather(None, None, true),
+            "mindweaver gather git --ref main --dry-run acme/skills".to_owned(),
+            false,
+        ),
+        (
+            gather(None, None, false),
+            "mindweaver gather git --ref main acme/skills".to_owned(),
+            true,
+        ),
+        (
+            gather(Some("team-skills"), Some(pin), true),
+            format!("mindweaver gather git --ref main --name team-skills --pin {pin} --dry-run acme/skills"),
+            false,
+        ),
+        (
+            gather(Some("-odd"), Some("-pin"), false),
+            String::from("mindweaver gather git --ref main --name=-odd --pin=-pin acme/skills"),
+            true,
+        ),
+    ] {
+        assert_eq!(task.commands(), [line(&said)], "{task:?}");
+        assert_eq!(task.writes(), writes, "{task:?}");
+        assert_eq!(task.cautions(), Vec::new(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
+        assert!(task.runs_apart(), "{task:?}");
     }
 }
 
@@ -1002,6 +1205,9 @@ fn a_gather_task_says_its_kind_and_the_folder_a_gather_of_rules_is_told() {
         folder: folder.to_owned(),
         reference: None,
         kind,
+        name: None,
+        pin: None,
+        dry_run: false,
     };
     let line = |words: &[&str]| -> Vec<Vec<String>> {
         vec![words.iter().map(|word| (*word).to_owned()).collect()]
@@ -1040,7 +1246,8 @@ fn a_gather_task_says_its_kind_and_the_folder_a_gather_of_rules_is_told() {
 }
 
 /// A gather task sent before it carried a kind, or leaving it out, gathers
-/// skills, as the command does without `--kind`.
+/// skills, as the command does without `--kind`; and one sent before it
+/// carried a name, a pin or a dry run names none, pins nothing and gathers.
 #[test]
 fn a_gather_task_that_names_no_kind_gathers_skills() {
     let sent = r#"{"type": "gather", "url": "acme/skills", "folder": ".", "reference": null}"#;
@@ -1052,6 +1259,9 @@ fn a_gather_task_that_names_no_kind_gathers_skills() {
             &task,
             Task::Gather {
                 kind: Kind::Skill,
+                name: None,
+                pin: None,
+                dry_run: false,
                 ..
             }
         ),
@@ -1067,6 +1277,9 @@ fn a_gather_task_that_names_no_kind_gathers_skills() {
             &rules,
             Task::Gather {
                 kind: Kind::Rule,
+                name: None,
+                pin: None,
+                dry_run: false,
                 ..
             }
         ),
@@ -1103,12 +1316,18 @@ fn a_gather_task_s_lines_hand_over_no_token_whatever_its_values() {
                 folder: String::from(DEFAULT_SUBDIRECTORY),
                 reference: None,
                 kind: Kind::Skill,
+                name: None,
+                pin: None,
+                dry_run: false,
             },
             Task::Gather {
                 url: String::from("acme/private"),
                 folder: value.to_owned(),
                 reference: Some(value.to_owned()),
                 kind: Kind::Rule,
+                name: None,
+                pin: None,
+                dry_run: false,
             },
         ] {
             for words in task.commands() {
@@ -1818,12 +2037,34 @@ fn a_task_runs_apart_when_one_of_its_lines_is_followed() {
         let expected = matches!(
             task,
             Task::Gather { .. }
+                | Task::TakeSkill { .. }
+                | Task::ListMarketplace { .. }
+                | Task::GatherPlugins { .. }
                 | Task::UpdateSources { .. }
                 | Task::Backup { .. }
                 | Task::SearchSkills { .. }
         );
 
         assert_eq!(task.runs_apart(), expected, "{task:?}");
+    }
+}
+
+/// A registry is asked a page at a time, which a search narrow enough to
+/// choose from reads in one request, and core reports no step of it: no
+/// line of `gather mcp` is followed, so none runs apart, and none is
+/// refused a front end without a terminal.
+#[test]
+fn no_line_of_gather_mcp_is_followed_or_refused() {
+    for said in [
+        "mindweaver gather mcp search airtable",
+        "mindweaver gather mcp search --json --registry http://127.0.0.1:9 airtable",
+        "mindweaver gather mcp add ai.clawfetch/mcp",
+        "mindweaver gather mcp add --version 0.4.0 --name claw --way 2 --yes ai.clawfetch/mcp",
+        "mind weaver gather mcp add --yes ai.clawfetch/mcp",
+    ] {
+        assert_eq!(followed(&line(said)), None, "{said}");
+        assert_eq!(refused(&line(said)), None, "{said}");
+        assert!(cautions(&line(said)).is_empty(), "{said}");
     }
 }
 
@@ -2233,12 +2474,18 @@ fn carrying(url: &str) -> Vec<Task> {
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: url.to_owned(),
             folder: String::from("rules"),
             reference: Some(String::from("main")),
             kind: Kind::Rule,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Install {
             projects: vec![String::from("alpha")],
@@ -2502,6 +2749,60 @@ fn a_backup_is_the_line_the_cli_takes_naming_a_token_by_its_variable() {
     }
 }
 
+/// The TUI's search of the registry reads what the line prints back as
+/// JSON, and names no registry: the official one is the only one a front
+/// end asks.
+#[test]
+fn a_search_of_the_registry_is_its_json_line_naming_no_registry() {
+    let task = Task::SearchServers {
+        query: String::from("air table"),
+    };
+
+    let mut expected = line("mindweaver gather mcp search --json");
+    expected.push(String::from("air table"));
+    assert_eq!(task.commands(), vec![expected]);
+    assert_eq!(
+        task.describe(),
+        "mindweaver gather mcp search --json 'air table'"
+    );
+    assert!(!task.writes() && !task.runs_apart());
+    assert_eq!(task.refusal(), None);
+    assert!(task.cautions().is_empty());
+}
+
+/// An add is its dry run until it is told yes, which is the one that
+/// writes, and neither starts anything nor takes anything away.
+#[test]
+fn an_import_from_the_registry_is_its_dry_run_until_it_is_told_yes() {
+    let dry = Task::ImportServer {
+        server: String::from("io.github.buildkite/buildkite-mcp-server"),
+        version: Some(String::from("0.7.0")),
+        yes: false,
+    };
+    let yes = Task::ImportServer {
+        server: String::from("ai.clawfetch/mcp"),
+        version: None,
+        yes: true,
+    };
+
+    assert_eq!(
+        dry.commands(),
+        [line(
+            "mindweaver gather mcp add --version 0.7.0 io.github.buildkite/buildkite-mcp-server"
+        )]
+    );
+    assert_eq!(
+        yes.commands(),
+        [line("mindweaver gather mcp add --yes ai.clawfetch/mcp")]
+    );
+    assert!(!dry.writes() && yes.writes());
+    for task in [dry, yes] {
+        assert!(!task.runs_apart(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
+        assert!(task.cautions().is_empty(), "{task:?}");
+    }
+}
+
 /// The TUI's search reads what the line prints back as JSON, and hands no
 /// token over, nor the name of a variable holding one (D-16).
 #[test]
@@ -2521,4 +2822,166 @@ fn a_search_of_the_skill_directories_is_its_json_line_with_no_token() {
     assert!(task.runs_apart());
     assert_eq!(task.refusal(), None);
     assert!(task.cautions().is_empty());
+}
+
+/// A result the panel sends back to take is gathered by the line the
+/// TUI's take and `gather search --take` gather it by: from its repository
+/// and its folder there at the branch a finder named, or, naming neither,
+/// the whole repository at its default branch, the folder left unsaid as
+/// a gather of skills leaves it.
+#[test]
+fn a_result_taken_is_the_gather_of_its_repository_folder_and_branch() {
+    let mut found = hit("https://github.com/acme/skills", true);
+    found.path = Some(String::from("skills/pdf"));
+    found.reference = Some(String::from("main"));
+    let at_root = hit("/home/you/src/house-rules", false);
+
+    let placed = Task::TakeSkill { hit: found.clone() };
+    let whole = Task::TakeSkill {
+        hit: at_root.clone(),
+    };
+
+    assert_eq!(
+        placed.commands(),
+        [line(
+            "mindweaver gather git --path skills/pdf --ref main https://github.com/acme/skills"
+        )]
+    );
+    assert_eq!(
+        whole.commands(),
+        [line("mindweaver gather git /home/you/src/house-rules")]
+    );
+    assert_eq!(placed.commands(), Task::taking(&found).commands());
+    assert_eq!(whole.commands(), Task::taking(&at_root).commands());
+    for task in [placed, whole] {
+        assert!(task.writes(), "{task:?}");
+        assert!(task.runs_apart(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
+        assert!(task.cautions().is_empty(), "{task:?}");
+    }
+}
+
+/// What the panel sends to take a result is the result as the search's
+/// JSON gave it, beside its tag, and nothing a browser could aim elsewhere:
+/// no address to ask, no token, no folder of its own.
+#[test]
+fn a_result_taken_goes_by_its_tag_with_the_result_as_the_search_gave_it() {
+    let task = Task::TakeSkill {
+        hit: hit("https://github.com/acme/skills", false),
+    };
+
+    assert_eq!(
+        serde_json::to_value(&task).unwrap(),
+        serde_json::json!({
+            "type": "take_skill",
+            "hit": {
+                "name": "plain",
+                "repository": "https://github.com/acme/skills",
+                "path": null,
+                "reference": null,
+                "installs": 56,
+                "stars": null,
+                "finders": ["skills.sh"],
+            },
+        })
+    );
+}
+
+/// The catalogs a front end was started with are named by each line that
+/// asks one, `--registry` by a search of the registry and an add from it,
+/// `--finder-url` by a search of the skill directories; every other line
+/// is the one it is without them, a take's gather among them, which asks
+/// the repository.
+#[test]
+fn the_catalogs_a_front_end_was_started_with_are_named_by_each_line_asking_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = WeaverWorkspace::unmade(dir.path()).unwrap();
+    let catalogs = Catalogs {
+        registry: Some(String::from("http://127.0.0.1:4100")),
+        finders: vec![
+            String::from("skills.sh=http://127.0.0.1:4200"),
+            String::from("claude-plugins.dev=https://mirror.example"),
+        ],
+    };
+    let finders = "--finder-url skills.sh=http://127.0.0.1:4200 \
+                   --finder-url claude-plugins.dev=https://mirror.example";
+
+    let asked = |task: &Task| task.commands_asking(&workspace, &catalogs);
+    assert_eq!(
+        asked(&Task::SearchSkills {
+            query: String::from("pdf")
+        }),
+        [line(&format!(
+            "mindweaver gather search {finders} --json pdf"
+        ))]
+    );
+    assert_eq!(
+        asked(&Task::SearchServers {
+            query: String::from("clawfetch")
+        }),
+        [line(
+            "mindweaver gather mcp search --registry http://127.0.0.1:4100 --json clawfetch"
+        )]
+    );
+    assert_eq!(
+        asked(&Task::ImportServer {
+            server: String::from("ai.clawfetch/mcp"),
+            version: Some(String::from("0.4.0")),
+            yes: true,
+        }),
+        [line(
+            "mindweaver gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 --yes \
+             ai.clawfetch/mcp"
+        )]
+    );
+    for value in VALUES {
+        for task in every(value) {
+            if matches!(
+                task,
+                Task::SearchSkills { .. } | Task::SearchServers { .. } | Task::ImportServer { .. }
+            ) {
+                continue;
+            }
+            assert_eq!(asked(&task), task.commands_in(&workspace), "{task:?}");
+        }
+    }
+}
+
+/// A catalog's address starting with a dash still reaches its option as
+/// its value, joined to it by `=`, as every value does: `--yes` as a
+/// registry's address says no yes.
+#[test]
+fn a_catalog_s_address_starting_with_a_dash_is_still_its_option_s_value() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = WeaverWorkspace::unmade(dir.path()).unwrap();
+    let catalogs = Catalogs {
+        registry: Some(String::from("--yes")),
+        finders: vec![String::from("--json")],
+    };
+    let mut parsers = Parsers::new();
+    let given = |read: &Read, id: &str| -> Option<Vec<String>> {
+        read.iter()
+            .flat_map(|(_, given)| given)
+            .find(|given| given.id == id)
+            .map(|given| given.values.clone())
+    };
+
+    let search = Task::SearchSkills {
+        query: String::from("pdf"),
+    };
+    let read = parsers.read(&search.commands_asking(&workspace, &catalogs)[0]);
+    assert_eq!(given(&read, "at"), Some(vec![String::from("--json")]));
+    let servers = Task::SearchServers {
+        query: String::from("pdf"),
+    };
+    let read = parsers.read(&servers.commands_asking(&workspace, &catalogs)[0]);
+    assert_eq!(given(&read, "registry"), Some(vec![String::from("--yes")]));
+    let dry = Task::ImportServer {
+        server: String::from("ai.clawfetch/mcp"),
+        version: None,
+        yes: false,
+    };
+    let read = parsers.read(&dry.commands_asking(&workspace, &catalogs)[0]);
+    assert_eq!(given(&read, "registry"), Some(vec![String::from("--yes")]));
+    assert_eq!(given(&read, "yes"), None, "{read:?}");
 }

@@ -189,13 +189,29 @@ page then shows that one, and every command the panel runs names it with
 
 ### The shelf and its sources
 
-The shelf holds what was gathered from git repositories, each skill with
-where it came from and the commit it was taken at. Sources lists those
-repositories, and what happened lately: gathers, installs, relinks.
+The shelf holds what was gathered from git repositories and Claude Code
+marketplaces, each skill with where it came from and the commit it was
+taken at. Sources lists those, each by its name, with its pin and the
+licences what it supplied says, a marketplace with its plugins under it,
+and what happened lately: gathers, installs, relinks. Add one there, a
+repository with what a gather would take shown first, or a marketplace
+with its plugins listed to tick; gather one again, rename it or forget it.
+A gather shows how far it has got, can be stopped until it starts placing
+what it read, and says what it did once it is over.
 
 ![The shelf: three gathered skills, each with its origin, revision and when it was gathered](docs/images/shelf.png)
 
-![Sources: the repository the shelf is filled from, and the latest actions](docs/images/sources.png)
+![Sources: the team's repository typed into the form adding a source, and what a gather of it would take, said before anything is gathered](docs/images/sources.png)
+
+### Catalogs
+
+Search the skill directories your workspace lists and the MCP Registry
+from the panel. A skill found is taken onto the shelf from its repository,
+by the `mindweaver gather git` line the CLI would run; an MCP server is
+added to the library once you have read what an agent would run and where
+it would be written, its dry run first. Each search, take and add is a
+command shown before it runs: your browser never asks a directory or the
+registry anything, and is handed no token.
 
 ### Assign
 
@@ -328,6 +344,27 @@ skill directories your workspace's `weaver.toml` lists in `finders`:
 skills.sh and claude-plugins.dev are best-effort, read from APIs nobody
 documents, which can change under it, so none is asked until you list it,
 having read its terms.
+
+### Plugin marketplaces
+
+A plugin marketplace is gathered too: Claude Code's, from its repository's
+`.claude-plugin/marketplace.json`, and Codex's, from
+`.agents/plugins/marketplace.json`, as openai/plugins keeps its.
+`mindweaver gather marketplace anthropics/skills --list` records it and
+lists its plugins, fetching none of them, so a catalog listing thousands
+costs one clone; `--plugin document-skills` gathers the skills of the
+plugins you name, each a source of its own called after the marketplace,
+at the commit its entry pins, and `--all` gathers every one, asking for a
+`--yes` past 25. A plugin is read by the manifest it keeps, Claude Code's,
+Codex's or an [Agent Plugins](https://agent-plugins.org) package's root
+`plugin.json`, whose skills are only the folders directly in its
+`skills/`. Only a plugin's skills are taken, only from a plugin kept in
+git, and nothing a catalog names is ever run. The MCP files a plugin keeps
+(`.mcp.json`, `mcp.json`) are reported and never imported: `mindweaver add
+mcp` brings a server into your library when you want it. `gather update`
+and `gather remove` of the marketplace reach every plugin of it, and in
+the TUI, `m` on the shelf lists one's plugins for you to tick those to
+gather.
 
 To try it with nothing gathered, this repository's `examples/` is a
 workspace of two skills and two rules: `mindweaver load <your clone>/examples`

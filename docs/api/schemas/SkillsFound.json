@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsFound",
+  "description": "What a search found, as `gather search --json` prints it in the\nenvelope's `data`: what a front end reads back to list the results and\ntake one, the TUI's results screen and the panel's search alike.\n\nDerived, and [`Found`] written through it, so what its TypeScript and\nits schema say is what serde writes, read off the same attributes,\nrather than said again beside a serializer written by hand. Under a\nname of its own, since the panel's types are written into one folder, a\nfile to a name, and a scan's [`crate::scan::Found`] has that one.",
+  "type": "object",
+  "properties": {
+    "asked": {
+      "description": "Each finder asked, in the order it was.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finder"
+      }
+    },
+    "failures": {
+      "description": "Each finder that failed, and each result dropped, beside the rest,\nby its code and in its words.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Said"
+      }
+    },
+    "hits": {
+      "description": "Each skill, once, in [`Finder::ALL`]'s order and each finder's own:\nas `--take` numbers them, from 1.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Hit"
+      }
+    },
+    "skipped": {
+      "description": "Each finder to ask that needs a token, and was given none: sent\nnothing.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finder"
+      }
+    }
+  },
+  "required": [
+    "hits",
+    "asked",
+    "skipped",
+    "failures"
+  ],
+  "$defs": {
+    "Finder": {
+      "description": "A skill directory a search can ask, by the word the marker and a\ncommand line name it by.",
+      "type": "string",
+      "enum": [
+        "github",
+        "skills.sh",
+        "claude-plugins.dev"
+      ]
+    },
+    "Hit": {
+      "description": "One skill a search found: where it is, as `gather git` takes it, and\nwhat the finders say of it.\n\nRead back as it goes out by a front end that takes one: the TUI from the\nline's JSON, and the panel's backend from the task the panel sends it\nback in, its repository redacted again either way.",
+      "type": "object",
+      "properties": {
+        "finders": {
+          "description": "Each finder that found it, in the order they were asked.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Finder"
+          }
+        },
+        "installs": {
+          "description": "How many times it was installed, where a finder counts that.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "name": {
+          "description": "What it is called, printable: the name a finder gave it, or its\nfolder's, or its repository's for one at the root.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The folder in the repository it is in: none for the root, or where\nno finder said, which a take gathers the whole repository from.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reference": {
+          "description": "The branch a finder named, none for the repository's default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repository": {
+          "description": "The repository it is in, as [`url::canonical`] spells it.",
+          "type": "string"
+        },
+        "stars": {
+          "description": "How many stars its repository has, where a finder counts them.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "repository",
+        "path",
+        "reference",
+        "installs",
+        "stars",
+        "finders"
+      ]
+    },
+    "Said": {
+      "description": "An error as a serialized type holds one: its code, for a front end to act\non, and its message, for whoever reads it.\n\nBuilt where the type is serialized, or kept in what a front end reads\n(the workspace's snapshot), in place of the error, since an error\nholds what JSON has no shape for (an `io::Error`, a parser's own), and\nonly these two are meant to leave core. Its fields are public for a\nfront end that reads the snapshot as Rust rather than as JSON, the TUI.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "description": "Written through [`redacted`](crate::url::redacted), as every URL\nis: an error can quote one, a source's among them, and what built\nthe error is no promise that it carries no credential.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    }
+  }
+}

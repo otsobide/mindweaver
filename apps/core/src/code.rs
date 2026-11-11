@@ -74,6 +74,7 @@ use crate::kind::UnknownKind;
 use crate::ledger::LedgerError;
 use crate::lifecycle::LifecycleError;
 use crate::lock::LockError;
+use crate::marketplace::{MarketplaceError, NotGathered, UnreadEntry};
 use crate::mcp::{Inexpressible, McpError};
 use crate::mcp_registry::{ImportError, Manual, Note, RegistryError};
 use crate::migrate::{MigrateError, NamesFailure, ProjectFailure, Refusal};
@@ -257,6 +258,9 @@ pub const ALL: &[(&str, &[&str])] = &[
     ("ledger::LedgerError", LedgerError::CODES),
     ("lifecycle::LifecycleError", LifecycleError::CODES),
     ("lock::LockError", LockError::CODES),
+    ("marketplace::MarketplaceError", MarketplaceError::CODES),
+    ("marketplace::NotGathered", NotGathered::CODES),
+    ("marketplace::UnreadEntry", UnreadEntry::CODES),
     ("mcp::McpError", McpError::CODES),
     ("mcp::expressible::Inexpressible", Inexpressible::CODES),
     ("mcp_registry::RegistryError", RegistryError::CODES),

@@ -6,7 +6,7 @@ import { useRunner, type Runner } from '@/api/commands'
 import type { LiveEvent, Transport } from '@/api/transport'
 import Projects from '@/pages/projects.vue'
 import { useShell } from '@/stores/shell'
-import { answering, answers, commanded, commanding, drafts, fixture, kept, plans, render, servers, steps, switching, unmount, updates, validated, walks, type Fixture } from './panel'
+import { answering, answers, commanded, commanding, drafts, fixture, gathered, gatheringSteps, kept, plans, render, searched, servers, steps, switching, unmount, updates, validated, walks, type Fixture } from './panel'
 
 afterEach(unmount)
 
@@ -60,7 +60,10 @@ const PAGES: [string, Fixture][] = [
   ['/shelf?kind=rule', 'workspace'],
   ['/shelf', 'unmade'],
   ['/sources', 'workspace'],
+  ['/sources', 'sources'],
   ['/sources', 'unmade'],
+  ['/catalogs', 'workspace'],
+  ['/catalogs', 'unmade'],
   ['/discover', 'workspace'],
   ['/discover', 'unmade'],
   ['/discover?root=%2Fhome%2Fyou%2FProjects', 'candidates'],
@@ -83,6 +86,66 @@ const PAGES: [string, Fixture][] = [
 describe('every page', () => {
   it.each(PAGES)('%s, of the %s fixture, passes axe', async (path, name) => {
     await render(path, fixture(name))
+
+    expect(await violations()).toEqual([])
+  })
+})
+
+describe('the page of sources', () => {
+  it('passes axe with what a gather would take shown, a rename open and what forgetting one does shown', async () => {
+    const [dry, , , , , , , looked] = gathered()
+    const { transport } = commanding(fixture('sources'), [dry!, looked!])
+    const { page } = await render('/sources', transport)
+
+    await page.get('input[data-testid="source-url"]').setValue(dry!.task.type === 'gather' ? dry!.task.url : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="source-said"]')).not.toBeNull())
+    const [first, second] = page.findAll('[data-testid="source"]')
+    await first!.get('[data-testid="rename-open"]').trigger('click')
+    await second!.get('[data-testid="forget-dry"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="forget-said"]')).not.toBeNull())
+
+    expect(await violations()).toEqual([])
+  })
+
+  it('passes axe with a marketplace\'s plugins listed to tick, one of them ticked', async () => {
+    const listed = gathered()[10]!
+    const { transport } = commanding(fixture('sources'), [listed])
+    const { page } = await render('/sources', transport)
+
+    document.querySelectorAll<HTMLElement>('[data-testid="source-is"] [role="radio"]')[1]!.click()
+    await flushPromises()
+    await page.get('input[data-testid="source-url"]').setValue(listed.task.type === 'list_marketplace' ? listed.task.source : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="plugins"]')).not.toBeNull())
+    document.querySelector<HTMLElement>('[data-testid="plugin-review"] [role="checkbox"], [role="checkbox"][data-testid="plugin-review"]')!.click()
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="plugins-gather"]')?.hasAttribute('disabled')).toBe(false)
+    expect(await violations()).toEqual([])
+  })
+
+  it('passes axe with what a gather stopped said', async () => {
+    const [dry, , stopped] = gathered()
+    const { transport } = commanding(fixture('sources'), [dry!, stopped!])
+    const { page } = await render('/sources', transport)
+    await page.get('input[data-testid="source-url"]').setValue(dry!.task.type === 'gather' ? dry!.task.url : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="source-gather"]')).not.toBeNull())
+    await page.get('[data-testid="source-gather"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="summary-error"]')).not.toBeNull())
+    useShell().warningsOpen = false
+    await flushPromises()
 
     expect(await violations()).toEqual([])
   })
@@ -169,6 +232,58 @@ describe('the page of updates', () => {
     await render('/updates', answering(fixture('workspace'), []).transport)
 
     expect(document.querySelector('[data-testid="updates-unread"]')).not.toBeNull()
+    expect(await violations()).toEqual([])
+  })
+})
+
+describe('the page of catalogs', () => {
+  it('passes axe with what both searches found, a result taken and an add\'s dry run shown', async () => {
+    const { transport } = commanding(fixture('workspace'), searched())
+    await render('/catalogs', transport)
+
+    const say = async (button: string) => {
+      document.querySelectorAll<HTMLElement>(`[data-testid="${button}"]`)[0]!.click()
+      await flushPromises()
+      document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="preview"]')).toBeNull())
+      await flushPromises()
+    }
+    for (const [of, query] of [['skills', 'commit'], ['servers', 'mcp']] as const) {
+      const input = document.querySelector<HTMLInputElement>(`input[data-testid="${of}-query"]`)!
+      input.value = query
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+      await say(`${of}-search`)
+    }
+    await say('take')
+    await say('add-dry')
+
+    expect(document.querySelector('[data-testid="taken"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="add-said"]')).not.toBeNull()
+    expect(await violations()).toEqual([])
+  })
+
+  it('passes axe with a search that ran nothing said', async () => {
+    const [skills] = searched()
+    skills!.ran.outcome = {
+      ok: false,
+      runs: [{ ...skills!.ran.outcome.runs[0]!, stdout: '', error: { code: 'finder_none_asked', message: 'nothing was searched' }, ok: false }]
+    }
+    await render('/catalogs', commanding(fixture('workspace'), [skills!]).transport)
+
+    const input = document.querySelector<HTMLInputElement>('input[data-testid="skills-query"]')!
+    input.value = 'commit'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="skills-search"]')!.click()
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="skills-refused"]')).not.toBeNull())
+    // What the run said opens by itself, the run having failed: closed,
+    // so the page is read as it is left.
+    useShell().warningsOpen = false
+    await vi.waitFor(() => expect(document.querySelector('[data-aria-hidden="true"]')).toBeNull())
+
     expect(await violations()).toEqual([])
   })
 })
@@ -322,6 +437,28 @@ describe('what the runner draws over a page', () => {
     await flushPromises()
 
     expect(document.querySelector('[data-testid="stop"]')).not.toBeNull()
+    expect(await violations(OVER)).toEqual([])
+  })
+
+  it('passes axe with a gather under way, its bar of its step\'s counts drawn', async () => {
+    const [dry, gather] = gathered()
+    const { control, tell, transport } = commanding(fixture('sources'), [dry!, gather!])
+    const { page } = await render('/sources', transport)
+    await page.get('input[data-testid="source-url"]').setValue(dry!.task.type === 'gather' ? dry!.task.url : '')
+    await page.get('[data-testid="add-source"]').trigger('submit')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="source-gather"]')).not.toBeNull())
+    control.finishing = new Promise<void>(() => {})
+    await page.get('[data-testid="source-gather"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await flushPromises()
+
+    tell({ type: 'progress', run: 2, progress: gatheringSteps()[1]! })
+    await flushPromises()
+
+    expect(document.querySelector('progress[data-testid="progress"]')?.getAttribute('max')).toBe(String(gatheringSteps()[1]!.total))
     expect(await violations(OVER)).toEqual([])
   })
 

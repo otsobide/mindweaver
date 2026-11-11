@@ -1,0 +1,415 @@
+[
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather git --dry-run /home/you/src/acme-tools"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather git --dry-run /home/you/src/acme-tools"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather git --dry-run /home/you/src/acme-tools",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "src-acme-tools: /home/you/src/acme-tools at e97ed70\n  would add  lint    skills/lint    Tidy the code before a commit\n  would add  review  skills/review  Read a change before it lands\n\n2 skills: 2 to add, 0 to update, 0 unchanged\nnothing gathered: run it without --dry-run to gather\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "dry_run": true,
+      "folder": ".",
+      "kind": "skill",
+      "name": null,
+      "pin": null,
+      "reference": null,
+      "type": "gather",
+      "url": "/home/you/src/acme-tools"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather git /home/you/src/acme-tools"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather git /home/you/src/acme-tools"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather git /home/you/src/acme-tools",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "src-acme-tools: /home/you/src/acme-tools at e97ed70\n  added  lint    Tidy the code before a commit\n  added  review  Read a change before it lands\n\n2 skills: 2 added, 0 updated, 0 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "dry_run": false,
+      "folder": ".",
+      "kind": "skill",
+      "name": null,
+      "pin": null,
+      "reference": null,
+      "type": "gather",
+      "url": "/home/you/src/acme-tools"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather git /home/you/src/acme-tools"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather git /home/you/src/acme-tools"
+      ],
+      "outcome": {
+        "ok": false,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather git /home/you/src/acme-tools",
+            "error": {
+              "code": "gather_cancelled",
+              "message": "cancelled, with nothing put on the shelf"
+            },
+            "ok": false,
+            "stderr": [],
+            "stdout": ""
+          }
+        ]
+      }
+    },
+    "task": {
+      "dry_run": false,
+      "folder": ".",
+      "kind": "skill",
+      "name": null,
+      "pin": null,
+      "reference": null,
+      "type": "gather",
+      "url": "/home/you/src/acme-tools"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update src-acme-skills"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update src-acme-skills"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather update src-acme-skills",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "src-acme-skills: /home/you/src/acme-skills at e6fb32f\n  unchanged  format  Format the code the way the team does\n  unchanged  triage  Sort new issues by what they need\n\n2 skills: 0 added, 0 updated, 2 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "names": [
+        "src-acme-skills"
+      ],
+      "type": "update_sources"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update --all"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update --all"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather update --all",
+            "error": null,
+            "ok": true,
+            "stderr": [
+              {
+                "code": null,
+                "text": "note: formatter: its hooks are not gathered: only a plugin's skills are"
+              }
+            ],
+            "stdout": "src-acme-skills: /home/you/src/acme-skills at e6fb32f\n  unchanged  format  Format the code the way the team does\n  unchanged  triage  Sort new issues by what they need\n\n2 skills: 0 added, 0 updated, 2 unchanged\n\nteam-rules: /home/you/src/team-rules at df0e9c6, pinned\n  unchanged  git/commits     Commits\n  unchanged  style/comments  Comments\n\n2 rules: 0 added, 0 updated, 2 unchanged\n\nacme-tools: /home/you/src/tools-market at ab3b11b, 3 plugins listed\n\nacme-tools.formatter: /home/you/src/tools-market at ab3b11b\n  unchanged  tidy  Tidy the code\n\n1 skill: 0 added, 0 updated, 1 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "names": [],
+      "type": "update_sources"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather rename src-acme-skills acme-skills"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather rename src-acme-skills acme-skills"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather rename src-acme-skills acme-skills",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "renamed source src-acme-skills to acme-skills, gathered from /home/you/src/acme-skills\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "from": "src-acme-skills",
+      "to": "acme-skills",
+      "type": "rename_source"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather rename src-acme-skills team-rules"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather rename src-acme-skills team-rules"
+      ],
+      "outcome": {
+        "ok": false,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather rename src-acme-skills team-rules",
+            "error": {
+              "code": "source_name_taken",
+              "message": "`team-rules` is the name of the source at /home/you/src/team-rules already: give this one another"
+            },
+            "ok": false,
+            "stderr": [],
+            "stdout": ""
+          }
+        ]
+      }
+    },
+    "task": {
+      "from": "src-acme-skills",
+      "to": "team-rules",
+      "type": "rename_source"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather remove team-rules"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather remove team-rules"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather remove team-rules",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "would forget the source team-rules, gathered from /home/you/src/team-rules\nwould remove its 2 rules from the shelf, at /home/you/Sources/.mindweaver/rules/home-you-src-team-rules\nwould remove its clone, at /home/you/Sources/.mindweaver/cache/home-you-src-team-rules\nnothing removed: add --yes to go ahead\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "name": "team-rules",
+      "type": "remove_source",
+      "yes": false
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [
+        {
+          "caution": "forgets",
+          "line": 0,
+          "message": "forgets a gathered source: what it put on the shelf and its clone are deleted, and what was installed from it is left orphaned"
+        }
+      ],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather remove --yes team-rules"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather remove --yes team-rules"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather remove --yes team-rules",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "forgot the source team-rules, gathered from /home/you/src/team-rules\nremoved its 2 rules from the shelf, at /home/you/Sources/.mindweaver/rules/home-you-src-team-rules\nremoved its clone, at /home/you/Sources/.mindweaver/cache/home-you-src-team-rules\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "name": "team-rules",
+      "type": "remove_source",
+      "yes": true
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update src-acme-skills"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather update src-acme-skills"
+      ],
+      "outcome": {
+        "ok": false,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather update src-acme-skills",
+            "error": null,
+            "ok": false,
+            "stderr": [
+              {
+                "code": "gather_cancelled",
+                "text": "warning: src-acme-skills: cancelled, with nothing put on the shelf"
+              }
+            ],
+            "stdout": ""
+          }
+        ]
+      }
+    },
+    "task": {
+      "names": [
+        "src-acme-skills"
+      ],
+      "type": "update_sources"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather marketplace --list --json /home/you/src/tools-market"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather marketplace --list --json /home/you/src/tools-market"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather marketplace --list --json /home/you/src/tools-market",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "{\n  \"version\": 2,\n  \"data\": {\n    \"name\": \"acme-tools\",\n    \"url\": \"/home/you/src/tools-market\",\n    \"reference\": null,\n    \"revision\": \"ab3b11b123525f68ca31bb780fcc419945d7ed8b\",\n    \"catalog\": {\n      \"dialect\": \"claude-code\",\n      \"file\": \".claude-plugin/marketplace.json\",\n      \"name\": \"acme-tools\",\n      \"description\": \"Acme's tools for Claude Code\",\n      \"owner\": \"Acme\",\n      \"entries\": [\n        {\n          \"name\": \"formatter\",\n          \"description\": \"Tidy the code\",\n          \"version\": \"1.2.0\",\n          \"source\": {\n            \"type\": \"relative\",\n            \"path\": \"plugins/formatter\"\n          },\n          \"skills\": null,\n          \"licence\": \"Apache-2.0\",\n          \"declares\": [],\n          \"headers_helper\": false,\n          \"gatherable\": true,\n          \"gathered\": \"acme-tools.formatter\"\n        },\n        {\n          \"name\": \"review\",\n          \"description\": \"Read a change\",\n          \"version\": null,\n          \"source\": {\n            \"type\": \"relative\",\n            \"path\": \"plugins/review\"\n          },\n          \"skills\": null,\n          \"licence\": null,\n          \"declares\": [],\n          \"headers_helper\": false,\n          \"gatherable\": true,\n          \"gathered\": null\n        },\n        {\n          \"name\": \"from-npm\",\n          \"description\": \"A package from npm\",\n          \"version\": null,\n          \"source\": {\n            \"type\": \"npm\",\n            \"package\": \"@acme/x\"\n          },\n          \"skills\": null,\n          \"licence\": null,\n          \"declares\": [],\n          \"headers_helper\": false,\n          \"gatherable\": false,\n          \"gathered\": null\n        }\n      ]\n    }\n  },\n  \"warnings\": [],\n  \"coded_warnings\": []\n}\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "reference": null,
+      "source": "/home/you/src/tools-market",
+      "type": "list_marketplace"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Sources gather marketplace --plugin review /home/you/src/tools-market"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Sources gather marketplace --plugin review /home/you/src/tools-market"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Sources gather marketplace --plugin review /home/you/src/tools-market",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "acme-tools: /home/you/src/tools-market at ab3b11b, 3 plugins listed\n\nacme-tools.review: /home/you/src/tools-market at ab3b11b\n  added  review  Read a change\n\n1 skill: 1 added, 0 updated, 0 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "plugins": [
+        "review"
+      ],
+      "reference": null,
+      "source": "/home/you/src/tools-market",
+      "type": "gather_plugins"
+    }
+  }
+]

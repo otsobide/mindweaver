@@ -52,6 +52,7 @@ pub mod licence;
 pub mod lifecycle;
 mod lines;
 pub mod lock;
+pub mod marketplace;
 pub mod mcp;
 pub mod mcp_registry;
 pub mod migrate;

@@ -29,8 +29,11 @@
 //! ([`RegistryError::Unreadable`]), and a page that fails ends the listing
 //! with what was read before it ([`Listed::failure`]).
 //!
-//! Nothing here writes a definition, nor is called from a command yet:
-//! `mindweaver gather mcp` (#107) is the first front end to.
+//! Nothing here writes a definition: `mindweaver gather mcp add` (#107)
+//! writes what an import makes through `add`'s own path
+//! ([`crate::lifecycle::add`], [`crate::create::Start::Definition`]), and
+//! `mindweaver gather mcp search` lists what a search finds, each server as
+//! its [`Summary`] says it.
 
 mod import;
 pub(crate) mod time;
@@ -38,11 +41,14 @@ mod wire;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use crate::adapter::SystemClock;
 use crate::code::codes;
+use crate::finder::{on_this_machine, scheme_is};
 use crate::http::{encoded, with_query, CacheError, Client, FetchError, Fetched};
 use crate::port::{Clock, HttpRequest};
 use crate::value::{Redacted, UpstreamName};
@@ -70,6 +76,13 @@ pub const MOST_PAGES: usize = 20;
 /// The fewest characters a search is asked with, which the registry
 /// refuses fewer than, once the spaces around them are trimmed.
 pub const SHORTEST_QUERY: usize = 3;
+
+/// How long a registry's answer kept in a workspace's HTTP cache is
+/// answered from there without asking again: long enough to read a search
+/// and add one of what it listed by its name, which asks for that server,
+/// and be told what the search was told; short enough that a search made
+/// an hour later asks.
+pub const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
 
 /// A registry, read through a [`Client`].
 #[derive(Debug, Clone)]
@@ -152,6 +165,23 @@ impl Status {
     }
 }
 
+/// By the word the registry writes, rather than derived: a derive spells
+/// the variant, and a status this build does not know goes out as the
+/// registry wrote it.
+impl Serialize for Status {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.slug())
+    }
+}
+
+/// Read back by the word it goes out as, any word reading as some status,
+/// as the registry's own does.
+impl<'de> Deserialize<'de> for Status {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(|word| Status::of(Some(&word)))
+    }
+}
+
 /// What a search found: the latest version of every server it names, by
 /// name, none of them deleted.
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +198,84 @@ pub struct Listing {
     /// searched again whole rather than refreshed, since a change after a
     /// page it never read would not be asked for.
     pub whole: bool,
+}
+
+/// Through [`ServerListing`], each entry as its [`Summary`]: an entry keeps
+/// its packages and remotes as the registry wrote them, for an import to
+/// read, which is more than a reader is given.
+impl Serialize for Listing {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        ServerListing {
+            query: &self.query,
+            servers: self.entries.iter().map(Entry::summary).collect(),
+            as_of: self.as_of.as_deref(),
+            whole: self.whole,
+        }
+        .serialize(serializer)
+    }
+}
+
+/// What a search found, as `gather mcp search --json` prints it in the
+/// envelope's `data`: what a front end reads back to list the servers and
+/// add one, the TUI's results screen and the panel's search alike.
+///
+/// Derived, and [`Listing`] written through it, so what its TypeScript and
+/// its schema say is what serde writes, read off the same attributes.
+/// Under a name of its own, since the panel's types are written into one
+/// folder, a file to a name, and a listing of the workspace
+/// ([`crate::view::Listing`]) has that one.
+#[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ServerListing<'a> {
+    /// The words searched for, as they were asked.
+    pub query: &'a str,
+    /// One server a name, sorted by the name the registry gives it.
+    pub servers: Vec<Summary>,
+    /// The newest time the registry gave anything read into it, as it
+    /// wrote the time; none when it read nothing.
+    pub as_of: Option<&'a str>,
+    /// Whether every page was read: one that stopped short says why
+    /// beside it, as a warning.
+    pub whole: bool,
+}
+
+/// One server as a search lists it: what `mindweaver gather mcp search`
+/// prints a row of, and its `--json` a server of, which a front end reads
+/// back to add one by its name and version.
+///
+/// Each field by its name, a contract once printed, as a report's are.
+/// Under a name of its own in TypeScript and JSON Schema, since what a
+/// workspace holds, counted ([`crate::view::Summary`]), has this one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "ServerSummary"))]
+#[cfg_attr(
+    feature = "schema",
+    derive(schemars::JsonSchema),
+    schemars(rename = "ServerSummary")
+)]
+pub struct Summary {
+    /// What the registry names it, as `gather mcp add` takes it.
+    pub name: UpstreamName,
+    /// The version listed, its latest.
+    pub version: String,
+    /// What it is shown as, when its publisher gave it a title.
+    pub title: Option<String>,
+    /// What it is for, as its publisher put it.
+    pub description: String,
+    /// Whether it stands or is deprecated, by the registry's word: any
+    /// word, since one this build does not know is kept as written.
+    #[cfg_attr(feature = "ts", ts(as = "String"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub status: Status,
+    /// Why its status changed, when the registry was told.
+    pub status_message: Option<String>,
+    /// When it last changed, as the registry wrote the time.
+    pub updated_at: Option<String>,
+    /// Each way it is started or reached, in the order the registry lists
+    /// them, by its word ([`Way::word`]): what `--way` picks one of by its
+    /// place, from 1.
+    pub ways: Vec<String>,
 }
 
 /// A listing as a search or a refresh left it, and what happened on the way.
@@ -199,13 +307,22 @@ impl Registry {
     /// its API follows, read through `client`.
     ///
     /// Refused when no request could be asked of it ([`HttpRequest::get`]:
-    /// another scheme, no host, a credential), and when it holds a query or
-    /// a fragment, which the paths asked would follow rather than precede.
+    /// another scheme, no host, a credential), when it holds a query or a
+    /// fragment, which the paths asked would follow rather than precede,
+    /// and when it is plain `http` to anywhere but this machine: what it
+    /// answers is a program every agent of a project will start, which
+    /// nothing should be able to change on its way over a network, as a
+    /// skill directory is held to the same (`finder::Search::at`).
     pub fn at(base: &str, client: Client) -> Result<Self, RegistryError> {
         let base = base.trim().trim_end_matches('/');
         HttpRequest::get(base).map_err(FetchError::from)?;
         if base.contains(['?', '#']) {
             return Err(RegistryError::Base {
+                url: Redacted::new(base),
+            });
+        }
+        if !scheme_is(base, "https") && !on_this_machine(base) {
+            return Err(RegistryError::Insecure {
                 url: Redacted::new(base),
             });
         }
@@ -491,6 +608,25 @@ impl Entry {
     pub fn ways(&self) -> Vec<Way> {
         import::ways(self)
     }
+
+    /// What a search lists of it: everything but its packages and remotes
+    /// as written, which are said by the word of each way.
+    pub fn summary(&self) -> Summary {
+        Summary {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            title: self.title.clone(),
+            description: self.description.clone(),
+            status: self.status.clone(),
+            status_message: self.status_message.clone(),
+            updated_at: self.updated_at.clone(),
+            ways: self
+                .ways()
+                .iter()
+                .map(|way| way.word().to_owned())
+                .collect(),
+        }
+    }
 }
 
 /// Why a registry was not read, or not read whole, or what was read past.
@@ -508,6 +644,8 @@ pub enum RegistryError {
     Cache(#[from] CacheError),
     #[error("{url}: holds a query or a fragment, so no path of a registry's API can follow it")]
     Base { url: Redacted },
+    #[error("{url}: is not https, which only a registry on this machine may leave out: what it answers is a program agents start")]
+    Insecure { url: Redacted },
     #[error("`{query}` is too short to search for: the registry takes {SHORTEST_QUERY} characters or more")]
     Query { query: String },
     #[error("`{name}` is no name a registry gives a server, which is a namespace, a slash and a name, as io.github.owner/server is")]
@@ -523,6 +661,7 @@ pub enum RegistryError {
 
 codes!(RegistryError {
     Self::Base { .. } => "mcp_registry_base_invalid",
+    Self::Insecure { .. } => "mcp_registry_base_insecure",
     Self::Query { .. } => "mcp_registry_query_short",
     Self::Name { .. } => "mcp_registry_name_invalid",
     Self::Unknown { .. } => "mcp_registry_server_unknown",

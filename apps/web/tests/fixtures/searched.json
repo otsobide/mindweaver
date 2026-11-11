@@ -1,0 +1,166 @@
+[
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects gather search --finder-url skills.sh=http://127.0.0.1:4200 --json commit"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects gather search --finder-url skills.sh=http://127.0.0.1:4200 --json commit"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects gather search --finder-url skills.sh=http://127.0.0.1:4200 --json commit",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "{\n  \"version\": 2,\n  \"data\": {\n    \"hits\": [\n      {\n        \"name\": \"commit-style\",\n        \"repository\": \"/home/you/src/house-rules\",\n        \"path\": null,\n        \"reference\": null,\n        \"installs\": 56,\n        \"stars\": null,\n        \"finders\": [\n          \"skills.sh\"\n        ]\n      },\n      {\n        \"name\": \"pdf\",\n        \"repository\": \"https://github.com/acme/skills\",\n        \"path\": null,\n        \"reference\": null,\n        \"installs\": 2263,\n        \"stars\": null,\n        \"finders\": [\n          \"skills.sh\"\n        ]\n      }\n    ],\n    \"asked\": [\n      \"skills.sh\"\n    ],\n    \"skipped\": [],\n    \"failures\": []\n  },\n  \"warnings\": [],\n  \"coded_warnings\": []\n}\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "query": "commit",
+      "type": "search_skills"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": true,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects gather git /home/you/src/house-rules"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects gather git /home/you/src/house-rules"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects gather git /home/you/src/house-rules",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "src-house-rules: /home/you/src/house-rules at 6d79be7\n  added  commit-style  How this repo writes commit messages\n\n1 skill: 1 added, 0 updated, 0 unchanged\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "hit": {
+        "finders": [
+          "skills.sh"
+        ],
+        "installs": 56,
+        "name": "commit-style",
+        "path": null,
+        "reference": null,
+        "repository": "/home/you/src/house-rules",
+        "stars": null
+      },
+      "type": "take_skill"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects gather mcp search --registry http://127.0.0.1:4100 --json mcp"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects gather mcp search --registry http://127.0.0.1:4100 --json mcp"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects gather mcp search --registry http://127.0.0.1:4100 --json mcp",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "{\n  \"version\": 2,\n  \"data\": {\n    \"query\": \"mcp\",\n    \"servers\": [\n      {\n        \"name\": \"ai.clawfetch/mcp\",\n        \"version\": \"0.4.0\",\n        \"title\": null,\n        \"description\": \"Web intelligence for AI agents: fetch, render, extract, research. x402 micropayments, no API keys.\",\n        \"status\": \"active\",\n        \"status_message\": null,\n        \"updated_at\": \"2026-10-21T08:46:57.686053Z\",\n        \"ways\": [\n          \"npm\"\n        ]\n      },\n      {\n        \"name\": \"com.opsmill/infrahub-mcp\",\n        \"version\": \"0.1.2\",\n        \"title\": null,\n        \"description\": \"An MCP server connects your AI assistants to Infrahub using the open MCP standard.\",\n        \"status\": \"active\",\n        \"status_message\": null,\n        \"updated_at\": \"2025-10-10T12:06:41.863655Z\",\n        \"ways\": [\n          \"pypi\"\n        ]\n      },\n      {\n        \"name\": \"io.github.buildkite/buildkite-mcp-server\",\n        \"version\": \"0.7.0\",\n        \"title\": null,\n        \"description\": \"MCP server exposing Buildkite API data (pipelines, builds, jobs, tests) to AI tooling and editors.\",\n        \"status\": \"active\",\n        \"status_message\": null,\n        \"updated_at\": \"2025-10-10T05:18:04.942499Z\",\n        \"ways\": [\n          \"oci\"\n        ]\n      }\n    ],\n    \"as_of\": \"2026-10-21T08:46:57.686053Z\",\n    \"whole\": true\n  },\n  \"warnings\": [],\n  \"coded_warnings\": []\n}\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "query": "mcp",
+      "type": "search_servers"
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 ai.clawfetch/mcp"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 ai.clawfetch/mcp"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 ai.clawfetch/mcp",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "ai.clawfetch/mcp 0.4.0, active\n  runs: npx -y @clawfetch/mcp@0.4.0\n  reads $CLAWFETCH_PRIVATE_KEY (a secret) where the agents run\nwould create mcp clawfetch-mcp at /home/you/Projects/.mindweaver/library/mcp/clawfetch-mcp.toml\nnothing written: add --yes to go ahead\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "server": "ai.clawfetch/mcp",
+      "type": "import_server",
+      "version": "0.4.0",
+      "yes": false
+    }
+  },
+  {
+    "preview": {
+      "cancellable": false,
+      "confirm": [],
+      "lines": [
+        "mindweaver -W /home/you/Projects gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 --yes ai.clawfetch/mcp"
+      ]
+    },
+    "ran": {
+      "lines": [
+        "mindweaver -W /home/you/Projects gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 --yes ai.clawfetch/mcp"
+      ],
+      "outcome": {
+        "ok": true,
+        "runs": [
+          {
+            "command": "mindweaver -W /home/you/Projects gather mcp add --registry http://127.0.0.1:4100 --version 0.4.0 --yes ai.clawfetch/mcp",
+            "error": null,
+            "ok": true,
+            "stderr": [],
+            "stdout": "ai.clawfetch/mcp 0.4.0, active\n  runs: npx -y @clawfetch/mcp@0.4.0\n  reads $CLAWFETCH_PRIVATE_KEY (a secret) where the agents run\ncreated mcp clawfetch-mcp at /home/you/Projects/.mindweaver/library/mcp/clawfetch-mcp.toml\n"
+          }
+        ]
+      }
+    },
+    "task": {
+      "server": "ai.clawfetch/mcp",
+      "type": "import_server",
+      "version": "0.4.0",
+      "yes": true
+    }
+  }
+]

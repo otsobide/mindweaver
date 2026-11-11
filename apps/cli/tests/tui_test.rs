@@ -1167,6 +1167,9 @@ fn gathering_in_the_tui_is_weaver_gather_git() {
             folder: String::from(mindweaver_core::DEFAULT_SUBDIRECTORY),
             reference: None,
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         })
     );
     let Mode::Reading(reader) = &app.mode else {
@@ -2081,6 +2084,9 @@ fn every_task_the_tui_runs_is_a_line_the_binaries_accept() {
             folder: String::from("agents"),
             reference: Some(String::from("-weird")),
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Add {
             holder: Holder::Project(String::from("alpha")),
@@ -4894,6 +4900,196 @@ fn a_search_finding_nothing_says_so_and_offers_another() {
     assert_eq!(form.query.text(), "nothing-like-it");
 }
 
+// ---------------------------------------------------------------------------
+// The MCP Registry, from the shelf's page (#107)
+// ---------------------------------------------------------------------------
+
+/// A runner that runs each line the TUI hands it for real, the registry on
+/// loopback named after `gather mcp <command>`, since a front end names no
+/// registry and the official one is the network; each line noted as the
+/// TUI handed it.
+fn asking(
+    registry: &common::mcp_registry::Registry,
+    heard: &Arc<Mutex<Vec<Vec<String>>>>,
+) -> Runner {
+    let heard = Arc::clone(heard);
+    let url = registry.url();
+    Runner::new(move |handed, base, lookup, watch| {
+        heard.lock().unwrap().push(handed.to_vec());
+        let mut words = handed.to_vec();
+        if words.get(1..3) == Some(&[String::from("gather"), String::from("mcp")][..]) {
+            words.splice(4..4, [String::from("--registry"), url.clone()]);
+        }
+        // Said as the line handed, which is what the transcript keeps.
+        let mut done = tui::execute(&words, base, lookup, watch);
+        done.command = mindweaver_cli::task::shell(handed);
+        done
+    })
+}
+
+/// The acceptance's TUI case: `r` on the shelf's page searches the
+/// registry, enter on a server runs the add's dry run, which writes
+/// nothing, and `y` on the page it shows runs the same line told yes; each
+/// a line of the command's, the last alone kept in the transcript.
+#[test]
+fn a_server_found_from_the_shelf_is_added_once_what_it_writes_is_read_and_y_said() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let registry = common::mcp_registry::Registry::recorded();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let mut app = tui_in(dir.path());
+    app.runner = Some(asking(&registry, &heard));
+    let file = own_directory_for(dir.path(), Kind::Mcp).join("clawfetch-mcp.toml");
+
+    press_and_run(&mut app, KeyCode::Char('s'));
+    let drawn = tui_drawn_at(&app, 120, 30);
+    assert!(drawn.contains("r search the MCP Registry"), "{drawn}");
+    assert_eq!(press_key(&mut app, KeyCode::Char('r')), TuiStep::Stay);
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("Search the MCP Registry"), "{drawn}");
+    type_text(&mut app, "clawfetch");
+    let searched = press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        searched,
+        Some(Task::SearchServers {
+            query: String::from("clawfetch")
+        })
+    );
+    let Mode::Servers(results) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(results.servers.len(), 1);
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("What the MCP Registry lists for `clawfetch`"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains("ai.clawfetch/mcp  0.4.0  active  npm"),
+        "{drawn}"
+    );
+    assert!(drawn.contains("Web intelligence for AI agents"), "{drawn}");
+
+    let foreseen = press_and_run(&mut app, KeyCode::Enter).expect("enter says what it writes");
+    let dry = [
+        "mindweaver",
+        "gather",
+        "mcp",
+        "add",
+        "--version",
+        "0.4.0",
+        "ai.clawfetch/mcp",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(foreseen.commands(), std::slice::from_ref(&dry));
+    let Mode::Reading(reader) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(reader.writes.is_some());
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("runs: npx -y @clawfetch/mcp@0.4.0"),
+        "{drawn}"
+    );
+    assert!(
+        drawn.contains("nothing written: add --yes to go ahead"),
+        "{drawn}"
+    );
+    assert!(drawn.contains("y write it into the library"), "{drawn}");
+    assert!(!file.exists(), "the dry run writes nothing");
+
+    let written = press_and_run(&mut app, KeyCode::Char('y')).expect("y writes it");
+
+    let yes = [
+        "mindweaver",
+        "gather",
+        "mcp",
+        "add",
+        "--version",
+        "0.4.0",
+        "--yes",
+        "ai.clawfetch/mcp",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(written.commands(), std::slice::from_ref(&yes));
+    assert!(file.exists(), "{file:?}");
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("created mcp clawfetch-mcp at "), "{drawn}");
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ["mindweaver", "gather", "list"].map(String::from).to_vec(),
+            [
+                "mindweaver",
+                "gather",
+                "mcp",
+                "search",
+                "--json",
+                "clawfetch"
+            ]
+            .map(String::from)
+            .to_vec(),
+            dry,
+            yes,
+        ]
+    );
+    let transcript = app.transcript();
+    assert_eq!(
+        transcript.lines().next(),
+        Some("$ mindweaver gather mcp add --version 0.4.0 --yes ai.clawfetch/mcp"),
+        "{transcript}"
+    );
+    assert!(!transcript.contains("mcp search"), "{transcript}");
+}
+
+/// A search the registry refuses keeps the form open with why, in core's
+/// words, as the line says it; `r` searches again from the results with
+/// what was looked for typed already.
+#[test]
+fn a_registry_search_refused_keeps_the_form_open_and_r_searches_again() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let registry = common::mcp_registry::Registry::recorded();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let mut app = tui_in(dir.path());
+    app.runner = Some(asking(&registry, &heard));
+    press_and_run(&mut app, KeyCode::Char('s'));
+    press_key(&mut app, KeyCode::Char('r'));
+    type_text(&mut app, "ab");
+
+    press_and_run(&mut app, KeyCode::Enter);
+
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        form.error.as_deref(),
+        Some("`ab` is too short to search for: the registry takes 3 characters or more")
+    );
+    assert!(registry.asked().is_empty(), "{:?}", registry.asked());
+
+    press_key(&mut app, KeyCode::Char('l'));
+    press_and_run(&mut app, KeyCode::Enter);
+    let Mode::Servers(results) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert!(results.servers.is_empty());
+    let drawn = tui_drawn(&app);
+    assert!(
+        drawn.contains("the registry lists no server whose name holds `abl`"),
+        "{drawn}"
+    );
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+    assert_eq!(press_key(&mut app, KeyCode::Char('r')), TuiStep::Stay);
+    let Mode::Searching(form) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(form.query.text(), "abl");
+}
+
 /// `f` searches from the shelf's page alone: on any other page it is no key.
 #[test]
 fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
@@ -4909,4 +5105,243 @@ fn f_on_a_page_other_than_the_shelf_s_searches_nothing() {
         "{:?}",
         app.mode
     );
+}
+
+// ---------------------------------------------------------------------------
+// Gathering from a Claude Code marketplace (#103)
+// ---------------------------------------------------------------------------
+
+/// What `mindweaver gather marketplace --list --json` prints for a catalog
+/// of four plugins, read by core as it reads one: two kept beside it, the
+/// second gathered already, one in a repository of its own pinned to a
+/// commit, and one from npm, which no gather takes.
+fn catalog_listed() -> String {
+    use mindweaver_core::marketplace::{Catalog, Dialect, Listing};
+    use mindweaver_core::value::{Redacted, SourceName};
+
+    let pin = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c54f9c2a7e";
+    let mut catalog = Catalog::of(
+        &serde_json::json!({
+            "name": "acme-tools",
+            "plugins": [
+                {"name": "formatter", "source": "./plugins/formatter", "description": "Format the code"},
+                {"name": "review", "source": "./plugins/review", "description": "Read a change"},
+                {"name": "deploy", "source": {"source": "github", "repo": "acme/deploy", "sha": pin}, "description": "Ship the service"},
+                {"name": "from-npm", "source": {"source": "npm", "package": "@acme/x"}, "description": "A package"},
+            ],
+        }),
+        "https://github.com/acme/tools",
+        Dialect::ClaudeCode,
+    )
+    .unwrap();
+    catalog.entries[1].gathered = SourceName::parse("acme-tools.review");
+    let listing = Listing {
+        name: SourceName::parse("acme-tools").unwrap(),
+        url: Redacted::new("https://github.com/acme/tools"),
+        reference: None,
+        revision: Some(mindweaver_core::value::Revision::from(pin)),
+        catalog,
+    };
+    serde_json::json!({
+        "version": 2,
+        "data": listing,
+        "warnings": [],
+        "coded_warnings": [],
+    })
+    .to_string()
+}
+
+/// A runner standing in for every line, which notes each, and answers the
+/// listing of a marketplace with [`catalog_listed`] and every other line
+/// with a word of its own.
+fn listing_plugins(heard: &Arc<Mutex<Vec<Vec<String>>>>) -> Runner {
+    let heard = Arc::clone(heard);
+    Runner::new(move |words, _, _, _| {
+        heard.lock().unwrap().push(words.to_vec());
+        let listed = words.iter().any(|word| word == "--list");
+        Done {
+            command: words.join(" "),
+            stdout: if listed {
+                catalog_listed()
+            } else {
+                String::from("stood in\n")
+            },
+            stderr: Vec::new(),
+            error: None,
+            ok: true,
+        }
+    })
+}
+
+/// The acceptance's TUI case: a marketplace listed from the shelf's page,
+/// two of its plugins ticked, and the one line that gathers them, which
+/// the transcript keeps; a plugin no gather takes is never ticked.
+#[test]
+fn two_plugins_ticked_on_a_marketplace_listed_from_the_shelf_are_gathered_by_one_line() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(listing_plugins(&heard));
+
+    press_and_run(&mut app, KeyCode::Char('s'));
+    assert_eq!(press_key(&mut app, KeyCode::Char('m')), TuiStep::Stay);
+    assert!(matches!(app.mode, Mode::Marketplace(_)), "{:?}", app.mode);
+    type_text(&mut app, "acme/tools");
+    let listed = press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(
+        listed,
+        Some(Task::ListMarketplace {
+            source: String::from("acme/tools"),
+            reference: None,
+        })
+    );
+    assert!(listed.unwrap().runs_apart(), "followed as a gather is");
+    let Mode::Plugins(screen) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(screen.entries().len(), 4);
+    let drawn = tui_drawn(&app);
+    assert!(drawn.contains("The plugins acme-tools lists"), "{drawn}");
+    for row in [
+        "[ ]  formatter  ./plugins/formatter",
+        "[ ]  review     ./plugins/review     gathered as acme-tools.review",
+        "[ ]  deploy     github acme/deploy",
+        "     from-npm   npm @acme/x          not gathered",
+    ] {
+        assert!(drawn.contains(row), "{row}\n{drawn}");
+    }
+
+    // The first and the third ticked; the npm package refuses its tick.
+    press_key(&mut app, KeyCode::Char(' '));
+    press_key(&mut app, KeyCode::Down);
+    press_key(&mut app, KeyCode::Down);
+    press_key(&mut app, KeyCode::Char(' '));
+    press_key(&mut app, KeyCode::Down);
+    press_key(&mut app, KeyCode::Char(' '));
+    let Mode::Plugins(screen) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(screen.ticked, [true, false, true, false]);
+    assert_eq!(
+        screen.error.as_deref(),
+        Some("from-npm is not gathered: only a plugin kept in git is")
+    );
+    let gathered = press_and_run(&mut app, KeyCode::Enter).expect("enter gathers the ticked");
+
+    let line = [
+        "mindweaver",
+        "gather",
+        "marketplace",
+        "--plugin",
+        "formatter",
+        "--plugin",
+        "deploy",
+        "acme/tools",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(gathered.commands(), std::slice::from_ref(&line));
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ["mindweaver", "gather", "list"].map(String::from).to_vec(),
+            [
+                "mindweaver",
+                "gather",
+                "marketplace",
+                "--list",
+                "--json",
+                "acme/tools"
+            ]
+            .map(String::from)
+            .to_vec(),
+            line,
+        ]
+    );
+    let mindweaver_cli::GatherCommand::Marketplace {
+        source,
+        plugins,
+        all,
+        credential,
+        ..
+    } = gather_command(&gathered.commands()[0])
+    else {
+        panic!("{:?}", gathered.commands());
+    };
+    assert_eq!(source, "acme/tools");
+    assert_eq!(plugins, ["formatter", "deploy"]);
+    assert!(!all);
+    assert!(!credential.is_given(), "a task hands over no token");
+    assert!(matches!(app.mode, Mode::Reading(_)), "{:?}", app.mode);
+    let transcript = app.transcript();
+    assert!(
+        transcript.contains(
+            "$ mindweaver gather marketplace --plugin formatter --plugin deploy acme/tools\n"
+        ),
+        "{transcript}"
+    );
+}
+
+/// Enter with nothing ticked gathers nothing, and says how to tick.
+#[test]
+fn enter_with_no_plugin_ticked_gathers_nothing_and_says_how_to_tick_one() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let mut app = tui_in(dir.path());
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    app.runner = Some(listing_plugins(&heard));
+    press_and_run(&mut app, KeyCode::Char('s'));
+    press_key(&mut app, KeyCode::Char('m'));
+    type_text(&mut app, "acme/tools");
+    press_and_run(&mut app, KeyCode::Enter);
+
+    assert_eq!(press_key(&mut app, KeyCode::Enter), TuiStep::Stay);
+
+    let Mode::Plugins(screen) = &app.mode else {
+        panic!("{:?}", app.mode);
+    };
+    assert_eq!(
+        screen.error.as_deref(),
+        Some("tick the plugins to gather with space")
+    );
+    assert_eq!(heard.lock().unwrap().len(), 2, "nothing more was run");
+}
+
+/// On the sources screen, `m` on a marketplace, or on a plugin of one,
+/// opens the form holding the marketplace, gathered for real.
+#[test]
+fn m_on_a_marketplace_or_its_plugin_in_the_sources_screen_lists_that_marketplace() {
+    let dir = TempDir::new().unwrap();
+    weaver(dir.path(), &["init"]).unwrap();
+    let catalog = mindweaver_core::mother::MarketplaceMother::anthropic_skills();
+    let url = catalog.path().to_string_lossy().into_owned();
+    weaver(
+        dir.path(),
+        &["gather", "marketplace", &url, "--plugin", "example-skills"],
+    )
+    .unwrap();
+    let mut app = tui_in(dir.path());
+
+    for down in [0, 1] {
+        press_key(&mut app, KeyCode::Char('S'));
+        for _ in 0..down {
+            press_key(&mut app, KeyCode::Down);
+        }
+        press_key(&mut app, KeyCode::Char('m'));
+
+        let Mode::Marketplace(form) = &app.mode else {
+            panic!("{:?}", app.mode);
+        };
+        assert_eq!(form.source.text(), url, "{down}");
+        assert_eq!(
+            form.task(),
+            Some(Task::ListMarketplace {
+                source: url.clone(),
+                reference: None,
+            })
+        );
+        press_key(&mut app, KeyCode::Esc);
+    }
 }

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServerListing",
+  "description": "What a search found, as `gather mcp search --json` prints it in the\nenvelope's `data`: what a front end reads back to list the servers and\nadd one, the TUI's results screen and the panel's search alike.\n\nDerived, and [`Listing`] written through it, so what its TypeScript and\nits schema say is what serde writes, read off the same attributes.\nUnder a name of its own, since the panel's types are written into one\nfolder, a file to a name, and a listing of the workspace\n([`crate::view::Listing`]) has that one.",
+  "type": "object",
+  "properties": {
+    "as_of": {
+      "description": "The newest time the registry gave anything read into it, as it\nwrote the time; none when it read nothing.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "query": {
+      "description": "The words searched for, as they were asked.",
+      "type": "string"
+    },
+    "servers": {
+      "description": "One server a name, sorted by the name the registry gives it.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ServerSummary"
+      }
+    },
+    "whole": {
+      "description": "Whether every page was read: one that stopped short says why\nbeside it, as a warning.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "query",
+    "servers",
+    "as_of",
+    "whole"
+  ],
+  "$defs": {
+    "ServerSummary": {
+      "description": "One server as a search lists it: what `mindweaver gather mcp search`\nprints a row of, and its `--json` a server of, which a front end reads\nback to add one by its name and version.\n\nEach field by its name, a contract once printed, as a report's are.\nUnder a name of its own in TypeScript and JSON Schema, since what a\nworkspace holds, counted ([`crate::view::Summary`]), has this one.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "What it is for, as its publisher put it.",
+          "type": "string"
+        },
+        "name": {
+          "description": "What the registry names it, as `gather mcp add` takes it.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Whether it stands or is deprecated, by the registry's word: any\nword, since one this build does not know is kept as written.",
+          "type": "string"
+        },
+        "status_message": {
+          "description": "Why its status changed, when the registry was told.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "What it is shown as, when its publisher gave it a title.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "description": "When it last changed, as the registry wrote the time.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "The version listed, its latest.",
+          "type": "string"
+        },
+        "ways": {
+          "description": "Each way it is started or reached, in the order the registry lists\nthem, by its word ([`Way::word`]): what `--way` picks one of by its\nplace, from 1.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "title",
+        "description",
+        "status",
+        "status_message",
+        "updated_at",
+        "ways"
+      ]
+    }
+  }
+}

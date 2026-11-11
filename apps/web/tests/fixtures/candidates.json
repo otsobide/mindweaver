@@ -209,6 +209,16 @@
     }
   ],
   "format": 1,
+  "gatherable": [
+    {
+      "folder": ".",
+      "kind": "skill"
+    },
+    {
+      "folder": null,
+      "kind": "rule"
+    }
+  ],
   "healths": [
     "ok",
     "attention",
@@ -1184,8 +1194,10 @@
       "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
       "source": {
         "directory": "github.com-acme-skills",
+        "entry": null,
         "kind": "git",
         "name": "acme-skills",
+        "parent": null,
         "pin": null,
         "reference": null,
         "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
@@ -1208,8 +1220,10 @@
       "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
       "source": {
         "directory": "github.com-acme-skills",
+        "entry": null,
         "kind": "git",
         "name": "acme-skills",
+        "parent": null,
         "pin": null,
         "reference": null,
         "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",
@@ -1223,10 +1237,18 @@
   "sources": [
     {
       "directory": "github.com-acme-skills",
+      "entry": null,
       "gathered_at": 1792850400,
       "kind": "git",
+      "licences": [
+        {
+          "count": 2,
+          "licence": "unknown"
+        }
+      ],
       "name": "acme-skills",
       "origin": "https://github.com/acme/skills",
+      "parent": null,
       "pin": null,
       "reference": null,
       "revision": "8d1c3f0a2b4e6d8f0a1c3e5b7d9f1a3c5e7b9d2f",

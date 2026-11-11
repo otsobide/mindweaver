@@ -63,6 +63,13 @@ pub const FLAYER_LEDGER_FILE: &str = "mindflayer.db";
 pub enum SourceKind {
     /// A git repository, cloned into the workspace cache.
     Git,
+    /// A plugin marketplace, Claude Code's (#103) or Codex's (#104): a git
+    /// repository whose catalog, `.claude-plugin/marketplace.json` or
+    /// `.agents/plugins/marketplace.json`, lists plugins, each gathered only
+    /// when chosen, as a git source of its own, its child
+    /// ([`Source::parent`]). What is cloned of it is the catalog's
+    /// repository, and nothing of it is put on the shelf itself.
+    Marketplace,
 }
 
 impl SourceKind {
@@ -70,12 +77,14 @@ impl SourceKind {
     pub const fn slug(self) -> &'static str {
         match self {
             SourceKind::Git => "git",
+            SourceKind::Marketplace => "marketplace",
         }
     }
 
     pub(crate) fn parse(slug: &str) -> Option<Self> {
         match slug {
             "git" => Some(SourceKind::Git),
+            "marketplace" => Some(SourceKind::Marketplace),
             _ => None,
         }
     }
@@ -92,15 +101,16 @@ impl Serialize for SourceKind {
 #[cfg(any(feature = "ts", feature = "schema"))]
 crate::described::words! {
     /// What kind of place a source is.
-    SourceKind by slug { Git }
+    SourceKind by slug { Git, Marketplace }
 }
 
 /// A place artifacts have been gathered from.
 ///
 /// What it serializes to is a contract, as a status report's is: each field
-/// by its name, but the row id, and the URL only through [`redacted`]. Its
-/// `name` was added after the rest (#98), and its `pin` after that (#99),
-/// neither of which moved a version.
+/// by its name, but the row ids, and the URL only through [`redacted`]. Its
+/// `name` was added after the rest (#98), its `pin` after that (#99), and
+/// its `parent` and `entry` after that (#103), none of which moved a
+/// version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -140,6 +150,19 @@ pub struct Source {
     /// or the remote's HEAD. Not part of what the source is: moving the
     /// pin, or gathering it with none, gathers into the same source.
     pub pin: Option<Pin>,
+    /// The row id of the marketplace listing it, for a plugin gathered
+    /// from one (#103): not serialized, as [`id`](Self::id) is not.
+    #[serde(skip)]
+    pub parent_id: Option<i64>,
+    /// What the marketplace listing it is called, for a plugin gathered
+    /// from one (D-13): the source a refresh or a removal of it goes
+    /// through, as `gather sources` shows it. `None` for every other.
+    pub parent: Option<SourceName>,
+    /// What the plugin is called in its marketplace's catalog, for one
+    /// gathered from a marketplace: what it is, as `--plugin` takes it,
+    /// where its URL and its folder are only where the catalog says it is
+    /// today. `None` for every other source.
+    pub entry: Option<String>,
 }
 
 impl Source {

@@ -18,14 +18,18 @@ import candidates from './fixtures/candidates.json'
 import commands from './fixtures/commands.json'
 import draftsJson from './fixtures/drafts.json'
 import foldersJson from './fixtures/folders.json'
+import gatheredJson from './fixtures/gathered.json'
+import gatheringJson from './fixtures/gathering.json'
 import keptJson from './fixtures/kept.json'
 import library from './fixtures/library.json'
 import loadsJson from './fixtures/loads.json'
 import planned from './fixtures/plans.json'
 import scan from './fixtures/scan.json'
+import searchedJson from './fixtures/searched.json'
 import servedJson from './fixtures/served.json'
 import serversJson from './fixtures/servers.json'
 import serving from './fixtures/serving.json'
+import sourcesJson from './fixtures/sources.json'
 import stepsJson from './fixtures/steps.json'
 import unmade from './fixtures/unmade.json'
 import updated from './fixtures/updated.json'
@@ -52,9 +56,13 @@ import workspace from './fixtures/workspace.json'
  * opens none; and `serving`, a workspace keeping MCP servers, which their
  * page draws beside tests/fixtures/servers.json: a program, an address and
  * one reached over server-sent events, a loaded workspace's that waits for
- * a yes, and a project for every agent holding one.
+ * a yes, and a project for every agent holding one; and `sources`, a
+ * workspace whose shelf is filled from repositories beside it, which the
+ * page of sources draws beside tests/fixtures/gathered.json: one of skills,
+ * gathered as it is, whose two say two licences, and one of rules, named
+ * and pinned.
  */
-const FIXTURES = { workspace, unmade, candidates, assigning, updating, serving }
+const FIXTURES = { workspace, unmade, candidates, assigning, updating, serving, sources: sourcesJson }
 
 export type Fixture = keyof typeof FIXTURES
 
@@ -296,12 +304,55 @@ export function kept(): Commanded[] {
 }
 
 /**
+ * What the workspace fixture's server answers when its page of catalogs
+ * sends each of its tasks in turn, its `weaver.toml` listing skills.sh and
+ * the server started naming a registry and skills.sh on loopback
+ * (tests/fixtures/searched.json): a search of the skill directories for
+ * `commit`, which finds `commit-style`, in a repository on the server's
+ * disk, and `pdf`, on GitHub; the first taken, sent back as the search
+ * printed it; a search of the registry for `mcp`, listing three servers;
+ * and `ai.clawfetch/mcp` added, its dry run, then told yes. Copied, so a
+ * test may change its copy.
+ */
+export function searched(): Commanded[] {
+  return structuredClone(searchedJson) as unknown as Commanded[]
+}
+
+/**
  * Each step a backup reports, as the backend tells the panel it
  * (tests/fixtures/steps.json): checking the repository out, exporting,
  * committing, each cancellable, and pushing, past a cancel.
  */
 export function steps(): Step[] {
   return structuredClone(stepsJson) as unknown as Step[]
+}
+
+/**
+ * What the sources fixture's server answers when each change its page of
+ * sources sends is previewed and run, each on the workspace as it was
+ * built (tests/fixtures/gathered.json): `acme-tools` added, its dry run
+ * first, then gathered, then gathered and stopped at its first step
+ * (`gather_cancelled`); `src-acme-skills` gathered again, then every
+ * source; `src-acme-skills` renamed `acme-skills`, then `team-rules`, a
+ * name another source has (`source_name_taken`); `team-rules` forgotten,
+ * its dry run first; and `src-acme-skills` gathered again and stopped at
+ * its first step, said by the gather's code beside nothing gathered. The
+ * second and the third are one task, and so are the fourth and the last:
+ * a test hands `commanding` the one it means. Copied, so a test may change
+ * its copy.
+ */
+export function gathered(): Commanded[] {
+  return structuredClone(gatheredJson) as unknown as Commanded[]
+}
+
+/**
+ * Each step a gather reports, as the backend tells the panel it
+ * (tests/fixtures/gathering.json): connecting, receiving 120 objects of
+ * 340, resolving with no total, checking out every file, reading one
+ * folder of two, each cancellable, and placing one of two, past a cancel.
+ */
+export function gatheringSteps(): Step[] {
+  return structuredClone(gatheringJson) as unknown as Step[]
 }
 
 /** A task as `send` was handed it, and how. */

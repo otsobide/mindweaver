@@ -19,7 +19,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use mindweaver_core::create::Start;
 use mindweaver_core::http::{Cache, Client, Via};
+use mindweaver_core::lifecycle;
 use mindweaver_core::mcp::{InputKind, Transport};
 use mindweaver_core::mcp_registry::{
     Entry, ImportError, Imported, Listing, Manual, Note, Registry, RegistryError, Status, Way,
@@ -1039,11 +1041,36 @@ fn every_recorded_server_is_a_definition_validate_passes_or_a_manual_step() {
         for secret in secrets {
             assert!(!imported.text.contains(&secret), "{}: {secret}", entry.name);
         }
-        fs::write(
-            folder.join(format!("{}.toml", imported.name)),
-            &imported.text,
+        // Another version of a server written already, which `add` would
+        // refuse beside it as any file already there.
+        if imported_names.contains(&imported.name) {
+            continue;
+        }
+        // Through `add`'s own path, as `gather mcp add --yes` writes one,
+        // which sets the name and the description to what they are, and
+        // so writes the text as the import made it.
+        let file = folder.join(format!("{}.toml", imported.name));
+        assert_eq!(
+            lifecycle::would_add(
+                &project,
+                Kind::Mcp,
+                &imported.name,
+                &imported.definition.description,
+                Start::Definition(&imported.text),
+            )
+            .unwrap(),
+            file
+        );
+        lifecycle::add(
+            None,
+            &project,
+            Kind::Mcp,
+            &imported.name,
+            &imported.definition.description,
+            Start::Definition(&imported.text),
         )
-        .unwrap();
+        .unwrap_or_else(|error| panic!("{}: {error}", entry.name));
+        assert_eq!(fs::read_to_string(&file).unwrap(), imported.text);
         imported_names.insert(imported.name);
     }
 

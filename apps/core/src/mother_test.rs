@@ -564,6 +564,122 @@ fn a_git_repository_mother_lays_skills_out_where_it_is_told() {
     assert!(one.path().join("examples/inner/SKILL.md").is_file());
 }
 
+/// Each catalog a marketplace mother writes reads as one, every plugin it
+/// lists read, where it says it keeps its skills, and every one a commit
+/// of its own when it is a repository of its own.
+#[test]
+fn a_marketplace_mother_keeps_a_catalog_that_reads_beside_what_it_lists() {
+    let read = |repository: &tempfile::TempDir| {
+        let text = fs::read_to_string(repository.path().join(crate::marketplace::CATALOG)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        crate::marketplace::Catalog::of(
+            &value,
+            "https://github.com/acme/tools",
+            crate::marketplace::Dialect::ClaudeCode,
+        )
+        .unwrap()
+    };
+
+    let anthropic = MarketplaceMother::anthropic_skills();
+    assert!(gix::open(anthropic.path()).unwrap().head_id().is_ok());
+    let catalog = read(&anthropic);
+    assert!(catalog.failures.is_empty(), "{:?}", catalog.failures);
+    assert_eq!(
+        catalog.name.as_deref(),
+        Some(MarketplaceMother::ANTHROPIC_SKILLS)
+    );
+    for entry in &catalog.entries {
+        for listed in entry.skills.as_deref().unwrap() {
+            assert!(
+                anthropic.path().join(listed).join("SKILL.md").is_file(),
+                "{listed}"
+            );
+        }
+    }
+
+    let count = random::between(1, 40);
+    let listing = MarketplaceMother::listing(count);
+    let catalog = read(&listing);
+    assert!(catalog.failures.is_empty(), "{:?}", catalog.failures);
+    assert_eq!(catalog.gatherable(), count);
+    assert!(catalog
+        .entries
+        .iter()
+        .all(|entry| entry.source.sha().is_some()));
+
+    for (path, _) in MarketplaceMother::plugin("plugins/deploy", &["ship"]) {
+        assert_eq!(path, "plugins/deploy/skills/ship/SKILL.md");
+    }
+}
+
+/// A Codex marketplace mother keeps its catalog where Codex does, read in
+/// Codex's dialect with every entry resolved, each plugin it lists at the
+/// folder it names with Codex's manifest there; and an Agent Plugins
+/// package declares the format's `$schema` at its root.
+#[test]
+fn a_codex_marketplace_mother_keeps_a_catalog_codex_reads_beside_its_plugins() {
+    use crate::marketplace::{Catalog, Dialect, Place, AGENT_PLUGINS_SCHEMA, CODEX_CATALOG};
+
+    let openai = MarketplaceMother::openai_plugins();
+    assert!(gix::open(openai.path()).unwrap().head_id().is_ok());
+    assert!(!openai.path().join(crate::marketplace::CATALOG).exists());
+    let text = fs::read_to_string(openai.path().join(CODEX_CATALOG)).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let catalog = Catalog::of(&value, "https://github.com/openai/plugins", Dialect::Codex).unwrap();
+    assert_eq!(catalog.dialect, Dialect::Codex);
+    assert!(catalog.failures.is_empty(), "{:?}", catalog.failures);
+    assert_eq!(
+        catalog.name.as_deref(),
+        Some(MarketplaceMother::OPENAI_CURATED)
+    );
+    for entry in &catalog.entries {
+        let Place::Relative { path } = &entry.source else {
+            panic!("{entry:?}");
+        };
+        assert!(
+            openai
+                .path()
+                .join(path)
+                .join(".codex-plugin/plugin.json")
+                .is_file(),
+            "{path}"
+        );
+        assert!(value["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|plugin| plugin["policy"].is_object() && plugin["category"].is_string()));
+    }
+    for skill in MarketplaceMother::DESIGN_SKILLS {
+        assert!(openai
+            .path()
+            .join("plugins/design/skills")
+            .join(skill)
+            .join("SKILL.md")
+            .is_file());
+    }
+
+    let name = random::kebab();
+    let files =
+        MarketplaceMother::agent_plugins_package("plugins/portable", &name, "MIT", &["ship"]);
+    let manifest = files
+        .iter()
+        .find(|(path, _)| path == "plugins/portable/plugin.json")
+        .map(|(_, text)| serde_json::from_str::<serde_json::Value>(text).unwrap())
+        .unwrap();
+    assert_eq!(manifest["$schema"], AGENT_PLUGINS_SCHEMA);
+    assert_eq!(manifest["name"], name.as_str());
+    let paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+    for path in [
+        "plugins/portable/skills/ship/SKILL.md",
+        "plugins/portable/mcp.json",
+        "plugins/portable/SKILL.md",
+        "plugins/portable/skills/grouped/deeper/SKILL.md",
+    ] {
+        assert!(paths.contains(&path), "{path}: {paths:?}");
+    }
+}
+
 #[test]
 fn a_mindflayer_mother_makes_a_workspace_under_the_old_names() {
     let (dir, workspace) = MindflayerMother::empty();

@@ -6,7 +6,7 @@
  * from here, so none of them can start a command some other way.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, lstatSync, readdirSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 
 /**
@@ -175,6 +175,51 @@ export function pinned(at: Places, workspace: 'fixture' | 'none'): string[] {
   return [`--home=${at.home}`, `--workspace=${workspace === 'fixture' ? at.workspace : ''}`, ...NO_AGENT_HOMES]
 }
 
+/**
+ * Who the repositories a spec or the demo makes commit as, and when: fixed,
+ * so a regenerated shelf shows the same commits. Neither the person running
+ * it nor their git configuration: no system or global file is read.
+ */
+function author(date: string): Record<string, string> {
+  return {
+    GIT_AUTHOR_NAME: 'Demo',
+    GIT_AUTHOR_EMAIL: 'demo@example.com',
+    GIT_AUTHOR_DATE: date,
+    GIT_COMMITTER_NAME: 'Demo',
+    GIT_COMMITTER_EMAIL: 'demo@example.com',
+    GIT_COMMITTER_DATE: date,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null'
+  }
+}
+
+/**
+ * Run git with `args` in `directory`, as that author at `date`, in the
+ * environment every binary runs in, failing unless it exits 0: how a
+ * repository somebody keeps is made, which only git makes, for the demo's
+ * shelf and for a spec gathering from one.
+ */
+export function git(at: Places, directory: string, args: string[], date = '2026-10-01T09:00:00Z'): void {
+  const ran = spawnSync('git', ['-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], {
+    cwd: directory,
+    env: { ...environment(at), ...author(date) },
+    encoding: 'utf8',
+    timeout: 60_000
+  })
+  if (ran.error) {
+    throw ran.error
+  }
+  if (ran.status !== 0) {
+    throw new Error(`\`git ${args.join(' ')}\` in ${directory} exited ${ran.status}:\n${ran.stdout}${ran.stderr}`)
+  }
+}
+
+/** A repository at `folder`, empty, as `git init` makes one. */
+export function repository(at: Places, folder: string): void {
+  mkdirSync(folder, { recursive: true })
+  git(at, folder, ['init', '--quiet'])
+}
+
 /** What a line printed, and how it exited. */
 export interface Ran {
   line: string
@@ -201,13 +246,66 @@ export function run(at: Places, name: 'mindweaver' | 'mind', directory: string, 
   return { line: [name, ...line].join(' '), status: ran.status, stdout: ran.stdout, stderr: ran.stderr }
 }
 
+/**
+ * `run`, without holding this process up while the line runs: for a line
+ * that reaches a server this process serves, which `run`'s wait would keep
+ * from answering.
+ */
+export function runApart(at: Places, name: 'mindweaver' | 'mind', directory: string, args: string[]): Promise<Ran> {
+  const line = [...args, '-C', directory, ...pinned(at, 'fixture')]
+  const child = spawn(binary(at.bin, name), line, { cwd: directory, env: environment(at), stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  let stderr = ''
+  child.stdout!.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk))
+  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+  return new Promise((resolve, refuse) => {
+    child.on('error', refuse)
+    child.on('close', status => resolve({ line: [name, ...line].join(' '), status, stdout, stderr }))
+  })
+}
+
 /** `run`, failing unless the line exits 0 and says no warning. */
 export function succeed(at: Places, name: 'mindweaver' | 'mind', directory: string, args: string[], workspace: 'fixture' | 'none' = 'fixture'): Ran {
-  const ran = run(at, name, directory, args, workspace)
+  return succeeded(run(at, name, directory, args, workspace))
+}
+
+/** `ran`, unless it exited other than 0 or said a warning. */
+function succeeded(ran: Ran): Ran {
   if (ran.status !== 0 || /^warning:/m.test(ran.stderr)) {
     throw new Error(`\`${ran.line}\` exited ${ran.status}:\n${ran.stdout}${ran.stderr}`)
   }
   return ran
+}
+
+/**
+ * `succeed`, the line run while this process goes on answering: for a line
+ * asking a server this process serves, the catalogs on loopback
+ * (catalogs.ts), which `run` would keep from answering until the line gave
+ * up on them, since it waits for the line without letting anything else
+ * here run.
+ */
+export function succeedApart(at: Places, name: 'mindweaver' | 'mind', directory: string, args: string[]): Promise<Ran> {
+  const line = [...args, '-C', directory, ...pinned(at, 'fixture')]
+  const child = spawn(binary(at.bin, name), line, { cwd: directory, env: environment(at), stdio: ['ignore', 'pipe', 'pipe'] })
+  return new Promise((resolve, refuse) => {
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => child.kill('SIGKILL'), 60_000)
+    child.stdout!.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk))
+    child.stderr!.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      refuse(error)
+    })
+    child.on('close', (status) => {
+      clearTimeout(timer)
+      try {
+        resolve(succeeded({ line: [name, ...line].join(' '), status, stdout, stderr }))
+      } catch (error) {
+        refuse(error)
+      }
+    })
+  })
 }
 
 /**
@@ -217,10 +315,12 @@ export function succeed(at: Places, name: 'mindweaver' | 'mind', directory: stri
  * names none, and finds the one it is started in, as a person's does: what
  * the screenshots show, from a folder no other workspace is above. With
  * `log`, it says on stderr every request it answers and every run, with how
- * long each took (`--log`).
+ * long each took (`--log`). With `options`, those of the launch's beside
+ * them: the catalogs on loopback a spec's searches ask (`--registry`,
+ * `--finder-url`).
  */
-export function ui(at: Places, workspace: 'fixture' | 'none' = 'fixture', log = false): string[] {
-  return ['ui', '--no-open', '--port', '0', ...(log ? ['--log'] : []), '-C', at.workspace, ...pinned(at, workspace)]
+export function ui(at: Places, workspace: 'fixture' | 'none' = 'fixture', log = false, options: string[] = []): string[] {
+  return ['ui', '--no-open', '--port', '0', ...(log ? ['--log'] : []), ...options, '-C', at.workspace, ...pinned(at, workspace)]
 }
 
 /** A `mindweaver ui` a spec started, and how to stop it. */
@@ -259,10 +359,11 @@ const LINK = /^(?<origin>http:\/\/127\.0\.0\.1:\d+)\/\?token=(?<token>[0-9a-f]+)
  *
  * With `variables` set in its environment beside what `environment` gives,
  * for that server alone and every line it runs: what a spec sets where the
- * agents of its projects would run, an MCP server's secret among it.
+ * agents of its projects would run, an MCP server's secret among it. With
+ * `options`, the launch's beside those every server has (`ui`).
  */
-export function serve(at: Places, workspace: 'fixture' | 'none' = 'fixture', variables: Record<string, string> = {}): Promise<Serving> {
-  const child = spawn(binary(at.bin, 'mindweaver'), ui(at, workspace, true), {
+export function serve(at: Places, workspace: 'fixture' | 'none' = 'fixture', variables: Record<string, string> = {}, options: string[] = []): Promise<Serving> {
+  const child = spawn(binary(at.bin, 'mindweaver'), ui(at, workspace, true, options), {
     cwd: at.workspace,
     env: { ...environment(at), ...variables },
     stdio: ['ignore', 'pipe', 'pipe']

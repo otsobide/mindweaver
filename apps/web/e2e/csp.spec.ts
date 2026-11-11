@@ -26,6 +26,7 @@ const PAGES = [
   '/loads',
   '/shelf',
   '/sources',
+  '/catalogs',
   '/nowhere'
 ]
 

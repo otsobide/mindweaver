@@ -628,6 +628,7 @@
           "add_write_failed",
           "add_mcp_unscaffolded",
           "add_transport_not_mcp",
+          "add_definition_not_mcp",
           "add_mcp_key_repeated",
           "add_mcp_key_unsayable",
           "add_mcp_url_userinfo",
@@ -691,6 +692,7 @@
           "gathered_unhashed",
           "gathered_route_unusable",
           "gathered_unremoved",
+          "gathered_listed_missing",
           "gather_cancelled",
           "credentials_in_url",
           "gather_token_over_ssh",
@@ -705,6 +707,7 @@
           "source_name_taken",
           "source_pin_invalid",
           "kind_not_gatherable",
+          "gather_plugin_empty",
           "gather_read_failed",
           "source_leftover",
           "clone_unscrubbed",
@@ -819,6 +822,25 @@
           "edit_server_unreadable",
           "workspace_busy",
           "lock_open_failed",
+          "marketplace_catalog_missing",
+          "marketplace_catalog_unreadable",
+          "marketplace_catalog_outside",
+          "marketplace_folder_named",
+          "marketplace_plugin_unknown",
+          "marketplace_clone_unplaced",
+          "marketplace_npm_not_gathered",
+          "marketplace_archive_not_gathered",
+          "marketplace_command_refused",
+          "marketplace_source_unknown",
+          "marketplace_plugin_local",
+          "marketplace_plugin_unlisted",
+          "marketplace_plugin_skillless",
+          "marketplace_plugin_schema_unknown",
+          "marketplace_entry_unnamed",
+          "marketplace_entry_name_invalid",
+          "marketplace_entry_twice",
+          "marketplace_entry_unreadable",
+          "marketplace_entry_unresolved",
           "mcp_unparsed",
           "mcp_format_missing",
           "mcp_format_too_new",
@@ -837,6 +859,7 @@
           "extra_repeated",
           "extra_withheld",
           "mcp_registry_base_invalid",
+          "mcp_registry_base_insecure",
           "mcp_registry_query_short",
           "mcp_registry_name_invalid",
           "mcp_registry_server_unknown",
@@ -1492,6 +1515,15 @@
         ],
         "type": "object"
       },
+      "Finder": {
+        "description": "A skill directory a search can ask, by the word the marker and a\ncommand line name it by.",
+        "enum": [
+          "github",
+          "skills.sh",
+          "claude-plugins.dev"
+        ],
+        "type": "string"
+      },
       "Finding": {
         "description": "One thing doctor found, as a report says it: what it is, by its code,\nthe agents it keeps something from, the path it is about and what fixes\nit.",
         "properties": {
@@ -1695,6 +1727,26 @@
           "moved",
           "reason",
           "agent_files"
+        ],
+        "type": "object"
+      },
+      "Gatherable": {
+        "description": "A kind a gather takes, with the folder a gather of it looks in when none\nis named ([`default_folder`]): what a front end with a form for a\ngather offers, each kind by the word a task names it by, and the folder\nit leaves unsaid, or has somebody name when there is none.\n\nTold by core rather than by a front end listing every kind it knows: an\nMCP server is gathered from nowhere yet ([`gatherable`]), and a front\nend offering it would offer a line that only says so.",
+        "properties": {
+          "folder": {
+            "description": "The folder a gather of it looks in when none is named, `.` for the\nwhole repository; none when one has to be.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          }
+        },
+        "required": [
+          "kind",
+          "folder"
         ],
         "type": "object"
       },
@@ -2165,6 +2217,126 @@
         ],
         "type": "object"
       },
+      "Hit": {
+        "description": "One skill a search found: where it is, as `gather git` takes it, and\nwhat the finders say of it.\n\nRead back as it goes out by a front end that takes one: the TUI from the\nline's JSON, and the panel's backend from the task the panel sends it\nback in, its repository redacted again either way.",
+        "properties": {
+          "finders": {
+            "description": "Each finder that found it, in the order they were asked.",
+            "items": {
+              "$ref": "#/components/schemas/Finder"
+            },
+            "type": "array"
+          },
+          "installs": {
+            "description": "How many times it was installed, where a finder counts that.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "What it is called, printable: the name a finder gave it, or its\nfolder's, or its repository's for one at the root.",
+            "type": "string"
+          },
+          "path": {
+            "description": "The folder in the repository it is in: none for the root, or where\nno finder said, which a take gathers the whole repository from.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "description": "The branch a finder named, none for the repository's default.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repository": {
+            "description": "The repository it is in, as [`url::canonical`] spells it.",
+            "type": "string"
+          },
+          "stars": {
+            "description": "How many stars its repository has, where a finder counts them.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "repository",
+          "path",
+          "reference",
+          "installs",
+          "stars",
+          "finders"
+        ],
+        "type": "object"
+      },
+      "HitSent": {
+        "description": "One skill a search found: where it is, as `gather git` takes it, and\nwhat the finders say of it.\n\nRead back as it goes out by a front end that takes one: the TUI from the\nline's JSON, and the panel's backend from the task the panel sends it\nback in, its repository redacted again either way.",
+        "properties": {
+          "finders": {
+            "description": "Each finder that found it, in the order they were asked.",
+            "items": {
+              "$ref": "#/components/schemas/Finder"
+            },
+            "type": "array"
+          },
+          "installs": {
+            "description": "How many times it was installed, where a finder counts that.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "What it is called, printable: the name a finder gave it, or its\nfolder's, or its repository's for one at the root.",
+            "type": "string"
+          },
+          "path": {
+            "description": "The folder in the repository it is in: none for the root, or where\nno finder said, which a take gathers the whole repository from.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "description": "The branch a finder named, none for the repository's default.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repository": {
+            "description": "The repository it is in, as [`url::canonical`] spells it.",
+            "type": "string"
+          },
+          "stars": {
+            "description": "How many stars its repository has, where a finder counts them.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "repository",
+          "finders"
+        ],
+        "type": "object"
+      },
       "Holder": {
         "description": "Which level a task runs at: what holds the artifacts it is about.\n\n`{\"type\": \"project\", \"entry\": \"alpha\"}` in JSON, or `{\"type\":\n\"workspace\"}`: the shape a task's own variants have, which a variant\nholding one string cannot take inside the object the tag is in.",
         "oneOf": [
@@ -2534,7 +2706,7 @@
         "type": "object"
       },
       "Licence": {
-        "description": "Where a gathered artifact says what it is licensed under, and what it\nsays.\n\nTagged by `from`, beside what that place said, so a reader tells a\nlicence its author declared from a line read off a file:\n`{\"from\": \"manifest\", \"text\": \"MIT\"}`, `{\"from\": \"file\", \"file\":\n\"LICENSE.txt\", \"text\": \"Apache License\"}` or `{\"from\": \"unknown\"}`.",
+        "description": "Where a gathered artifact says what it is licensed under, and what it\nsays.\n\nTagged by `from`, beside what that place said, so a reader tells a\nlicence its author declared from a line read off a file:\n`{\"from\": \"manifest\", \"text\": \"MIT\"}`, `{\"from\": \"file\", \"file\":\n\"LICENSE.txt\", \"text\": \"Apache License\"}`, `{\"from\": \"plugin\", \"text\":\n\"Apache-2.0\"}` or `{\"from\": \"unknown\"}`.",
         "oneOf": [
           {
             "description": "The `license` its manifest declares, as written: a licence's name,\nor words pointing at a file it bundles, as the Agent Skills format\nhas it.",
@@ -2578,7 +2750,24 @@
             "type": "object"
           },
           {
-            "description": "Neither: nothing it holds says.",
+            "description": "Neither, for a skill gathered from a plugin a marketplace lists\n(#103): the licence the plugin declares, in its catalog entry or its\nown `plugin.json`, as written, every skill of it under it unless the\nskill says otherwise. Added after the rest.",
+            "properties": {
+              "from": {
+                "const": "plugin",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "None of those: nothing it holds says.",
             "properties": {
               "from": {
                 "const": "unknown",
@@ -2591,6 +2780,24 @@
             "type": "object"
           }
         ]
+      },
+      "LicenceCount": {
+        "description": "How many of a source's artifacts on the shelf say one licence, said as\n`gather list` says it ([`Licence::said`]): `MIT`, a licence file's first\nline or its name, or `unknown`, which is said rather than left out.\n\nThe words rather than the licence itself, which `Shelved::licence` holds\nwhole: two artifacts saying `MIT`, one in its manifest and one in a\nfile, say one licence to somebody reading what a source supplies, and\nhow a listing words each is core's to say once.",
+        "properties": {
+          "count": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "licence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "licence",
+          "count"
+        ],
+        "type": "object"
       },
       "Listed": {
         "description": "One file or folder of an artifact.",
@@ -3439,11 +3646,18 @@
         "type": "string"
       },
       "ShelfSource": {
-        "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, which moved no version.",
+        "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, and `licences` after them\n(#113), none of which moved a version.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
             "type": "string"
+          },
+          "entry": {
+            "description": "What the plugin is called in its marketplace's catalog, for one\ngathered from a marketplace: what it is, as `--plugin` takes it,\nwhere its URL and its folder are only where the catalog says it is\ntoday. `None` for every other source.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "gathered_at": {
             "description": "When its last gather put on the shelf what it holds there, in\nseconds since the Unix epoch: the latest of their `gathered_at`, a\ngather recording every artifact it takes, changed or not. `None`\nwhile the shelf holds nothing of it.",
@@ -3456,6 +3670,13 @@
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
           },
+          "licences": {
+            "description": "Each licence what the shelf holds of it says it is under, as a\nlisting says it ([`Licence::said`]), with how many say it: most\nfirst, then by what it says. An artifact a build from before\nlicences were kept gathered says none, and is in no count here\nuntil its source is gathered again.",
+            "items": {
+              "$ref": "#/components/schemas/LicenceCount"
+            },
+            "type": "array"
+          },
           "name": {
             "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
             "type": "string"
@@ -3463,6 +3684,13 @@
           "origin": {
             "description": "[`Source::origin`], which every artifact it supplied is installed\nfrom.",
             "type": "string"
+          },
+          "parent": {
+            "description": "What the marketplace listing it is called, for a plugin gathered\nfrom one (D-13): the source a refresh or a removal of it goes\nthrough, as `gather sources` shows it. `None` for every other.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "pin": {
             "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
@@ -3510,9 +3738,12 @@
           "directory",
           "name",
           "pin",
+          "parent",
+          "entry",
           "origin",
           "shelved",
-          "gathered_at"
+          "gathered_at",
+          "licences"
         ],
         "type": "object"
       },
@@ -3633,6 +3864,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "gatherable": {
+            "description": "Every kind a gather takes, in report order, each with the folder a\ngather of it looks in when none is named ([`gather::gatherables`]):\nwhat a front end's form for a gather offers, so it offers no kind\na gather only refuses, nor spells which folder it leaves unsaid.\nAdded after the rest, which moved no version.",
+            "items": {
+              "$ref": "#/components/schemas/Gatherable"
+            },
+            "type": "array"
+          },
           "healths": {
             "description": "Every health a project can be in, in report order: what a front end\nsorts and filters its projects by, so it orders none of its own.",
             "items": {
@@ -3731,6 +3969,7 @@
           "states",
           "box_states",
           "healths",
+          "gatherable",
           "summary",
           "library",
           "projects",
@@ -3747,11 +3986,18 @@
         "type": "object"
       },
       "Source": {
-        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row id, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), and its `pin` after that (#99),\nneither of which moved a version.",
+        "description": "A place artifacts have been gathered from.\n\nWhat it serializes to is a contract, as a status report's is: each field\nby its name, but the row ids, and the URL only through [`redacted`]. Its\n`name` was added after the rest (#98), its `pin` after that (#99), and\nits `parent` and `entry` after that (#103), none of which moved a\nversion.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
             "type": "string"
+          },
+          "entry": {
+            "description": "What the plugin is called in its marketplace's catalog, for one\ngathered from a marketplace: what it is, as `--plugin` takes it,\nwhere its URL and its folder are only where the catalog says it is\ntoday. `None` for every other source.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
@@ -3759,6 +4005,13 @@
           "name": {
             "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
             "type": "string"
+          },
+          "parent": {
+            "description": "What the marketplace listing it is called, for a plugin gathered\nfrom one (D-13): the source a refresh or a removal of it goes\nthrough, as `gather sources` shows it. `None` for every other.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "pin": {
             "description": "The commit its last gather was pinned to (`gather git --pin`, #99),\nwhich its `revision` is then: `None` while it follows its branch,\nor the remote's HEAD. Not part of what the source is: moving the\npin, or gathering it with none, gathers into the same source.",
@@ -3798,14 +4051,17 @@
           "revision",
           "directory",
           "name",
-          "pin"
+          "pin",
+          "parent",
+          "entry"
         ],
         "type": "object"
       },
       "SourceKind": {
         "description": "What kind of place a source is.",
         "enum": [
-          "git"
+          "git",
+          "marketplace"
         ],
         "type": "string"
       },
@@ -4648,7 +4904,7 @@
             "type": "object"
           },
           {
-            "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+            "description": "`mindweaver gather search [--finder-url <finder>=<url>]... --json\n<query>`: the skill directories the workspace enables asked what\nthey find, read back from the JSON the line prints, for a front end\nto list and take one from with a [`Gather`](Task::Gather) of its\nrepository and its folder (#108), or, from the panel, a\n[`TakeSkill`](Task::TakeSkill) of it.\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back. Each finder at its own address, unless\nthe front end was told another where it was started ([`Catalogs`]):\nthe task names none.",
             "properties": {
               "query": {
                 "type": "string"
@@ -4665,14 +4921,94 @@
             "type": "object"
           },
           {
-            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
+            "description": "`mindweaver gather git [--path <folder>] [--ref <branch>]\n<repository>`: a skill a search of the skill directories found\n([`SearchSkills`](Task::SearchSkills)), gathered from its repository\nand its folder there, at the branch a finder named, by the line\n`gather search --take` amounts to ([`Task::taking`]).\n\nWhat the panel sends to take a result it listed: the result as the\nsearch's JSON gave it, sent back whole, never a gather it puts\ntogether, so which folder a result naming none is gathered from, and\nwhich kind a take gathers, are said by the one function the TUI's\ntake and `--take` follow too, never again in TypeScript, as the\npanel's marks are turned into lines by [`Task::minds`]. Its\nrepository is held to the path policy as a gather's source is, and\nit carries no token, as a gather's task carries none.",
             "properties": {
+              "hit": {
+                "$ref": "#/components/schemas/Hit"
+              },
+              "type": {
+                "const": "take_skill",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "hit"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather mcp search [--registry <url>] --json <query>`:\nthe official MCP Registry asked for the servers whose name holds the\nquery, read back from the JSON the line prints, by the names the\nenvelope's `data` gives each server, for a front end to list and add\none from with an [`ImportServer`](Task::ImportServer) (#107).\n\nThe official registry, as the command asks unless told another, or\nthe mirror the front end was told where it was started\n([`Catalogs`]): a task names no registry, so a browser sends no\naddress for a line to ask and take a program from.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "type": {
+                "const": "search_servers",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "query"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather mcp add [--registry <url>] [--version <version>]\n[--yes] <server>`: the official registry's server, or the front\nend's mirror's ([`Catalogs`]), by the name it gives it, written\ninto the workspace's library as a definition with `yes`; without\nit the dry run, which writes nothing and says what an agent would\nrun or reach, what a front end shows before it asks for the yes.\nNothing is started either way. The latest version unless `version`\nnames one.",
+            "properties": {
+              "server": {
+                "type": "string"
+              },
+              "type": {
+                "const": "import_server",
+                "type": "string"
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "server",
+              "version",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n[--name <name>] [--pin <commit>] [--dry-run] <url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.\n\n`name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,\nadded after the rest for the panel's page of sources (#113), each\nnone, or false, when a task leaves it out, as one sent before they\nwere there does: what the source is called and the commit it is\npinned to, each a value core holds to its own rules, and whether the\nline only says what a gather would take, writing nothing, which the\npage runs first. No token, nor the name of a variable holding one\n(D-16).",
+            "properties": {
+              "dry_run": {
+                "default": false,
+                "type": "boolean"
+              },
               "folder": {
                 "type": "string"
               },
               "kind": {
                 "$ref": "#/components/schemas/Kind",
                 "default": "skill"
+              },
+              "name": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pin": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "reference": {
                 "type": [
@@ -4693,7 +5029,65 @@
               "url",
               "folder",
               "reference",
-              "kind"
+              "kind",
+              "name",
+              "pin",
+              "dry_run"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na plugin marketplace's catalog, Claude Code's or Codex's, recorded as\na source and its plugins listed, none gathered, read back from the\nJSON the line prints, for a front end to list the plugins and gather\nthe ones ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103,\n#104).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+            "properties": {
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "list_marketplace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source",
+              "reference"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a plugin marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+            "properties": {
+              "plugins": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "gather_plugins",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source",
+              "reference",
+              "plugins"
             ],
             "type": "object"
           },
@@ -4714,6 +5108,27 @@
             "required": [
               "type",
               "names"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather rename <from> <to>`: the source called `from`\ncalled `to` from now on, what `gather sources` lists and `--from`\ntakes, held by core to the rules `gather git --name` is. What was\ninstalled from it is found where it was, its origin naming no name.",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "type": {
+                "const": "rename_source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "from",
+              "to"
             ],
             "type": "object"
           },
@@ -5640,7 +6055,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`mindweaver gather search --json <query>`: the skill directories\nthe workspace enables asked what they find, read back from the JSON\nthe line prints, for a front end to list and take one from with a\n[`Gather`](Task::Gather) of its repository and its folder (#108).\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back.",
+            "description": "`mindweaver gather search [--finder-url <finder>=<url>]... --json\n<query>`: the skill directories the workspace enables asked what\nthey find, read back from the JSON the line prints, for a front end\nto list and take one from with a [`Gather`](Task::Gather) of its\nrepository and its folder (#108), or, from the panel, a\n[`TakeSkill`](Task::TakeSkill) of it.\n\nNo token, nor the name of a variable holding one: a front end hands\nnone over (D-16), so the line asks no finder that needs one, GitHub's\ncode search, and says so. JSON, since what a front end takes is what\nit reads, by the names the envelope's `data` gives each result, never\na table's columns read back. Each finder at its own address, unless\nthe front end was told another where it was started ([`Catalogs`]):\nthe task names none.",
             "properties": {
               "query": {
                 "type": "string"
@@ -5658,14 +6073,96 @@
           },
           {
             "additionalProperties": false,
-            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
+            "description": "`mindweaver gather git [--path <folder>] [--ref <branch>]\n<repository>`: a skill a search of the skill directories found\n([`SearchSkills`](Task::SearchSkills)), gathered from its repository\nand its folder there, at the branch a finder named, by the line\n`gather search --take` amounts to ([`Task::taking`]).\n\nWhat the panel sends to take a result it listed: the result as the\nsearch's JSON gave it, sent back whole, never a gather it puts\ntogether, so which folder a result naming none is gathered from, and\nwhich kind a take gathers, are said by the one function the TUI's\ntake and `--take` follow too, never again in TypeScript, as the\npanel's marks are turned into lines by [`Task::minds`]. Its\nrepository is held to the path policy as a gather's source is, and\nit carries no token, as a gather's task carries none.",
             "properties": {
+              "hit": {
+                "$ref": "#/components/schemas/HitSent"
+              },
+              "type": {
+                "const": "take_skill",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "hit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather mcp search [--registry <url>] --json <query>`:\nthe official MCP Registry asked for the servers whose name holds the\nquery, read back from the JSON the line prints, by the names the\nenvelope's `data` gives each server, for a front end to list and add\none from with an [`ImportServer`](Task::ImportServer) (#107).\n\nThe official registry, as the command asks unless told another, or\nthe mirror the front end was told where it was started\n([`Catalogs`]): a task names no registry, so a browser sends no\naddress for a line to ask and take a program from.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "type": {
+                "const": "search_servers",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "query"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather mcp add [--registry <url>] [--version <version>]\n[--yes] <server>`: the official registry's server, or the front\nend's mirror's ([`Catalogs`]), by the name it gives it, written\ninto the workspace's library as a definition with `yes`; without\nit the dry run, which writes nothing and says what an agent would\nrun or reach, what a front end shows before it asks for the yes.\nNothing is started either way. The latest version unless `version`\nnames one.",
+            "properties": {
+              "server": {
+                "type": "string"
+              },
+              "type": {
+                "const": "import_server",
+                "type": "string"
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "yes": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "server",
+              "yes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n[--name <name>] [--pin <commit>] [--dry-run] <url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.\n\n`name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,\nadded after the rest for the panel's page of sources (#113), each\nnone, or false, when a task leaves it out, as one sent before they\nwere there does: what the source is called and the commit it is\npinned to, each a value core holds to its own rules, and whether the\nline only says what a gather would take, writing nothing, which the\npage runs first. No token, nor the name of a variable holding one\n(D-16).",
+            "properties": {
+              "dry_run": {
+                "default": false,
+                "type": "boolean"
+              },
               "folder": {
                 "type": "string"
               },
               "kind": {
                 "$ref": "#/components/schemas/Kind",
                 "default": "skill"
+              },
+              "name": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pin": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "reference": {
                 "type": [
@@ -5690,6 +6187,61 @@
           },
           {
             "additionalProperties": false,
+            "description": "`mindweaver gather marketplace --list --json [--ref <ref>] <source>`:\na plugin marketplace's catalog, Claude Code's or Codex's, recorded as\na source and its plugins listed, none gathered, read back from the\nJSON the line prints, for a front end to list the plugins and gather\nthe ones ticked with a [`GatherPlugins`](Task::GatherPlugins) (#103,\n#104).\n\nFollowed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]): it fetches the catalog's repository. No\ntoken, as a gather's task carries none.",
+            "properties": {
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "list_marketplace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather marketplace [--ref <ref>] --plugin <name>...\n<source>`: the plugins of a plugin marketplace called `plugins`\nin its catalog gathered, each as a source of its own, in the order\ngiven (#103). Never `--all`, which a front end asks for by naming\nevery plugin it lists, so the line says what was gathered.",
+            "properties": {
+              "plugins": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "const": "gather_plugins",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source",
+              "plugins"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "`mindweaver gather update <name>...`: each source named gathered\nagain, as it was gathered, or every one, `--all`, when `names` is\nempty. Followed as it goes and stopped when asked, as a gather is\n([`Followed::Gather`]), and carrying no token, as a gather's task\ncarries none.",
             "properties": {
               "names": {
@@ -5706,6 +6258,28 @@
             "required": [
               "type",
               "names"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather rename <from> <to>`: the source called `from`\ncalled `to` from now on, what `gather sources` lists and `--from`\ntakes, held by core to the rules `gather git --name` is. What was\ninstalled from it is found where it was, its origin naming no name.",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "type": {
+                "const": "rename_source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "from",
+              "to"
             ],
             "type": "object"
           },

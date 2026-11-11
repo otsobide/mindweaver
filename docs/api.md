@@ -642,12 +642,35 @@ it takes ([following what happens](#following-what-happens)). It gathers
 skills; with `"kind": "rule"` it gathers the rules in the folder it names,
 as `mindweaver gather git --kind rules --path <folder>` does, a folder of
 `"."` then being the whole repository, said as `--path .`. Its source
-is an address, which the gather refuses when it carries a credential, or a
-folder on this machine named by its absolute path, or a `file://` URL of
-one, as a folder to link is. It carries no token either, nor the name of a
+is an address, GitHub's `owner/repo` among them, which the gather refuses
+when it carries a credential, or a folder on this machine named by its
+absolute path, or a `file://` URL of one, as a folder to link is. It carries no token either, nor the name of a
 variable holding one: a private repository logs in as git config's
 credential helpers and ssh do on the server's machine, and a token for a
 gather is handed over from a shell alone (`--token-env`, `--gh`).
+
+`"name"`, `"pin"` and `"dry_run"` are `--name`, `--pin` and `--dry-run`,
+each left out of the line while it is `null` or `false`, as one sent
+without them is: what to call the source, the commit to take, and whether
+to say what a gather would take, writing nothing, which the panel's page of
+sources runs first. A dry run is followed as a gather is:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "gather", "url": "acme/skills", "folder": ".", "reference": null, "kind": "skill", "name": "team-skills", "pin": null, "dry_run": true}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather git --name team-skills --dry-run acme/skills"
+  ],
+  "confirm": [],
+  "cancellable": true
+}
+```
+
+A `rename_source` task, `{"type": "rename_source", "from": ..., "to":
+...}`, is `mindweaver gather rename`, which calls a source by another name
+from then on, and takes no cancel.
 
 A search of the skill directories is the network too. A `search_skills`
 task, `{"type": "search_skills", "query": ...}`, is `mindweaver gather search
@@ -667,6 +690,52 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
   ],
   "confirm": [],
   "cancellable": true
+}
+```
+
+A result is taken by a `take_skill` task, `{"type": "take_skill", "hit":
+...}`, carrying the result back as the search printed it in `hits`, whole.
+It is the gather `gather search --take` amounts to: from the result's
+repository and its folder there, at the branch a finder named, or the
+whole repository when it names no folder. Its repository is held as a
+gather's source is, and it is followed and stopped as a gather is:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "take_skill", "hit": {"name": "pdf", "repository": "https://github.com/acme/skills", "path": "skills/pdf", "reference": "main", "installs": 12, "stars": 321, "finders": ["claude-plugins.dev"]}}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather git --path skills/pdf --ref main https://github.com/acme/skills"
+  ],
+  "confirm": [],
+  "cancellable": true
+}
+```
+
+So is the MCP Registry, the official one, since a task names no other:
+only `mindweaver ui --registry <url>` names another, and `--finder-url
+<finder>=<url>` a skill directory at another address, each then named on
+every line that asks it. A
+`search_servers` task, `{"type": "search_servers", "query": ...}`, is
+`mindweaver gather mcp search --json`, the servers it lists in the
+envelope's `data`; an `import_server` task, `{"type": "import_server",
+"server": ..., "version": null, "yes": false}`, is `mindweaver gather mcp
+add`, which says what the server would be written as and writes nothing
+until it is sent again with `"yes": true` ([the
+reference](reference.md#from-the-mcp-registry)). Neither starts anything,
+nor takes a cancel:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "import_server", "server": "ai.clawfetch/mcp", "version": "0.4.0", "yes": true}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather mcp add --version 0.4.0 --yes ai.clawfetch/mcp"
+  ],
+  "confirm": [],
+  "cancellable": false
 }
 ```
 
