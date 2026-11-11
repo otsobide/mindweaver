@@ -1941,7 +1941,7 @@ fn write_what_each_change_the_library_s_copies_send_is_answered_with() {
         let folder = dir.join("you").join("backup");
         json!({"type": "export", "folder": folder.to_str().unwrap(), "kinds": kinds, "yes": yes})
     };
-    let sent: [(&dyn Fn(&Path) -> Value, bool); 4] = [
+    let sent: [Sent; 4] = [
         (&|dir| export(dir, json!([]), false), true),
         (&|dir| export(dir, json!(["skill"]), true), true),
         (&|_| backup(Some("GITHUB_TOKEN")), false),
@@ -1985,6 +1985,12 @@ fn write_what_each_change_the_library_s_copies_send_is_answered_with() {
     let json = serde_json::to_string_pretty(&written).unwrap() + "\n";
     write("kept", &json);
 }
+
+/// A task a fixture sends, built from the temporary folder it is built in,
+/// beside a flag saying how the fixture runs it: whether at all, for the
+/// copies of the library, and whether stopped at its first step, for the
+/// sources.
+type Sent<'a> = (&'a dyn Fn(&Path) -> Value, bool);
 
 /// A run numbered 1 that asks itself to stop on the first step it reports,
 /// as the server's cancel would: what an export, which reports none, never
@@ -2250,7 +2256,7 @@ fn write_what_each_change_the_page_of_sources_sends_is_answered_with() {
         let path = dir.join("you").join("src").join("tools-market");
         path.to_str().unwrap().to_owned()
     };
-    let sent: [(&dyn Fn(&Path) -> Value, bool); 12] = [
+    let sent: [Sent; 12] = [
         (&|dir| gather(dir, true), false),
         (&|dir| gather(dir, false), false),
         (&|dir| gather(dir, false), true),
