@@ -10,7 +10,7 @@ import { test as base, expect, type Page, type TestInfo } from '@playwright/test
 import type { Envelope } from '../src/api/generated/Envelope'
 import type { Listing } from '../src/api/generated/Listing'
 import { given, look, run, serve, type Places, type Serving } from './environment.ts'
-import { assignable, authorable, changeable, loadable, serveable, updatable } from './fixture.ts'
+import { assignable, authorable, changeable, loadable, searchable, serveable, updatable, type Launched } from './fixture.ts'
 
 /** The server under test, as the link it printed says. */
 export interface Served {
@@ -101,6 +101,12 @@ export interface Own extends Panel {
   /** Its `mindweaver ui`, which the fixture stops once the test is done (`close`). */
   served: Serving
   /**
+   * What its builder launched its `mindweaver ui` with beside the run's
+   * options, when it did: the catalogs on loopback a search asks, and what
+   * each was asked. None for a builder that launches nothing.
+   */
+  launched?: Launched
+  /**
    * What its `mindweaver ui` has said on stderr so far, a line at a time:
    * where it serves, then its log, every request it answered and every
    * run, each after the time of day and with how long it took. What a
@@ -114,10 +120,20 @@ export interface Own extends Panel {
  * unlinks, unless the spec says `assignable`, for the matrix
  * (`test.use({ building: 'assignable' })`), `updatable`, for updating and
  * removing, `authorable`, for editing, adding and renaming in the
- * library, `loadable`, for loading and unloading, or `serveable`, for
- * adding an MCP server and assigning it.
+ * library, `loadable`, for loading and unloading, `serveable`, for
+ * adding an MCP server and assigning it, or `searchable`, for searching
+ * the catalogs on loopback its builder starts and launches the server
+ * asking.
  */
-const BUILDERS = { changeable, assignable, updatable, authorable, loadable, serveable }
+const BUILDERS: Record<'changeable' | 'assignable' | 'updatable' | 'authorable' | 'loadable' | 'serveable' | 'searchable', (at: Places) => void | Promise<Launched>> = {
+  changeable,
+  assignable,
+  updatable,
+  authorable,
+  loadable,
+  serveable,
+  searchable
+}
 
 /**
  * The builders whose workspace is served with a home of its own, beside
@@ -182,15 +198,16 @@ export const test = base.extend<{ served: Served, panel: Panel, watch: Watch, ow
     const homed = HOMED.includes(building)
     const mine: Places = { ...at, workspace: join(folder, 'workspace'), ...(homed ? { home: join(folder, 'home') } : {}) }
     const twin: Places = { ...mine, workspace: join(folder, 'twin') }
-    BUILDERS[building](mine)
+    const launched = (await BUILDERS[building](mine)) ?? undefined
     cpSync(mine.workspace, twin.workspace, { recursive: true })
     const made = homed ? look(mine.home) : undefined
-    const server = await serve(mine, 'fixture', variables)
+    const server = await serve(mine, 'fixture', variables, launched?.options)
     const log = () => server.said().split('\n').filter(line => line !== '')
     try {
-      await use({ at: mine, twin, served: server, log, open: (path = '/') => open(page, server, path) })
+      await use({ at: mine, twin, served: server, launched, log, open: (path = '/') => open(page, server, path) })
     } finally {
       await close(testInfo, server)
+      await launched?.stop()
     }
     if (made) {
       expect(look(mine.home), `the home of its own, ${mine.home}, is as it was made`).toEqual(made)

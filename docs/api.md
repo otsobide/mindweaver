@@ -670,7 +670,30 @@ $ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' 
 }
 ```
 
-So is the MCP Registry, the official one, since a task names no other. A
+A result is taken by a `take_skill` task, `{"type": "take_skill", "hit":
+...}`, carrying the result back as the search printed it in `hits`, whole.
+It is the gather `gather search --take` amounts to: from the result's
+repository and its folder there, at the branch a finder named, or the
+whole repository when it names no folder. Its repository is held as a
+gather's source is, and it is followed and stopped as a gather is:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "take_skill", "hit": {"name": "pdf", "repository": "https://github.com/acme/skills", "path": "skills/pdf", "reference": "main", "installs": 12, "stars": 321, "finders": ["claude-plugins.dev"]}}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather git --path skills/pdf --ref main https://github.com/acme/skills"
+  ],
+  "confirm": [],
+  "cancellable": true
+}
+```
+
+So is the MCP Registry, the official one, since a task names no other:
+only `mindweaver ui --registry <url>` names another, and `--finder-url
+<finder>=<url>` a skill directory at another address, each then named on
+every line that asks it. A
 `search_servers` task, `{"type": "search_servers", "query": ...}`, is
 `mindweaver gather mcp search --json`, the servers it lists in the
 envelope's `data`; an `import_server` task, `{"type": "import_server",

@@ -90,6 +90,64 @@ fn a_browser_that_cannot_be_opened_is_said_and_nothing_fails() {
     );
 }
 
+/// What `--registry` and `--finder-url` name is what the panel's searches
+/// and adds ask, as typed; none of either, the official registry and each
+/// finder's own address.
+#[test]
+fn the_catalogs_the_panel_asks_are_the_ones_its_launch_names() {
+    let named = UiOptions {
+        registry: Some(String::from("http://127.0.0.1:4100")),
+        finder_urls: vec![
+            String::from("skills.sh=http://localhost:4200"),
+            String::from("claude-plugins.dev=https://mirror.example"),
+        ],
+        ..UiOptions::default()
+    };
+
+    assert_eq!(
+        catalogs(&named).unwrap(),
+        Catalogs {
+            registry: named.registry.clone(),
+            finders: named.finder_urls.clone(),
+        }
+    );
+    assert_eq!(
+        catalogs(&UiOptions::default()).unwrap(),
+        Catalogs::default()
+    );
+}
+
+/// An address a line asking it would refuse refuses the launch, with the
+/// code the line would give, before anything is served: plain http away
+/// from this machine, which anything on the way could answer for, and a
+/// `FINDER=URL` naming no finder.
+#[test]
+fn a_catalog_a_line_would_refuse_refuses_the_launch() {
+    let refused = |options: UiOptions| catalogs(&options).unwrap_err().code();
+
+    assert_eq!(
+        refused(UiOptions {
+            registry: Some(String::from("http://registry.example")),
+            ..UiOptions::default()
+        }),
+        "mcp_registry_base_insecure"
+    );
+    assert_eq!(
+        refused(UiOptions {
+            finder_urls: vec![String::from("skills.sh=http://mirror.example")],
+            ..UiOptions::default()
+        }),
+        "finder_url_invalid"
+    );
+    assert_eq!(
+        refused(UiOptions {
+            finder_urls: vec![String::from("nobody=https://mirror.example")],
+            ..UiOptions::default()
+        }),
+        "finder_url_unnamed"
+    );
+}
+
 /// The dev server's proxy looks on 7878, so `--dev` alone is enough for
 /// `make web/dev`; a port named, 0 included, is the port.
 #[test]

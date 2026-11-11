@@ -1,4 +1,4 @@
-import { computed, inject, provide, watch, type ComputedRef, type InjectionKey } from 'vue'
+import { computed, inject, provide, ref, watch, type ComputedRef, type InjectionKey } from 'vue'
 import { useMutation, useMutationState } from '@tanstack/vue-query'
 import { useLive, useSettle, type Underway } from './live'
 import { useTransport, type Preview, type Ran, type Task } from './transport'
@@ -7,6 +7,18 @@ import { useTransport, type Preview, type Ran, type Task } from './transport'
 export interface Asking {
   task: Task
   preview: Preview
+  /** Whether the page that asked draws what the run printed itself. */
+  drawn: boolean
+}
+
+/** How a page asks for a task, beside the task. */
+export interface Asked {
+  /**
+   * The page draws what the run printed itself, a search's JSON read back
+   * and listed, so how it ended is said without it: what a terminal would
+   * show of it is the page's to lay out, never a toast's to repeat.
+   */
+  drawn?: boolean
 }
 
 /**
@@ -26,7 +38,7 @@ export interface Runner {
    * changed, or nothing when it was let go, refused, or something else is
    * already under way.
    */
-  ask(task: Task): Promise<Ran | undefined>
+  ask(task: Task, asked?: Asked): Promise<Ran | undefined>
   /** What is shown now, waiting for a yes or a no. */
   asking: ComputedRef<Asking | undefined>
   /** Whether what is shown takes something away, which makes it a confirmation. */
@@ -79,8 +91,11 @@ export function useRunner(): Runner {
  * whatever draws: the panel's toasts and drawers (`CommandRunner.vue`).
  */
 export interface Say {
-  /** It ran, and its views are drawn from what it changed. */
-  ran(ran: Ran): void
+  /**
+   * It ran, and its views are drawn from what it changed; `drawn` when the
+   * page that asked draws what it printed itself.
+   */
+  ran(ran: Ran, drawn: boolean): void
   /**
    * It did not run, or its answer never came: refused when previewed or when
    * run (`ran` false, or true and refused with a 4xx, nothing ran either
@@ -127,10 +142,13 @@ export function provideRunner(say: Say): Runner {
   /** Who is waiting on what is shown, to be told how it ended. */
   let answer: ((ran: Ran | undefined) => void) | undefined
 
+  /** Whether the page that asked for what is shown draws what it prints. */
+  const drawn = ref(false)
+
   const asking = computed<Asking | undefined>(() => {
     const preview = previewing.data.value
     const task = previewing.variables.value
-    return preview && task ? { task, preview } : undefined
+    return preview && task ? { task, preview, drawn: drawn.value } : undefined
   })
 
   function end(ran: Ran | undefined) {
@@ -156,10 +174,11 @@ export function provideRunner(say: Say): Runner {
   })
 
   const runner: Runner = {
-    async ask(task) {
+    async ask(task, asked = {}) {
       if (busy.value) {
         return undefined
       }
+      drawn.value = asked.drawn ?? false
       try {
         await previewing.mutateAsync(task)
       } catch (error) {
@@ -182,7 +201,7 @@ export function provideRunner(say: Say): Runner {
       }
       try {
         const ran = await running.mutateAsync(asked.task)
-        say.ran(ran)
+        say.ran(ran, asked.drawn)
         end(ran)
       } catch (error) {
         say.refused(error, true)

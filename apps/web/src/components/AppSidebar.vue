@@ -29,7 +29,8 @@ export const VIEWS: readonly View[] = [
   { label: 'MCP servers', icon: 'i-lucide-plug', to: '/mcp' },
   { label: 'Loads', icon: 'i-lucide-layers', to: '/loads' },
   { label: 'Shelf', icon: 'i-lucide-package', to: '/shelf' },
-  { label: 'Sources', icon: 'i-lucide-git-branch', to: '/sources' }
+  { label: 'Sources', icon: 'i-lucide-git-branch', to: '/sources' },
+  { label: 'Catalogs', icon: 'i-lucide-telescope', to: '/catalogs' }
 ]
 </script>
 

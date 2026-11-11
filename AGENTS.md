@@ -348,7 +348,10 @@ under `apps/` with its own `Makefile`:
   `Refusal`, what a front end with no terminal does not run,
   `Caution`, what a line takes away, which such a front end asks about
   first, and `Followed`, what a line does that a front end follows while
-  it runs and can stop, a gather, a backup and a search. `src/progress.rs`
+  it runs and can stop, a gather, a backup and a search, and `Catalogs`,
+  the MCP registry and skill directories `mindweaver ui --registry` and
+  `--finder-url` name, which the backend has the task module put on the
+  lines that ask them (`Task::commands_asking`). `src/progress.rs`
   says each one's steps in words, the line `mindweaver gather` draws and
   the TUI's box, and as the `Step` the panel's backend reports, paced
   (`progress::reported`).
@@ -426,8 +429,10 @@ under `apps/` with its own `Makefile`:
   `src/api/folders.ts` the query of the folders inside one, read again
   each time the explorer opens (`useFolders`),
   `src/api/draft.ts` the query of what core says of
-  a draft as it is typed (`useJudged`), and `src/api/workspaces.ts` the
-  query of what the header may switch to (`useWorkspaces`).
+  a draft as it is typed (`useJudged`), `src/api/workspaces.ts` the
+  query of what the header may switch to (`useWorkspaces`), and
+  `src/api/catalogs.ts` what a search of the catalogs found, read back
+  from what its run's line printed (`searched`).
   `src/pages/` holds one
   page per route (file routes): the overview (`index`), the projects
   (`projects`), a project's page (`project`, which `src/routes.ts` names by
@@ -441,7 +446,9 @@ under `apps/` with its own `Makefile`:
   the query), the library's MCP servers, each as each agent would be
   given it, and the form adding one or changing how the one the query
   names is started (`mcp`), the workspaces it loads and those this machine knows
-  (`loads`), the shelf (`shelf`) and the sources (`sources`). `src/address.ts` reads and changes
+  (`loads`), the shelf (`shelf`), the sources (`sources`) and the
+  catalogs, the skill directories and the MCP Registry searched, a
+  skill taken and a server added (`catalogs`). `src/address.ts` reads and changes
   the query a page keeps its state in, `src/library.ts` finds the projects
   holding one of the library's own, `src/boxes.ts` a box of the matrix in
   the snapshot, for the matrix and the command palette alike,
@@ -471,7 +478,9 @@ under `apps/` with its own `Makefile`:
   shadow root of its own (`MarkdownEditor`), what core says of a draft
   (`DraftVerdict`), the form of an MCP server's transport, each of its
   fields an option's value and a secret a variable's name
-  (`ServerForm`), the
+  (`ServerForm`), a search of the skill directories and its results,
+  each taken by sending it back (`SkillSearch`), and of the MCP Registry,
+  each server added once its dry run was read (`ServerSearch`), the
   matrix's grid, drawn a screen at a time (`AssignGrid`), and
   what the runner draws beside the pages:
   `CommandRunner`, which makes it and says how each task ended in a toast,
@@ -659,7 +668,12 @@ These are easy to break from a single file without noticing.
   rule for which lines they are, which `backend_test` holds the minds
   screen and the panel to, the same folders for the same marks, though the
   panel names a folder inside the workspace by its absolute path where the
-  screen names it by its route. What a front end with
+  screen names it by its route. So does a search's result the panel
+  takes: it sends the result back whole as the search printed it
+  (`Task::TakeSkill`), never a gather, and the task module turns it into
+  the line the TUI's take and `--take` run (`Task::taking`). A search of
+  the catalogs is a run of the search's line, never a query, whose
+  printed JSON the page reads back as the TUI does. What a front end with
   no terminal does not run is one list, `task::Refusal`, read off the
   parsed command by a match with no wildcard (`Refusal::of_mind`,
   `of_weaver`), so a new command says whether it is refused before it
@@ -1242,11 +1256,14 @@ These are easy to break from a single file without noticing.
     (`browse`). A gather's source is an address, held to the gather's own
     rules, which refuse a credential in it, or a folder on this machine,
     as a path or a `file://` URL, held as a folder to link is
-    (`policy::source`), and so is a backup's repository; the folder an
+    (`policy::source`), and so are a backup's repository and the
+    repository of a search's result sent back to be taken; the folder an
     export writes into is held as a folder to link is, and a backup's
     token is named only by the variable holding it, one named for a token
     (`policy::token_variable`), never sent. The
-    browser supplies no `-C`, `--home`, `-W` or agent home: the backend runs
+    browser supplies no `-C`, `--home`, `-W` or agent home, nor where a
+    search or an add from a registry asks (`ui --registry`, `--finder-url`,
+    the launch's, held at launch to the line's rules): the backend runs
     every line with the launch's, against the workspace it acts on, the one
     it was launched on or one switched to since, named with `-W` in the
     line. A switch names a workspace only by its path as core's list of
@@ -1972,7 +1989,10 @@ These are easy to break from a single file without noticing.
   recorded (`tests/fixtures/mcp-registry`), and the CLI's suites serve
   the same recordings from a server they start on 127.0.0.1
   (`common::mcp_registry`, `--registry`), the TUI's `Runner` naming it
-  in each line the screen hands over.
+  in each line the screen hands over, and the panel's backend asks it and
+  skills.sh on loopback (`common::finder::SkillsSh`) as `ui --registry
+  --finder-url` launches it (`PanelBackend::asking`). The browser suite
+  starts both in its worker (`e2e/catalogs.ts`), from the same recordings.
 - Git sources are built in-process with `gix` (`common::repository`): no
   network and no `git` binary. A CLI fixture's project is a repository given
   `mind init` (`common::new_project`), so a local install keeps its copies out
@@ -2167,8 +2187,12 @@ These are easy to break from a single file without noticing.
   each change the library's forms for a copy of it send, previewed and
   run each on the workspace as built, the backup that names a token's
   variable previewed alone and the one that names none stopped at its
-  first step, before it reaches any repository (`kept.json`), and each
-  step a backup reports (`steps.json`), none of them holding a token.
+  first step, before it reaches any repository (`kept.json`), each
+  step a backup reports (`steps.json`), and, of the first workspace
+  listing skills.sh and served asking the catalogs on loopback, what its
+  page of catalogs sends in turn, a search of each catalog, a result
+  taken and a server's add, dry run then yes (`searched.json`, each
+  catalog's port read as a fixed address), none of them holding a token.
   `tests/panel.ts` reads them and
   mounts the panel at an address, answering its queries with them, and a
   task with its preview and its run, told finished on the stream before
@@ -2212,8 +2236,10 @@ These are easy to break from a single file without noticing.
   something takes a workspace and a `mindweaver ui` of its own (`own`, built by
   `changeable`, or what the spec's `building` names, `assignable` for the
   matrix's, `updatable` for updating and removing, `authorable` for
-  editing, adding and renaming in the library or `serveable` for adding
-  an MCP server and assigning it, beside a copy of it
+  editing, adding and renaming in the library, `serveable` for adding
+  an MCP server and assigning it or `searchable` for searching the
+  catalogs, whose builder starts them on loopback and hands back the
+  options its server is launched with (`Launched`), beside a copy of it
   and served by `serve`, through
   `environment.ts` as every process is, with what the spec's `variables`
   set in its environment alone, an MCP server's secret drawn as the run

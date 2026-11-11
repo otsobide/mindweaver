@@ -17,6 +17,9 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use mindweaver_core::finder::{self, Search};
+use mindweaver_core::http::Client;
+use mindweaver_core::mcp_registry::Registry;
 use mindweaver_server::{Listening, Server};
 use serde::Serialize;
 use tokio::sync::oneshot;
@@ -24,6 +27,7 @@ use tokio::sync::oneshot;
 use super::typed;
 use crate::backend::{Log, PanelBackend};
 use crate::parse::UiOptions;
+use crate::task::Catalogs;
 use crate::{CliError, Failure, Lookup, Outcome, Warning};
 
 /// Where the panel's dev server serves it while it is worked on (`make
@@ -61,7 +65,8 @@ pub(crate) fn ui_command(
         .map(|path| typed(directory, path))
         .transpose()?;
     let log = options.log.then(on_stderr);
-    let mut backend = PanelBackend::launch(directory, lookup)?;
+    let catalogs = catalogs(options)?;
+    let mut backend = PanelBackend::launch(directory, lookup)?.asking(catalogs);
     if let Some(log) = &log {
         backend = backend.logging(Arc::clone(log));
     }
@@ -127,6 +132,28 @@ pub(crate) fn ui_command(
         handed.take_away(&mut outcome);
     }
     Ok(outcome)
+}
+
+/// The catalogs the panel's searches and adds ask in place of each
+/// command's own (`--registry`, `--finder-url`), each held before anything
+/// listens to the rules the line naming it holds it to: an address the
+/// registry's reader refuses, plain http away from this machine among it,
+/// a `FINDER=URL` naming no finder, or an address a finder may not be
+/// asked at, refuses the launch with its code, rather than every search
+/// sent from the panel afterwards.
+pub(crate) fn catalogs(options: &UiOptions) -> Result<Catalogs, CliError> {
+    if let Some(registry) = &options.registry {
+        Registry::at(registry, Client::new())?;
+    }
+    let mut search = Search::new(Client::new());
+    for at in &options.finder_urls {
+        let (finder, base) = finder::addressed(at)?;
+        search = search.at(finder, &base)?;
+    }
+    Ok(Catalogs {
+        registry: options.registry.clone(),
+        finders: options.finder_urls.clone(),
+    })
 }
 
 /// The port to listen on: the one named, or else the dev server's proxy's

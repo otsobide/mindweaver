@@ -23,6 +23,7 @@ import library from './fixtures/library.json'
 import loadsJson from './fixtures/loads.json'
 import planned from './fixtures/plans.json'
 import scan from './fixtures/scan.json'
+import searchedJson from './fixtures/searched.json'
 import servedJson from './fixtures/served.json'
 import serversJson from './fixtures/servers.json'
 import serving from './fixtures/serving.json'
@@ -293,6 +294,21 @@ export function served(): Commanded[] {
  */
 export function kept(): Commanded[] {
   return structuredClone(keptJson) as unknown as Commanded[]
+}
+
+/**
+ * What the workspace fixture's server answers when its page of catalogs
+ * sends each of its tasks in turn, its `weaver.toml` listing skills.sh and
+ * the server started naming a registry and skills.sh on loopback
+ * (tests/fixtures/searched.json): a search of the skill directories for
+ * `commit`, which finds `commit-style`, in a repository on the server's
+ * disk, and `pdf`, on GitHub; the first taken, sent back as the search
+ * printed it; a search of the registry for `mcp`, listing three servers;
+ * and `ai.clawfetch/mcp` added, its dry run, then told yes. Copied, so a
+ * test may change its copy.
+ */
+export function searched(): Commanded[] {
+  return structuredClone(searchedJson) as unknown as Commanded[]
 }
 
 /**
