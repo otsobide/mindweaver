@@ -2357,14 +2357,18 @@ These are easy to break from a single file without noticing.
   and Windows (`test (macos)`, `test (windows)`, which set up Node too) run
   only by hand (`workflow_dispatch`) or on PRs labelled `full-matrix`, until
   the compatibility pass (#154) puts them back on pushes to `dev`/`main` and
-  PRs from `dev`, `main` or `release/*`. Every job, both workflows', runs
-  on GitHub's runners, the Linux ones named `ubuntu-latest` in the
-  workflow. The steps a self-hosted runner needed, while the account was
-  locked over billing, stay: a step that needs what an image may lack
-  installs it only where it is missing, and `fmt and clippy` fails first
-  thing on a runner that is root, which writes where a test takes the
-  permission away, so a self-hosted runner can take the jobs again by
-  changing `runs-on` alone.
+  PRs from `dev`, `main` or `release/*`. Every Linux job of
+  `test-and-build` runs on the runner its first job, `pick the Linux
+  runner`, picks once for the run: the repository's own, a self-hosted one
+  with the labels `[self-hosted, Linux, X64]`, when one is online and
+  running nothing, and `ubuntu-latest` otherwise, or when the
+  `RUNNERS_TOKEN` secret it reads the runners with is missing, or for a
+  pull request from a fork. The picker never fails a run, and a job falls
+  back to `ubuntu-latest` when it gave nothing. `Gitflow`'s two jobs, the
+  picker itself and macOS and Windows are GitHub's alone. A step that
+  needs what an image may lack installs it only where it is missing, and
+  `fmt and clippy` fails first thing on a runner that is root, which
+  writes where a test takes the permission away.
 - The rulesets for `dev` and `main` require every check that runs on every
   pull request: `fmt and clippy`, `test (core)`, `test (cli)`, `test
   (server)`, `test (web)`, `types drift (web)`, `build (core)`, `build
