@@ -319,7 +319,7 @@ pub enum Task {
         yes: bool,
     },
     /// `mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]
-    /// <url>`.
+    /// [--name <name>] [--pin <commit>] [--dry-run] <url>`.
     ///
     /// `kind` is what is taken, skills unless it says rules, as the
     /// command's `--kind` is: added after the rest (#111), and skills when
@@ -328,12 +328,27 @@ pub enum Task {
     /// looks in unsaid (`gather::default_folder`), so a task of rules from
     /// the whole repository says `--path .`, which core asks of a gather of
     /// rules.
+    ///
+    /// `name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,
+    /// added after the rest for the panel's page of sources (#113), each
+    /// none, or false, when a task leaves it out, as one sent before they
+    /// were there does: what the source is called and the commit it is
+    /// pinned to, each a value core holds to its own rules, and whether the
+    /// line only says what a gather would take, writing nothing, which the
+    /// page runs first. No token, nor the name of a variable holding one
+    /// (D-16).
     Gather {
         url: String,
         folder: String,
         reference: Option<String>,
         #[serde(default = "gathered_kind")]
         kind: Kind,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        pin: Option<String>,
+        #[serde(default)]
+        dry_run: bool,
     },
     /// `mindweaver gather marketplace --list --json [--ref <ref>] <source>`:
     /// a Claude Code marketplace's catalog recorded as a source and its
@@ -364,6 +379,11 @@ pub enum Task {
     /// ([`Followed::Gather`]), and carrying no token, as a gather's task
     /// carries none.
     UpdateSources { names: Vec<String> },
+    /// `mindweaver gather rename <from> <to>`: the source called `from`
+    /// called `to` from now on, what `gather sources` lists and `--from`
+    /// takes, held by core to the rules `gather git --name` is. What was
+    /// installed from it is found where it was, its origin naming no name.
+    RenameSource { from: String, to: String },
     /// `mindweaver gather remove [--yes] <name>`: the source called `name`
     /// forgotten, what it put on the shelf and its clone taken away, and
     /// what was installed from it left orphaned, which is asked about first
@@ -754,6 +774,9 @@ impl Task {
             folder: hit.folder().to_owned(),
             reference: hit.reference.clone(),
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         }
     }
 
@@ -912,11 +935,15 @@ impl Task {
                 folder,
                 reference,
                 kind,
+                name,
+                pin,
+                dry_run,
             } => {
                 let mut head = owned(&["mindweaver", "gather", "git"]);
                 // The kind a gather takes unsaid and the folder a gather of
                 // that kind looks in unsaid are left out, so the line reads
-                // the way somebody would type it.
+                // the way somebody would type it, and so is each option
+                // that says nothing.
                 if *kind != gather::DEFAULT_KIND {
                     head.extend(option("--kind", kind.folder()));
                 }
@@ -926,8 +953,20 @@ impl Task {
                 if let Some(reference) = reference {
                     head.extend(option("--ref", reference));
                 }
+                if let Some(name) = name {
+                    head.extend(option("--name", name));
+                }
+                if let Some(pin) = pin {
+                    head.extend(option("--pin", pin));
+                }
+                if *dry_run {
+                    head.push(String::from("--dry-run"));
+                }
                 let head: Vec<&str> = head.iter().map(String::as_str).collect();
                 vec![words(&head, &[url])]
+            }
+            Task::RenameSource { from, to } => {
+                vec![words(&["mindweaver", "gather", "rename"], &[from, to])]
             }
             Task::ListMarketplace { source, reference } => {
                 let mut head = owned(&["mindweaver", "gather", "marketplace", "--list", "--json"]);
@@ -1153,12 +1192,13 @@ impl Task {
                 | Task::Save { .. }
                 | Task::Rename { .. }
                 | Task::Remove { yes: true, .. }
-                | Task::Gather { .. }
+                | Task::Gather { dry_run: false, .. }
                 | Task::TakeSkill { .. }
                 | Task::ListMarketplace { .. }
                 | Task::GatherPlugins { .. }
                 | Task::ImportServer { yes: true, .. }
                 | Task::UpdateSources { .. }
+                | Task::RenameSource { .. }
                 | Task::RemoveSource { yes: true, .. }
                 | Task::Export { .. }
                 | Task::Backup { .. }

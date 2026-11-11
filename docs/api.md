@@ -642,12 +642,35 @@ it takes ([following what happens](#following-what-happens)). It gathers
 skills; with `"kind": "rule"` it gathers the rules in the folder it names,
 as `mindweaver gather git --kind rules --path <folder>` does, a folder of
 `"."` then being the whole repository, said as `--path .`. Its source
-is an address, which the gather refuses when it carries a credential, or a
-folder on this machine named by its absolute path, or a `file://` URL of
-one, as a folder to link is. It carries no token either, nor the name of a
+is an address, GitHub's `owner/repo` among them, which the gather refuses
+when it carries a credential, or a folder on this machine named by its
+absolute path, or a `file://` URL of one, as a folder to link is. It carries no token either, nor the name of a
 variable holding one: a private repository logs in as git config's
 credential helpers and ssh do on the server's machine, and a token for a
 gather is handed over from a shell alone (`--token-env`, `--gh`).
+
+`"name"`, `"pin"` and `"dry_run"` are `--name`, `--pin` and `--dry-run`,
+each left out of the line while it is `null` or `false`, as one sent
+without them is: what to call the source, the commit to take, and whether
+to say what a gather would take, writing nothing, which the panel's page of
+sources runs first. A dry run is followed as a gather is:
+
+```console
+$ curl -s -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d '{"type": "gather", "url": "acme/skills", "folder": ".", "reference": null, "kind": "skill", "name": "team-skills", "pin": null, "dry_run": true}' \
+    "$api/tasks/preview" | jq .
+{
+  "lines": [
+    "mindweaver -W /home/you/Projects gather git --name team-skills --dry-run acme/skills"
+  ],
+  "confirm": [],
+  "cancellable": true
+}
+```
+
+A `rename_source` task, `{"type": "rename_source", "from": ..., "to":
+...}`, is `mindweaver gather rename`, which calls a source by another name
+from then on, and takes no cancel.
 
 A search of the skill directories is the network too. A `search_skills`
 task, `{"type": "search_skills", "query": ...}`, is `mindweaver gather search

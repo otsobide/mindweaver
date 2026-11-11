@@ -408,7 +408,8 @@ impl Fixtures {
     /// The fixture `name`, by what each part of it is an answer to.
     fn hold(&self, name: &str, fixture: &Value) {
         match name {
-            "workspace" | "candidates" | "unmade" | "assigning" | "updating" | "serving" => {
+            "workspace" | "candidates" | "unmade" | "assigning" | "updating" | "serving"
+            | "sources" => {
                 self.is(name, "Snapshot", fixture);
             }
             "library" | "scan" | "plans" | "updates" | "drafts" | "servers" => {
@@ -417,6 +418,20 @@ impl Fixtures {
             "commands" | "applied" | "loads" | "updated" | "authored" | "served" => {
                 self.each(name, fixture, Self::ran);
             }
+            // And what a marketplace's listing printed, which the page of
+            // sources reads back as the envelope it is.
+            "gathered" => self.each(name, fixture, |fixtures, at, ran| {
+                fixtures.ran(at, ran);
+                if ran["task"]["type"] == "list_marketplace" {
+                    let printed = ran["ran"]["outcome"]["runs"][0]["stdout"].as_str();
+                    let envelope: Value = serde_json::from_str(printed.unwrap()).unwrap();
+                    fixtures.is(
+                        &format!("{at}/ran/outcome/runs/0/stdout/data"),
+                        "MarketplaceListing",
+                        &envelope["data"],
+                    );
+                }
+            }),
             // A task previewed, and run where running it reaches no
             // repository: one previewed alone holds no run.
             "kept" => self.each(name, fixture, |fixtures, at, kept| {
@@ -447,7 +462,7 @@ impl Fixtures {
                 fixtures.is(&format!("{at}/data"), data, &printed["data"]);
             }),
             // What a run reports as it goes, each `progress` event's.
-            "steps" => self.each(name, fixture, |fixtures, at, step| {
+            "steps" | "gathering" => self.each(name, fixture, |fixtures, at, step| {
                 fixtures.is(at, "Step", step);
             }),
             "folders" => {

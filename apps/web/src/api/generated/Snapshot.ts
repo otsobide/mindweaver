@@ -3,6 +3,7 @@ import type { Agent } from "./Agent";
 import type { Boxes } from "./Boxes";
 import type { Entry } from "./Entry";
 import type { Examined } from "./Examined";
+import type { Gatherable } from "./Gatherable";
 import type { Health } from "./Health";
 import type { Kind } from "./Kind";
 import type { KnownHere } from "./KnownHere";
@@ -55,6 +56,14 @@ box_states: Array<State>,
  * sorts and filters its projects by, so it orders none of its own.
  */
 healths: Array<Health>, 
+/**
+ * Every kind a gather takes, in report order, each with the folder a
+ * gather of it looks in when none is named ([`gather::gatherables`]):
+ * what a front end's form for a gather offers, so it offers no kind
+ * a gather only refuses, nor spells which folder it leaves unsaid.
+ * Added after the rest, which moved no version.
+ */
+gatherable: Array<Gatherable>, 
 /**
  * What it holds, counted: what an overview shows of it.
  */

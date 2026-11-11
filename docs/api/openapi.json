@@ -1727,6 +1727,26 @@
         ],
         "type": "object"
       },
+      "Gatherable": {
+        "description": "A kind a gather takes, with the folder a gather of it looks in when none\nis named ([`default_folder`]): what a front end with a form for a\ngather offers, each kind by the word a task names it by, and the folder\nit leaves unsaid, or has somebody name when there is none.\n\nTold by core rather than by a front end listing every kind it knows: an\nMCP server is gathered from nowhere yet ([`gatherable`]), and a front\nend offering it would offer a line that only says so.",
+        "properties": {
+          "folder": {
+            "description": "The folder a gather of it looks in when none is named, `.` for the\nwhole repository; none when one has to be.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          }
+        },
+        "required": [
+          "kind",
+          "folder"
+        ],
+        "type": "object"
+      },
       "Given": {
         "description": "How an agent starts an MCP server, or reaches one: a program or an\naddress, never both.\n\nIn JSON, what a front end sends a command line's options as, and what\nthe snapshot says a definition is told as: tagged by `type` inside the\nobject, `{\"type\": \"program\", \"command\": \"npx\", ...}`, as a task is, each\npair as an array of its two words. A field it does not have is refused,\nas a task's is: it is a write, and one misspelled would be dropped.\nEvery secret is the name of the variable it is read from, and no field\nholds a secret's value, there being none for it to hold.",
         "oneOf": [
@@ -2758,6 +2778,24 @@
           }
         ]
       },
+      "LicenceCount": {
+        "description": "How many of a source's artifacts on the shelf say one licence, said as\n`gather list` says it ([`Licence::said`]): `MIT`, a licence file's first\nline or its name, or `unknown`, which is said rather than left out.\n\nThe words rather than the licence itself, which `Shelved::licence` holds\nwhole: two artifacts saying `MIT`, one in its manifest and one in a\nfile, say one licence to somebody reading what a source supplies, and\nhow a listing words each is core's to say once.",
+        "properties": {
+          "count": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "licence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "licence",
+          "count"
+        ],
+        "type": "object"
+      },
       "Listed": {
         "description": "One file or folder of an artifact.",
         "properties": {
@@ -3605,7 +3643,7 @@
         "type": "string"
       },
       "ShelfSource": {
-        "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, which moved no version.",
+        "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, and `licences` after them\n(#113), none of which moved a version.",
         "properties": {
           "directory": {
             "description": "The folder this source owns under `.mindweaver/<kind folder>/`.\n\nStored rather than derived: two URLs can reduce to the same readable\nname, and where a source's files went is a fact about the past that\nmust not move when the naming rule changes.",
@@ -3628,6 +3666,13 @@
           },
           "kind": {
             "$ref": "#/components/schemas/SourceKind"
+          },
+          "licences": {
+            "description": "Each licence what the shelf holds of it says it is under, as a\nlisting says it ([`Licence::said`]), with how many say it: most\nfirst, then by what it says. An artifact a build from before\nlicences were kept gathered says none, and is in no count here\nuntil its source is gathered again.",
+            "items": {
+              "$ref": "#/components/schemas/LicenceCount"
+            },
+            "type": "array"
           },
           "name": {
             "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
@@ -3694,7 +3739,8 @@
           "entry",
           "origin",
           "shelved",
-          "gathered_at"
+          "gathered_at",
+          "licences"
         ],
         "type": "object"
       },
@@ -3815,6 +3861,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "gatherable": {
+            "description": "Every kind a gather takes, in report order, each with the folder a\ngather of it looks in when none is named ([`gather::gatherables`]):\nwhat a front end's form for a gather offers, so it offers no kind\na gather only refuses, nor spells which folder it leaves unsaid.\nAdded after the rest, which moved no version.",
+            "items": {
+              "$ref": "#/components/schemas/Gatherable"
+            },
+            "type": "array"
+          },
           "healths": {
             "description": "Every health a project can be in, in report order: what a front end\nsorts and filters its projects by, so it orders none of its own.",
             "items": {
@@ -3913,6 +3966,7 @@
           "states",
           "box_states",
           "healths",
+          "gatherable",
           "summary",
           "library",
           "projects",
@@ -4926,14 +4980,32 @@
             "type": "object"
           },
           {
-            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
+            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n[--name <name>] [--pin <commit>] [--dry-run] <url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.\n\n`name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,\nadded after the rest for the panel's page of sources (#113), each\nnone, or false, when a task leaves it out, as one sent before they\nwere there does: what the source is called and the commit it is\npinned to, each a value core holds to its own rules, and whether the\nline only says what a gather would take, writing nothing, which the\npage runs first. No token, nor the name of a variable holding one\n(D-16).",
             "properties": {
+              "dry_run": {
+                "default": false,
+                "type": "boolean"
+              },
               "folder": {
                 "type": "string"
               },
               "kind": {
                 "$ref": "#/components/schemas/Kind",
                 "default": "skill"
+              },
+              "name": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pin": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "reference": {
                 "type": [
@@ -4954,7 +5026,10 @@
               "url",
               "folder",
               "reference",
-              "kind"
+              "kind",
+              "name",
+              "pin",
+              "dry_run"
             ],
             "type": "object"
           },
@@ -5030,6 +5105,27 @@
             "required": [
               "type",
               "names"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`mindweaver gather rename <from> <to>`: the source called `from`\ncalled `to` from now on, what `gather sources` lists and `--from`\ntakes, held by core to the rules `gather git --name` is. What was\ninstalled from it is found where it was, its origin naming no name.",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "type": {
+                "const": "rename_source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "from",
+              "to"
             ],
             "type": "object"
           },
@@ -6038,14 +6134,32 @@
           },
           {
             "additionalProperties": false,
-            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
+            "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n[--name <name>] [--pin <commit>] [--dry-run] <url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.\n\n`name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,\nadded after the rest for the panel's page of sources (#113), each\nnone, or false, when a task leaves it out, as one sent before they\nwere there does: what the source is called and the commit it is\npinned to, each a value core holds to its own rules, and whether the\nline only says what a gather would take, writing nothing, which the\npage runs first. No token, nor the name of a variable holding one\n(D-16).",
             "properties": {
+              "dry_run": {
+                "default": false,
+                "type": "boolean"
+              },
               "folder": {
                 "type": "string"
               },
               "kind": {
                 "$ref": "#/components/schemas/Kind",
                 "default": "skill"
+              },
+              "name": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pin": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "reference": {
                 "type": [
@@ -6141,6 +6255,28 @@
             "required": [
               "type",
               "names"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`mindweaver gather rename <from> <to>`: the source called `from`\ncalled `to` from now on, what `gather sources` lists and `--from`\ntakes, held by core to the rules `gather git --name` is. What was\ninstalled from it is found where it was, its origin naming no name.",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "type": {
+                "const": "rename_source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "from",
+              "to"
             ],
             "type": "object"
           },

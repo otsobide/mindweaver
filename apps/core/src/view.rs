@@ -38,10 +38,12 @@ use crate::artifact::{Artifact, ValidationIssue};
 use crate::catalog::{Catalog, DiscoveryFailure};
 use crate::code::Said;
 use crate::doctor::{Examined, Machine};
+use crate::gather::{self, Gatherable};
 use crate::install::{self, LoadFailure, Offer, Place};
 use crate::kind::Kind;
 use crate::known::{self, KnownWorkspace};
 use crate::ledger::{Entry, Gathered, InstallRecord, Ledger, LedgerError, Source};
+use crate::licence::Licence;
 use crate::lifecycle;
 use crate::mcp::{self, McpDefinition, Running};
 use crate::paths;
@@ -95,6 +97,12 @@ pub struct Snapshot {
     /// Every health a project can be in, in report order: what a front end
     /// sorts and filters its projects by, so it orders none of its own.
     pub healths: Vec<Health>,
+    /// Every kind a gather takes, in report order, each with the folder a
+    /// gather of it looks in when none is named ([`gather::gatherables`]):
+    /// what a front end's form for a gather offers, so it offers no kind
+    /// a gather only refuses, nor spells which folder it leaves unsaid.
+    /// Added after the rest, which moved no version.
+    pub gatherable: Vec<Gatherable>,
     /// What it holds, counted: what an overview shows of it.
     pub summary: Summary,
     /// The workspace's own artifacts.
@@ -782,7 +790,8 @@ impl Shelved {
 ///
 /// Counted and dated here, from the shelf's rows, rather than by a front
 /// end from [`Snapshot::shelf`], as every count a view shows is. `shelved`
-/// and `gathered_at` were added after the rest, which moved no version.
+/// and `gathered_at` were added after the rest, and `licences` after them
+/// (#113), none of which moved a version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -802,6 +811,52 @@ pub struct ShelfSource {
     /// gather recording every artifact it takes, changed or not. `None`
     /// while the shelf holds nothing of it.
     pub gathered_at: Option<i64>,
+    /// Each licence what the shelf holds of it says it is under, as a
+    /// listing says it ([`Licence::said`]), with how many say it: most
+    /// first, then by what it says. An artifact a build from before
+    /// licences were kept gathered says none, and is in no count here
+    /// until its source is gathered again.
+    pub licences: Vec<LicenceCount>,
+}
+
+/// How many of a source's artifacts on the shelf say one licence, said as
+/// `gather list` says it ([`Licence::said`]): `MIT`, a licence file's first
+/// line or its name, or `unknown`, which is said rather than left out.
+///
+/// The words rather than the licence itself, which `Shelved::licence` holds
+/// whole: two artifacts saying `MIT`, one in its manifest and one in a
+/// file, say one licence to somebody reading what a source supplies, and
+/// how a listing words each is core's to say once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct LicenceCount {
+    pub licence: String,
+    pub count: usize,
+}
+
+impl LicenceCount {
+    /// Each licence `said` holds, with how many times: most first, then
+    /// by what it says.
+    fn of<'a>(said: impl IntoIterator<Item = &'a Licence>) -> Vec<LicenceCount> {
+        let mut counted: Vec<LicenceCount> = Vec::new();
+        for licence in said {
+            let words = licence.said();
+            match counted.iter_mut().find(|each| each.licence == words) {
+                Some(each) => each.count += 1,
+                None => counted.push(LicenceCount {
+                    licence: words.to_owned(),
+                    count: 1,
+                }),
+            }
+        }
+        counted.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| a.licence.cmp(&b.licence))
+        });
+        counted
+    }
 }
 
 impl ShelfSource {
@@ -835,6 +890,9 @@ impl ShelfSource {
                     origin: source.origin(),
                     shelved,
                     gathered_at: held.iter().map(|gathered| gathered.gathered_at).max(),
+                    licences: LicenceCount::of(
+                        held.iter().filter_map(|gathered| gathered.licence.as_ref()),
+                    ),
                     source,
                 }
             })
@@ -1193,6 +1251,7 @@ impl Snapshot {
             states: State::ALL.to_vec(),
             box_states: State::of_boxes(),
             healths: Health::ALL.to_vec(),
+            gatherable: gather::gatherables(),
             summary: Summary::of(&projects, &library, &shelf),
             library,
             projects,

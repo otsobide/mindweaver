@@ -189,6 +189,10 @@ impl Request {
 /// What a marketplace's catalog says of itself, and every plugin it lists
 /// that can be read, in the order it lists them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "MarketplaceCatalog"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(rename = "MarketplaceCatalog"))]
 pub struct Catalog {
     /// What it calls itself, as written: what its source is called unless
     /// `--name` says otherwise, a name being free.
@@ -287,6 +291,10 @@ impl Catalog {
 
 /// One plugin a catalog lists, as it says it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "PluginEntry"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(rename = "PluginEntry"))]
 pub struct Entry {
     /// What it is called, which `--plugin` takes.
     pub name: String,
@@ -321,6 +329,10 @@ pub struct Entry {
 /// `{"type": "relative", "path": "plugins/deploy"}`, `{"type": "github",
 /// "repo": "acme/deploy", "ref": "v2", "sha": null}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "PluginPlace"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(rename = "PluginPlace"))]
 #[serde(tag = "type")]
 pub enum Place {
     /// In the marketplace's own repository, at `path`, a route from its
@@ -569,6 +581,13 @@ impl Extra {
             Extra::LspServers => ".lsp.json",
         }
     }
+}
+
+#[cfg(any(feature = "ts", feature = "schema"))]
+crate::described::words! {
+    /// What a plugin holds or declares beside skills, which a gather does
+    /// not take.
+    Extra as "PluginExtra", by slug { Commands, Agents, Hooks, McpServers, LspServers }
 }
 
 impl Serialize for Extra {
@@ -924,8 +943,16 @@ fn manifest_licence(folder: &Path, clone: &Path) -> Option<String> {
 /// gathered.
 ///
 /// What `gather marketplace --list --json` prints, and what a front end
-/// lists entries from, read back by these names.
+/// lists entries from, read back by these names: the TUI's, and the
+/// panel's, which reads it through the TypeScript and the schema written
+/// from it (`MarketplaceListing`, a name of its own beside the snapshot's
+/// `Listing`, as each type it names has, beside the ledger's `Entry` and an
+/// install's `Place`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "MarketplaceListing"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(rename = "MarketplaceListing"))]
 pub struct Listing {
     #[serde(deserialize_with = "named")]
     pub name: SourceName,

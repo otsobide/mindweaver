@@ -10,7 +10,7 @@ import { test as base, expect, type Page, type TestInfo } from '@playwright/test
 import type { Envelope } from '../src/api/generated/Envelope'
 import type { Listing } from '../src/api/generated/Listing'
 import { given, look, run, serve, type Places, type Serving } from './environment.ts'
-import { assignable, authorable, changeable, loadable, searchable, serveable, updatable, type Launched } from './fixture.ts'
+import { assignable, authorable, changeable, gatherable, loadable, searchable, serveable, updatable, type Launched } from './fixture.ts'
 
 /** The server under test, as the link it printed says. */
 export interface Served {
@@ -121,18 +121,19 @@ export interface Own extends Panel {
  * (`test.use({ building: 'assignable' })`), `updatable`, for updating and
  * removing, `authorable`, for editing, adding and renaming in the
  * library, `loadable`, for loading and unloading, `serveable`, for
- * adding an MCP server and assigning it, or `searchable`, for searching
+ * adding an MCP server and assigning it, `searchable`, for searching
  * the catalogs on loopback its builder starts and launches the server
- * asking.
+ * asking, or `gatherable`, for adding sources from a repository beside it.
  */
-const BUILDERS: Record<'changeable' | 'assignable' | 'updatable' | 'authorable' | 'loadable' | 'serveable' | 'searchable', (at: Places) => void | Promise<Launched>> = {
+const BUILDERS: Record<'changeable' | 'assignable' | 'updatable' | 'authorable' | 'loadable' | 'serveable' | 'searchable' | 'gatherable', (at: Places) => void | Promise<Launched>> = {
   changeable,
   assignable,
   updatable,
   authorable,
   loadable,
   serveable,
-  searchable
+  searchable,
+  gatherable
 }
 
 /**

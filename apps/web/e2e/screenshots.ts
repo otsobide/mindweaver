@@ -26,7 +26,7 @@ import { homedir, tmpdir, userInfo } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser, type Page } from '@playwright/test'
-import { ARTIFACT, LOADED, REMOVED, SHOWN, WORKSPACE, build } from './demo.ts'
+import { ARTIFACT, LOADED, REMOVED, SHOWN, TEAM, WORKSPACE, build } from './demo.ts'
 import { built, look, marked, serve, type Places, type Serving } from './environment.ts'
 
 const web = fileURLToPath(new URL('..', import.meta.url))
@@ -163,7 +163,7 @@ const project = `/project?${new URLSearchParams({ entry: SHOWN })}`
  * what it says it is: one ticked, one unticked.
  */
 const ASSIGNED = [
-  `skill release-notes from ${join(at.scratch, 'team')} in data-pipeline`,
+  `skill release-notes from ${join(at.scratch, TEAM)} in data-pipeline`,
   'skill api-conventions from workspace in admin-console'
 ]
 
@@ -287,11 +287,6 @@ const TOUR: Shot[] = [
     ready: async page => page.getByTestId('row').first().waitFor()
   },
   {
-    name: 'sources',
-    path: '/sources',
-    ready: async page => page.getByTestId('source').first().waitFor()
-  },
-  {
     // Two boxes marked, a skill from the shelf into a project and one of
     // the library's own out of another, with what the plan runs for them.
     name: 'assign',
@@ -378,6 +373,26 @@ const TOUR: Shot[] = [
       // The toast saying it ran would cover what it said: gone first.
       await toastGone(page, 'mindweaver', `remove --everywhere skill:${REMOVED}`)
       await page.getByTestId('remove-yes').scrollIntoViewIfNeeded()
+    }
+  },
+  {
+    // The team's repository typed into the form adding a source, and what
+    // a gather of it would take, its dry run read first, above the source
+    // it is already: never gathered. After the transcript, which the dry
+    // run would otherwise join.
+    name: 'sources',
+    path: '/sources',
+    ready: async (page) => {
+      const team = join(at.scratch, TEAM)
+      await page.getByTestId('source').first().waitFor()
+      await page.getByTestId('source-url').fill(team)
+      await page.getByTestId('source-dry').click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByTestId('run').click()
+      await dialog.waitFor({ state: 'hidden' })
+      await page.getByTestId('source-said').waitFor()
+      // The toast saying it ran would cover what it said: gone first.
+      await toastGone(page, 'mindweaver', `gather git --dry-run ${team}`)
     }
   },
   {

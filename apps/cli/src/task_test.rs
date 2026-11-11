@@ -16,7 +16,7 @@ use crate::{Cli, Credential, WeaverCli};
 /// Every task's name in JSON, as a front end sends it: a contract, pinned
 /// here word for word, so renaming a variant fails a test rather than every
 /// front end that sends the old name.
-const TAGS: [&str; 46] = [
+const TAGS: [&str; 47] = [
     "init_workspace",
     "init_project",
     "link",
@@ -48,6 +48,7 @@ const TAGS: [&str; 46] = [
     "list_marketplace",
     "gather_plugins",
     "update_sources",
+    "rename_source",
     "remove_source",
     "export",
     "backup",
@@ -158,24 +159,54 @@ fn every(value: &str) -> Vec<Task> {
             folder: owned(),
             reference: Some(owned()),
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: owned(),
             folder: owned(),
             reference: None,
             kind: Kind::Rule,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: owned(),
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: Some(owned()),
             kind: Kind::Rule,
+            name: None,
+            pin: None,
+            dry_run: false,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: owned(),
+            reference: Some(owned()),
+            kind: Kind::Skill,
+            name: Some(owned()),
+            pin: Some(owned()),
+            dry_run: false,
+        },
+        Task::Gather {
+            url: owned(),
+            folder: String::from(DEFAULT_SUBDIRECTORY),
+            reference: None,
+            kind: Kind::Rule,
+            name: Some(owned()),
+            pin: None,
+            dry_run: true,
         },
         Task::ListMarketplace {
             source: owned(),
@@ -197,6 +228,10 @@ fn every(value: &str) -> Vec<Task> {
         },
         Task::UpdateSources {
             names: vec![owned(), String::from("plain")],
+        },
+        Task::RenameSource {
+            from: owned(),
+            to: owned(),
         },
         Task::UpdateSources { names: Vec::new() },
         Task::RemoveSource {
@@ -894,9 +929,10 @@ fn a_marketplace_s_task_is_the_line_the_cli_takes() {
     }
 }
 
-/// What the TUI's sources screen asks for, each the line somebody would
-/// type: one source gathered again, several, every one, and one forgotten,
-/// which alone is asked about first, its dry run not.
+/// What the TUI's sources screen and the panel's page of them ask for, each
+/// the line somebody would type: one source gathered again, several, every
+/// one, one renamed, and one forgotten, which alone is asked about first,
+/// its dry run not.
 #[test]
 fn a_source_s_task_is_the_line_the_cli_takes() {
     let names = |names: &[&str]| Task::UpdateSources {
@@ -905,6 +941,10 @@ fn a_source_s_task_is_the_line_the_cli_takes() {
     let remove = |name: &str, yes| Task::RemoveSource {
         name: name.to_owned(),
         yes,
+    };
+    let rename = |from: &str, to: &str| Task::RenameSource {
+        from: from.to_owned(),
+        to: to.to_owned(),
     };
 
     for (task, said, writes, cautions) in [
@@ -944,11 +984,70 @@ fn a_source_s_task_is_the_line_the_cli_takes() {
             true,
             vec![(0, Caution::Forgets)],
         ),
+        (
+            rename("acme-skills", "team-skills"),
+            "mindweaver gather rename acme-skills team-skills",
+            true,
+            Vec::new(),
+        ),
+        (
+            rename("acme-skills", "-odd"),
+            "mindweaver gather rename -- acme-skills -odd",
+            true,
+            Vec::new(),
+        ),
     ] {
         assert_eq!(task.commands(), [line(said)], "{task:?}");
         assert_eq!(task.writes(), writes, "{task:?}");
         assert_eq!(task.cautions(), cautions, "{task:?}");
         assert_eq!(task.refusal(), None, "{task:?}");
+    }
+}
+
+/// What the panel's page of sources sends to add one (#113): `gather git`
+/// with every option a person could type but a token, each only when it
+/// says something, its dry run first, which writes nothing, then the
+/// gather, which writes, neither asked about, and each followed as it runs.
+#[test]
+fn a_gather_task_names_the_source_and_its_pin_and_runs_dry_when_asked() {
+    let gather = |name: Option<&str>, pin: Option<&str>, dry_run| Task::Gather {
+        url: String::from("acme/skills"),
+        folder: String::from(DEFAULT_SUBDIRECTORY),
+        reference: Some(String::from("main")),
+        kind: Kind::Skill,
+        name: name.map(str::to_owned),
+        pin: pin.map(str::to_owned),
+        dry_run,
+    };
+    let pin = "4f9c2a7e1b3d5f60a8c4e2b6d0f1a3c5e7b9d1f3";
+
+    for (task, said, writes) in [
+        (
+            gather(None, None, true),
+            "mindweaver gather git --ref main --dry-run acme/skills".to_owned(),
+            false,
+        ),
+        (
+            gather(None, None, false),
+            "mindweaver gather git --ref main acme/skills".to_owned(),
+            true,
+        ),
+        (
+            gather(Some("team-skills"), Some(pin), true),
+            format!("mindweaver gather git --ref main --name team-skills --pin {pin} --dry-run acme/skills"),
+            false,
+        ),
+        (
+            gather(Some("-odd"), Some("-pin"), false),
+            String::from("mindweaver gather git --ref main --name=-odd --pin=-pin acme/skills"),
+            true,
+        ),
+    ] {
+        assert_eq!(task.commands(), [line(&said)], "{task:?}");
+        assert_eq!(task.writes(), writes, "{task:?}");
+        assert_eq!(task.cautions(), Vec::new(), "{task:?}");
+        assert_eq!(task.refusal(), None, "{task:?}");
+        assert!(task.runs_apart(), "{task:?}");
     }
 }
 
@@ -1106,6 +1205,9 @@ fn a_gather_task_says_its_kind_and_the_folder_a_gather_of_rules_is_told() {
         folder: folder.to_owned(),
         reference: None,
         kind,
+        name: None,
+        pin: None,
+        dry_run: false,
     };
     let line = |words: &[&str]| -> Vec<Vec<String>> {
         vec![words.iter().map(|word| (*word).to_owned()).collect()]
@@ -1144,7 +1246,8 @@ fn a_gather_task_says_its_kind_and_the_folder_a_gather_of_rules_is_told() {
 }
 
 /// A gather task sent before it carried a kind, or leaving it out, gathers
-/// skills, as the command does without `--kind`.
+/// skills, as the command does without `--kind`; and one sent before it
+/// carried a name, a pin or a dry run names none, pins nothing and gathers.
 #[test]
 fn a_gather_task_that_names_no_kind_gathers_skills() {
     let sent = r#"{"type": "gather", "url": "acme/skills", "folder": ".", "reference": null}"#;
@@ -1156,6 +1259,9 @@ fn a_gather_task_that_names_no_kind_gathers_skills() {
             &task,
             Task::Gather {
                 kind: Kind::Skill,
+                name: None,
+                pin: None,
+                dry_run: false,
                 ..
             }
         ),
@@ -1171,6 +1277,9 @@ fn a_gather_task_that_names_no_kind_gathers_skills() {
             &rules,
             Task::Gather {
                 kind: Kind::Rule,
+                name: None,
+                pin: None,
+                dry_run: false,
                 ..
             }
         ),
@@ -1207,12 +1316,18 @@ fn a_gather_task_s_lines_hand_over_no_token_whatever_its_values() {
                 folder: String::from(DEFAULT_SUBDIRECTORY),
                 reference: None,
                 kind: Kind::Skill,
+                name: None,
+                pin: None,
+                dry_run: false,
             },
             Task::Gather {
                 url: String::from("acme/private"),
                 folder: value.to_owned(),
                 reference: Some(value.to_owned()),
                 kind: Kind::Rule,
+                name: None,
+                pin: None,
+                dry_run: false,
             },
         ] {
             for words in task.commands() {
@@ -2359,12 +2474,18 @@ fn carrying(url: &str) -> Vec<Task> {
             folder: String::from(DEFAULT_SUBDIRECTORY),
             reference: None,
             kind: Kind::Skill,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Gather {
             url: url.to_owned(),
             folder: String::from("rules"),
             reference: Some(String::from("main")),
             kind: Kind::Rule,
+            name: None,
+            pin: None,
+            dry_run: false,
         },
         Task::Install {
             projects: vec![String::from("alpha")],

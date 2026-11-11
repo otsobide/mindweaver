@@ -267,6 +267,7 @@ fn gather_sources_json_says_each_source_with_what_the_shelf_holds_and_when() {
             "entry": null,
             "origin": "../src/acme-skills",
             "shelved": [{"kind": "skill", "count": 1}],
+            "licences": [{"licence": "unknown", "count": 1}],
         }])
     );
 }
