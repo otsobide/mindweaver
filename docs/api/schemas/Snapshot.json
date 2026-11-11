@@ -38,6 +38,13 @@
       "format": "uint32",
       "minimum": 0
     },
+    "gatherable": {
+      "description": "Every kind a gather takes, in report order, each with the folder a\ngather of it looks in when none is named ([`gather::gatherables`]):\nwhat a front end's form for a gather offers, so it offers no kind\na gather only refuses, nor spells which folder it leaves unsaid.\nAdded after the rest, which moved no version.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Gatherable"
+      }
+    },
     "healths": {
       "description": "Every health a project can be in, in report order: what a front end\nsorts and filters its projects by, so it orders none of its own.",
       "type": "array",
@@ -136,6 +143,7 @@
     "states",
     "box_states",
     "healths",
+    "gatherable",
     "summary",
     "library",
     "projects",
@@ -374,6 +382,26 @@
         "path",
         "message",
         "fix"
+      ]
+    },
+    "Gatherable": {
+      "description": "A kind a gather takes, with the folder a gather of it looks in when none\nis named ([`default_folder`]): what a front end with a form for a\ngather offers, each kind by the word a task names it by, and the folder\nit leaves unsaid, or has somebody name when there is none.\n\nTold by core rather than by a front end listing every kind it knows: an\nMCP server is gathered from nowhere yet ([`gatherable`]), and a front\nend offering it would offer a line that only says so.",
+      "type": "object",
+      "properties": {
+        "folder": {
+          "description": "The folder a gather of it looks in when none is named, `.` for the\nwhole repository; none when one has to be.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        }
+      },
+      "required": [
+        "kind",
+        "folder"
       ]
     },
     "Given": {
@@ -1001,6 +1029,24 @@
         }
       ]
     },
+    "LicenceCount": {
+      "description": "How many of a source's artifacts on the shelf say one licence, said as\n`gather list` says it ([`Licence::said`]): `MIT`, a licence file's first\nline or its name, or `unknown`, which is said rather than left out.\n\nThe words rather than the licence itself, which `Shelved::licence` holds\nwhole: two artifacts saying `MIT`, one in its manifest and one in a\nfile, say one licence to somebody reading what a source supplies, and\nhow a listing words each is core's to say once.",
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "licence": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "licence",
+        "count"
+      ]
+    },
     "LoadedWorkspace": {
       "description": "A workspace another one loads, and how much of its own it offers.",
       "type": "object",
@@ -1382,7 +1428,7 @@
       ]
     },
     "ShelfSource": {
-      "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, which moved no version.",
+      "description": "A source the shelf is filled from, with what `--from` takes for what it\nsupplied, how much of it the shelf holds and since when: a row of\n`mindweaver gather sources` (#100), as the snapshot lists it too.\n\nCounted and dated here, from the shelf's rows, rather than by a front\nend from [`Snapshot::shelf`], as every count a view shows is. `shelved`\nand `gathered_at` were added after the rest, and `licences` after them\n(#113), none of which moved a version.",
       "type": "object",
       "properties": {
         "directory": {
@@ -1406,6 +1452,13 @@
         },
         "kind": {
           "$ref": "#/$defs/SourceKind"
+        },
+        "licences": {
+          "description": "Each licence what the shelf holds of it says it is under, as a\nlisting says it ([`Licence::said`]), with how many say it: most\nfirst, then by what it says. An artifact a build from before\nlicences were kept gathered says none, and is in no count here\nuntil its source is gathered again.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LicenceCount"
+          }
         },
         "name": {
           "description": "What it is called (D-13), one name a source: `owner-repo` unless\nsomebody named it ([`SourceName::derived`]), what a listing shows\nand `--from` takes.",
@@ -1472,7 +1525,8 @@
         "entry",
         "origin",
         "shelved",
-        "gathered_at"
+        "gathered_at",
+        "licences"
       ]
     },
     "Shelved": {

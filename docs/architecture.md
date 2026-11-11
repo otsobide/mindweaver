@@ -2593,12 +2593,24 @@ type derives `Serialize` from the start:
   where it is, a `Place` tagged by `type` beside what its entry says of
   it, as Claude Code spells a source's kind, and what it keeps beside its
   skills, `Extra`, a word each), which the TUI reads back as it reads a
-  search's results. An entry the catalog lists that could not be read is
-  a warning, the envelope's, never data. Names added, which move neither
+  search's results, and the panel's page of sources too (#113), through
+  the TypeScript and the JSON Schema written from it, each type under a
+  name of its own (`MarketplaceListing`, `MarketplaceCatalog`,
+  `PluginEntry`, `PluginPlace`, `PluginExtra`), since the snapshot's
+  `Listing`, the ledger's `Entry` and an install's `Place` have the plain
+  ones. An entry the catalog lists that could not be read is a warning,
+  the envelope's, never data. Names added, which move neither
   `ENVELOPE_VERSION` nor `view::FORMAT`.
+- **Counted by #113**: the licences what each source supplied says, as
+  `licences` on each of the snapshot's `sources`, a `LicenceCount` a
+  licence, in the words `gather list` says one in (`Licence::said`), most
+  first; and each kind a gather takes with the folder it looks in unsaid,
+  as the snapshot's `gatherable` (`gather::Gatherable`). Names added, which
+  move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
 - **Listed by #104**: the dialect a marketplace's catalog is read in and
   where it was read, as `dialect` (`claude-code` or `codex`, a word
-  serialized by hand from `Dialect::slug`) and `file` on its `Catalog`;
+  serialized by hand from `Dialect::slug` and described in TypeScript and
+  JSON Schema from it, `MarketplaceDialect`) and `file` on its `Catalog`;
   and a plugin's app connectors, `apps`, one more word of an `Extra`.
   Names added, which move neither `ENVELOPE_VERSION` nor `view::FORMAT`.
 - **Listed by #107**: what a search of an MCP registry found
@@ -3424,8 +3436,9 @@ what it said of the shelf out of date, as it can any read's. What it could not
 read is named by its route in the source (`Failure::routed`), since the clone
 it read it from is gone; what is wrong with what it would take, by the path
 the gather would put it at. It exits as the gather would, on what could not be
-taken and on what is wrong, so a script can ask first. The panel refuses it as
-it refuses every gather (`Refusal::Unwatched`), and the TUI's gather form has
+taken and on what is wrong, so a script can ask first. The panel's page of
+sources runs it before it offers a gather, followed and stopped as a gather
+is ([the web panel's changes](#its-changes)), and the TUI's gather form has
 no key for it.
 
 ### A source pinned to a commit
@@ -3590,7 +3603,8 @@ and every command here takes.
 
 - **Listed** as the snapshot lists them (`view::ShelfSource::read`): the
   ledger's row, its origin, how much of it the shelf holds of each kind
-  (`shelved`) and when its last gather put that there (`gathered_at`, the
+  (`shelved`), the licences what it holds there says, each with how many
+  say it (`licences`, #113), and when its last gather put that there (`gathered_at`, the
   latest of its artifacts' times, a gather recording every artifact it
   takes, changed or not), counted from the shelf's rows in core, as every
   count a view shows is. From the rows rather than from the source's
@@ -3640,8 +3654,10 @@ The TUI's sources screen (`S`) is the snapshot's list, one picked: `u`
 gathers it again and `U` every one, each the task a gather's line is, run
 apart and stopped as a gather is (`Task::UpdateSources`), and `d` forgets it
 once somebody says yes (`Task::RemoveSource`), which every front end with no
-terminal asks about first (`Caution::Forgets`). The panel's page of them is
-#113's.
+terminal asks about first (`Caution::Forgets`). The panel's page of them
+(#113) is the same list, each by its name, and the same tasks, a rename
+among them (`Task::RenameSource`, `gather rename`), which the TUI has no
+key for ([its changes](#its-changes)).
 
 A marketplace (#103) is managed as every source is, by its name, and what
 is done to it reaches each plugin of it: `gather update` reads its catalog
@@ -7858,8 +7874,11 @@ of it a browser may name.
   the preview shows the folder the command acts on. A mark to unlink, or
   what `mind unload` takes out, must be one an entry points at too.
 - **A gather's source as an address, or a folder named as one to link is**
-  (`policy::source`). An address, a URL whose scheme is not `file` or git's
-  `host:path`, is a value, which the gather holds to its own rules as it
+  (`policy::source`). An address, a URL whose scheme is not `file`, git's
+  `host:path`, or GitHub's `owner/repo`, at a branch or tag after an `@`,
+  which a gather reads as GitHub's address wherever it is typed
+  (`url::located`) and the page of sources takes (#113), is a value, which
+  the gather holds to its own rules as it
   holds one typed at a terminal: one carrying a credential is refused
   there (`credentials_in_url`), saying nothing of it, and none is ever
   prompted for ([a gather never prompts](#following-a-gather-and-stopping-it)).
@@ -9043,8 +9062,17 @@ thirteenth what a search's run printed, each a file under `src/pages`:
   name, summary or origin, each with its `origin`, the commit it was taken
   at and when.
 - **The sources** (`/sources`) lists where the shelf is filled from, each
-  with its `origin`, branch, folder, commit and what it supplied, and the
-  latest actions the ledger logged (`history`), newest first.
+  by its name, with its `origin`, branch, folder, pin, commit, the
+  licences what it supplied says and how many say each (`licences`, core's
+  count of the shelf's rows in the words `gather list` says a licence in),
+  what it supplied and when, and each plugin gathered of a marketplace
+  under it, the sources whose `parent` names it; then the latest actions
+  the ledger logged (`history`), newest first. Above them, the form adding
+  one, offering each kind a gather takes and leaving unsaid the folder each
+  is looked for in unless one is named (`gatherable`, `gather::gatherables`),
+  both the snapshot's rather than a list of kinds in TypeScript, which
+  would offer an MCP server a gather only refuses
+  ([its changes](#its-changes)).
 - **Catalogs** (`/catalogs`, #114), below them, searches the skill
   directories the workspace enables and the MCP Registry
   (`SkillSearch.vue`, `ServerSearch.vue`): each search a run, read back
@@ -9135,7 +9163,8 @@ an artifact in a holder among its scopes; `resync` and `command_finished`
 mark all of those, since a command can change what nothing watches; and
 `command_started`, `progress`, `cancelling` and `busy` mark nothing, since
 a run says nothing of the disk until it finishes, however long a gather
-takes, which the page following one draws (#113). Those
+takes, which the runner's dialog draws, its words and a bar of its counts
+(#113). Those
 queries, and the matrix's plan and the preview of its lines, which are of
 the disk as it stands (`src/api/plan.ts`, keyed `plan` and `preview`), and
 what an update would do, which is too (`src/api/updates.ts`, keyed
@@ -9439,6 +9468,36 @@ What the pages offer:
   over beside the lines rather than letting the panel set it was the
   choice: which install waits for one is core's, and the confirmation is
   the one place a yes may come from.
+- **A source added, gathered again, renamed and forgotten, from the page
+  of sources** (#113), each the task a terminal's line is. A git
+  repository's form (`SourceForm.vue`) sends `Task::Gather`, its fields the
+  line's values as typed but for the white space around them, its `name`,
+  `pin` and `dry_run` added for it (`--name`, `--pin`, `--dry-run`, each left
+  out when it says nothing): the dry run first, whose report the page shows
+  once it ran, then the same task without it, offered only while the
+  fields say what the dry run was of, as a removal everywhere is offered
+  once its dry run is read. A kind core gives no folder unsaid has the
+  button wait for one named, that being what `gatherable` says, never a
+  rule of the panel's. A Claude Code marketplace's is its catalog listed
+  first (`Task::ListMarketplace`, `gather marketplace --list --json`), whose
+  report the page reads back as the envelope it is, `data` being core's
+  `marketplace::Listing`, written into TypeScript and JSON Schema as
+  `MarketplaceListing` (`src/plugins.ts`), as the TUI reads the same line
+  into the same type, then a box for each plugin it lists (`PluginPicker.vue`),
+  one no gather takes (`gatherable`) listed and never ticked, and the ticked
+  gathered by name in the catalog's order (`Task::GatherPlugins`), never
+  `--all`, so the line says what it gathers. Each source's card
+  (`SourceCard.vue`) gathers it again (`Task::UpdateSources` of its name,
+  and the page every one at once), renames it (`Task::RenameSource`,
+  `gather rename`, which the command judges by the rules `--name` is held
+  to), forgets it once its dry run is read, asked about by
+  `Caution::Forgets`, and, of a marketplace, lists its plugins again. A
+  gather, an update and a listing are followed in the dialog, a bar of each
+  step's counts beside its words (`<progress>`, its value and maximum the
+  step's own numbers, no style attribute for the CSP to refuse), and once
+  one is over, what it said stays on the page, each line by its code, a
+  stop among it, after the toast has gone. No task of it carries a token
+  (D-16).
 - **A load and an unload, from the page of loads**: a workspace this
   machine knows by the path the snapshot lists it by, offered only where
   core says the workspace can load it (`loadable`), or any other by the
@@ -10048,10 +10107,25 @@ and Codex. The skill, ticked into both, has to be copied where each agent
 reads it, in each; unticked out of one, confirmed, gone from there alone;
 each batch's line shown before it runs; and the same lines, typed into the
 copy, have to leave both projects holding the same files. From a load
-rather than the shelf, which only a gather from a git source fills, and the
-suite builds nothing a git source makes; an offer from the shelf is
-installed with `--from` as one from a load is, and the views' suites draw
-one from their fixture. That the ledger a batch leaves is the one its
+rather than the shelf, which only a gather from a git source fills; an
+offer from the shelf is installed with `--from` as one from a load is, and
+the views' suites draw one from their fixture.
+
+`e2e/sources.spec.ts` takes `gatherable`, a workspace that gathered
+nothing beside `acme-skills`, a repository holding one skill, made with
+git as the demo's repositories are (`environment.ts`'s `git` and
+`repository`), its `SKILL.md` the one file written by hand, as somebody's
+work is. Added from the page of sources by its `file://` URL, what a gather
+would take has to be shown first, the snapshot still listing no source,
+then the gather, each line shown before it runs; its skill has to be on
+the shelf, its licence on its source's card, and the twin given the same
+line has to hold the same shelf. A gather again of a source on a server
+the spec holds the requests of on loopback, registered by a gather the
+server turned away (run apart, `runApart`, so the spec's own process can
+answer it), stopped while it waits on that server, has to leave the
+snapshot's shelf and sources as they were, read by the API with the
+token as Bearer, and to say so by the gather's code. The repository is on
+this machine since the suite reaches no network. That the ledger a batch leaves is the one its
 lines leave run in the CLI, every hash and action logged, is the backend
 suite's to hold (`backend_test.rs`), which reads it.
 
@@ -10240,9 +10314,10 @@ root, nothing chosen; the matrix with a box ticked and another unticked, the
 plan's lines below them, never applied; the page of updates, its edited copy left
 with why; the preview of linking what Discover marked, then, once that has
 run, an unlink asked about and cancelled, and the transcript; and last the
-dry run of removing one of the library's own everywhere, which changes
-nothing, taken after the transcript it would otherwise join, once the toast
-saying it ran has gone from over what it said; and `platform` loaded from
+dry run of removing one of the library's own everywhere, and the dry run
+of a gather of the team's repository on the page of sources, which change
+nothing, each taken after the transcript it would otherwise join, once the
+toast saying it ran has gone from over what it said; and `platform` loaded from
 the page of loads, after every other page is taken without it, so no other
 picture changes with it. Chromium
 alone, since the images are the same in WebKit, which does not run
@@ -14842,8 +14917,8 @@ repository, stays on `gix`.
   the kind each gather of it took would answer it, at the price of a
   schema step.
 - **The TUI renames no source.** Its sources screen gathers again and
-  forgets; `gather rename` is the command line's, and the panel's page of
-  sources (#113) the place a form for it would go first.
+  forgets; `gather rename` is the command line's and the panel's page of
+  sources' (#113), whose card has a field for it.
 - **An update or a rename with nothing gathered makes the default
   workspace.** `gather update --all` and `gather rename` open the ledger to
   write, as `gather git` does, so on a machine with none they make

@@ -598,15 +598,33 @@
       ]
     },
     {
-      "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n<url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.",
+      "description": "`mindweaver gather git [--kind <kind>] [--path <folder>] [--ref <ref>]\n[--name <name>] [--pin <commit>] [--dry-run] <url>`.\n\n`kind` is what is taken, skills unless it says rules, as the\ncommand's `--kind` is: added after the rest (#111), and skills when\na task leaves it out, as one sent before it was there does. The line\nleaves out the folder only when it is the one a gather of the kind\nlooks in unsaid (`gather::default_folder`), so a task of rules from\nthe whole repository says `--path .`, which core asks of a gather of\nrules.\n\n`name`, `pin` and `dry_run` are `--name`, `--pin` and `--dry-run`,\nadded after the rest for the panel's page of sources (#113), each\nnone, or false, when a task leaves it out, as one sent before they\nwere there does: what the source is called and the commit it is\npinned to, each a value core holds to its own rules, and whether the\nline only says what a gather would take, writing nothing, which the\npage runs first. No token, nor the name of a variable holding one\n(D-16).",
       "type": "object",
       "properties": {
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        },
         "folder": {
           "type": "string"
         },
         "kind": {
           "$ref": "#/$defs/Kind",
           "default": "skill"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "pin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "reference": {
           "type": [
@@ -703,6 +721,28 @@
       "required": [
         "type",
         "names"
+      ]
+    },
+    {
+      "description": "`mindweaver gather rename <from> <to>`: the source called `from`\ncalled `to` from now on, what `gather sources` lists and `--from`\ntakes, held by core to the rules `gather git --name` is. What was\ninstalled from it is found where it was, its origin naming no name.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "rename_source"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "from",
+        "to"
       ]
     },
     {

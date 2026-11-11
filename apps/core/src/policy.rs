@@ -205,7 +205,8 @@ pub fn path(given: &str) -> Result<PathBuf, PolicyError> {
 /// folder on this machine named as a folder to link is.
 ///
 /// An address, a URL whose scheme is not `file` (`https://`, `ssh://`,
-/// `git://`) or git's `host:path`, a colon before any slash, is a value,
+/// `git://`), git's `host:path`, a colon before any slash, or GitHub's
+/// `owner/repo`, at a branch or tag after an `@`, is a value,
 /// which the gather holds to its own rules as it holds one typed at a
 /// terminal: one carrying a credential is refused there, by its code and
 /// with nothing of the credential said, and no prompt is ever made for
@@ -230,6 +231,13 @@ pub fn source(given: &str) -> Result<(), PolicyError> {
         .find(':')
         .is_some_and(|colon| colon > 0 && !given[..colon].contains(['/', '\\']));
     if given.contains("://") || (scp_like && !Path::new(given).is_absolute()) {
+        return Ok(());
+    }
+    // `owner/repo` on GitHub, at a branch or tag after an `@`, as `gh skill`
+    // and `npx skills` take it: what a gather reads as GitHub's address
+    // wherever it is typed (`url::located`), so never a folder relative to
+    // anywhere, which the panel's page of sources is asked for (#113).
+    if crate::url::located(given).url != given {
         return Ok(());
     }
     path(given).map(drop)

@@ -2619,6 +2619,9 @@ impl GatherForm {
             folder: folder.to_owned(),
             reference,
             kind: mindweaver_core::gather::DEFAULT_KIND,
+            name: None,
+            pin: None,
+            dry_run: false,
         })
     }
 }

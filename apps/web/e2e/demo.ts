@@ -12,11 +12,10 @@
  * `--editor`, the way an editor would save them. Everything else is a
  * command's.
  */
-import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { environment, run, succeed, type Places } from './environment.ts'
+import { git, repository, run, succeed, type Places } from './environment.ts'
 
 /** `examples/` in this repository, whose skills and rules the demo reuses. */
 const EXAMPLES = fileURLToPath(new URL('../../../examples', import.meta.url))
@@ -26,6 +25,9 @@ export const WORKSPACE = 'Projects'
 
 /** The workspace beside the demo's that the tour loads, by its folder's name. */
 export const LOADED = 'platform'
+
+/** The team's repository beside the workspace, by its folder's name: what the shelf is gathered from. */
+export const TEAM = 'team'
 
 /** The project whose page the tour shows, and whose unlink it asks about. */
 export const SHOWN = 'mobile-app'
@@ -40,50 +42,10 @@ export const ARTIFACT = 'api-conventions'
  */
 export const REMOVED = 'deploy-checklist'
 
-/**
- * Who the repositories' commits are by, and when: fixed, so a regenerated
- * shelf shows the same commits. Neither the person running it nor their git
- * configuration: no system or global file is read.
- */
-function author(date: string): Record<string, string> {
-  return {
-    GIT_AUTHOR_NAME: 'Demo',
-    GIT_AUTHOR_EMAIL: 'demo@example.com',
-    GIT_AUTHOR_DATE: date,
-    GIT_COMMITTER_NAME: 'Demo',
-    GIT_COMMITTER_EMAIL: 'demo@example.com',
-    GIT_COMMITTER_DATE: date,
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null'
-  }
-}
-
-/** Run git with `args` in `directory`, as the demo's author at `date`, failing unless it exits 0. */
-function git(at: Places, directory: string, args: string[], date = '2026-10-01T09:00:00Z'): void {
-  const ran = spawnSync('git', ['-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], {
-    cwd: directory,
-    env: { ...environment(at), ...author(date) },
-    encoding: 'utf8',
-    timeout: 60_000
-  })
-  if (ran.error) {
-    throw ran.error
-  }
-  if (ran.status !== 0) {
-    throw new Error(`\`git ${args.join(' ')}\` in ${directory} exited ${ran.status}:\n${ran.stdout}${ran.stderr}`)
-  }
-}
-
 /** Write `text` to `path`, making the folders above it. */
 function write(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text)
-}
-
-/** A repository at `folder`, empty, as `git init` makes one. */
-function repository(at: Places, folder: string): void {
-  mkdirSync(folder, { recursive: true })
-  git(at, folder, ['init', '--quiet'])
 }
 
 const API_CONVENTIONS = `---
@@ -205,7 +167,7 @@ export function build(at: Places): void {
 
   // The team's skills, in a repository of their own: two of the examples,
   // and the release notes.
-  const team = join(at.scratch, 'team')
+  const team = join(at.scratch, TEAM)
   repository(at, team)
   for (const skill of ['code-review', 'commit-style']) {
     cpSync(join(EXAMPLES, 'skills', skill), join(team, 'skills', skill), { recursive: true })

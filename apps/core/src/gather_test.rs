@@ -110,6 +110,43 @@ fn a_request_taking_rules_looks_in_no_folder_unless_one_is_named() {
     assert_eq!(default_folder(Kind::Mcp), None);
 }
 
+/// What a front end offers to gather is what a gather takes, each kind with
+/// the folder it is looked for in unsaid: skills from the whole repository,
+/// rules from a folder somebody names, and no MCP server, which a gather of
+/// would only say it cannot take.
+#[test]
+fn a_front_end_is_offered_every_kind_a_gather_takes_with_its_folder_unsaid() {
+    let offered = gatherables();
+
+    assert_eq!(
+        offered,
+        [
+            Gatherable {
+                kind: Kind::Skill,
+                folder: Some(String::from(DEFAULT_SUBDIRECTORY)),
+            },
+            Gatherable {
+                kind: Kind::Rule,
+                folder: None,
+            },
+        ]
+    );
+    for each in &offered {
+        assert_eq!(
+            each.folder.as_deref(),
+            default_folder(each.kind),
+            "{each:?}"
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(&offered).unwrap(),
+        serde_json::json!([
+            {"kind": "skill", "folder": "."},
+            {"kind": "rule", "folder": null},
+        ])
+    );
+}
+
 /// `at(None)` is the remote's HEAD again, not the branch asked for before.
 #[test]
 fn a_request_at_no_branch_goes_back_to_the_remote_s_head() {

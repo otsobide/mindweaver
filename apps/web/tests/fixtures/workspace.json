@@ -150,6 +150,16 @@
     }
   ],
   "format": 1,
+  "gatherable": [
+    {
+      "folder": ".",
+      "kind": "skill"
+    },
+    {
+      "folder": null,
+      "kind": "rule"
+    }
+  ],
   "healths": [
     "ok",
     "attention",
@@ -1012,6 +1022,12 @@
       "entry": null,
       "gathered_at": 1792850400,
       "kind": "git",
+      "licences": [
+        {
+          "count": 2,
+          "licence": "unknown"
+        }
+      ],
       "name": "acme-skills",
       "origin": "https://github.com/acme/skills",
       "parent": null,

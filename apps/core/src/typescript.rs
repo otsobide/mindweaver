@@ -37,6 +37,7 @@ use crate::contents::{self, Contents};
 use crate::draft::Judged;
 use crate::finder::SkillsFound;
 use crate::known::Switchable;
+use crate::marketplace;
 use crate::mcp_registry::ServerListing;
 use crate::reading::{Shown, Validation};
 use crate::update::Updates;
@@ -47,9 +48,10 @@ use crate::view::{Listing, Snapshot};
 /// of every project would do, the workspaces it may switch to, and the
 /// folders inside one, which the panel queries; what `list`,
 /// `show` and `validate` print, which a script reads; what a search of the
-/// skill directories and of an MCP registry print, which the panel reads
-/// back from a run of one; and every code core gives, which a front end
-/// compares a code with.
+/// skill directories and of an MCP registry print and what `gather
+/// marketplace --list --json` prints, which the panel reads back from a
+/// run of one; and every code core gives, which a front end compares a
+/// code with.
 pub fn roots(visitor: &mut impl TypeVisitor) {
     visitor.visit::<Snapshot>();
     visitor.visit::<Updates>();
@@ -63,6 +65,7 @@ pub fn roots(visitor: &mut impl TypeVisitor) {
     visitor.visit::<Judged>();
     visitor.visit::<Switchable>();
     visitor.visit::<Folders>();
+    visitor.visit::<marketplace::Listing>();
     visitor.visit::<CoreCode>();
 }
 

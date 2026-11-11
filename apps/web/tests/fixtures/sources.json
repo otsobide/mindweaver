@@ -1,0 +1,551 @@
+{
+  "agents": [
+    "claude",
+    "codex",
+    "opencode"
+  ],
+  "box_states": [
+    "current",
+    "outdated",
+    "edited",
+    "missing",
+    "orphaned",
+    "foreign"
+  ],
+  "boxes": [],
+  "doctor": [],
+  "format": 1,
+  "gatherable": [
+    {
+      "folder": ".",
+      "kind": "skill"
+    },
+    {
+      "folder": null,
+      "kind": "rule"
+    }
+  ],
+  "healths": [
+    "ok",
+    "attention",
+    "broken",
+    "stale"
+  ],
+  "history": [
+    {
+      "action": "gather",
+      "at": 1792850640,
+      "detail": "3 listed, 1 chosen, 1 gathered, 0 failed",
+      "outcome": "ok",
+      "target": "/home/you/src/tools-market"
+    },
+    {
+      "action": "gather",
+      "at": 1792850580,
+      "detail": "1 added, 0 updated, 0 unchanged, 0 failed",
+      "outcome": "ok",
+      "target": "/home/you/src/tools-market"
+    },
+    {
+      "action": "gather",
+      "at": 1792850520,
+      "detail": "2 added, 0 updated, 0 unchanged, 0 failed",
+      "outcome": "ok",
+      "target": "/home/you/src/team-rules"
+    },
+    {
+      "action": "gather",
+      "at": 1792850460,
+      "detail": "2 added, 0 updated, 0 unchanged, 0 failed",
+      "outcome": "ok",
+      "target": "/home/you/src/acme-skills"
+    }
+  ],
+  "kinds": [
+    "skill",
+    "rule",
+    "mcp"
+  ],
+  "known": [
+    {
+      "default": false,
+      "in_use": true,
+      "loadable": false,
+      "loaded_as": null,
+      "name": "Sources",
+      "path": "/home/you/Sources",
+      "projects": 0,
+      "remembered": false,
+      "stale": null,
+      "stale_projects": 0
+    }
+  ],
+  "library": {
+    "artifacts": [],
+    "directories": [
+      {
+        "kind": "skill",
+        "path": ".mindweaver/library/skills"
+      },
+      {
+        "kind": "rule",
+        "path": ".mindweaver/library/rules"
+      },
+      {
+        "kind": "mcp",
+        "path": ".mindweaver/library/mcp"
+      }
+    ],
+    "failures": [],
+    "holders": [],
+    "origin": "workspace",
+    "servers": [],
+    "templates": [
+      {
+        "kind": "skill",
+        "name": "full",
+        "origin": null
+      }
+    ]
+  },
+  "loaded": [],
+  "offers": [
+    {
+      "kind": "skill",
+      "name": "format",
+      "origin": "/home/you/src/acme-skills",
+      "place": "shelf",
+      "summary": "Format the code the way the team does"
+    },
+    {
+      "kind": "skill",
+      "name": "tidy",
+      "origin": "/home/you/src/tools-market",
+      "place": "shelf",
+      "summary": "Tidy the code"
+    },
+    {
+      "kind": "skill",
+      "name": "triage",
+      "origin": "/home/you/src/acme-skills",
+      "place": "shelf",
+      "summary": "Sort new issues by what they need"
+    },
+    {
+      "kind": "rule",
+      "name": "git/commits",
+      "origin": "/home/you/src/team-rules",
+      "place": "shelf",
+      "summary": "Commits"
+    },
+    {
+      "kind": "rule",
+      "name": "style/comments",
+      "origin": "/home/you/src/team-rules",
+      "place": "shelf",
+      "summary": "Comments"
+    }
+  ],
+  "projects": [],
+  "shelf": [
+    {
+      "content_hash": "7a96c62a4238e95dde7e22842c55b418f79431c24a7e2ca19882d5ce30b1226e",
+      "gathered_at": 1792850400,
+      "kind": "skill",
+      "licence": {
+        "from": "manifest",
+        "text": "MIT"
+      },
+      "name": "format",
+      "origin": "/home/you/src/acme-skills",
+      "path": ".mindweaver/skills/home-you-src-acme-skills/format",
+      "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
+      "source": {
+        "directory": "home-you-src-acme-skills",
+        "entry": null,
+        "kind": "git",
+        "name": "src-acme-skills",
+        "parent": null,
+        "pin": null,
+        "reference": null,
+        "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
+        "subdirectory": ".",
+        "url": "/home/you/src/acme-skills"
+      },
+      "summary": "Format the code the way the team does",
+      "upstream_path": "skills/format"
+    },
+    {
+      "content_hash": "f8b22de70cd7e1c9af218251a28adfc80dc746cf96eb946dab5eaf8cf16c7ece",
+      "gathered_at": 1792850400,
+      "kind": "skill",
+      "licence": {
+        "from": "plugin",
+        "text": "Apache-2.0"
+      },
+      "name": "tidy",
+      "origin": "/home/you/src/tools-market",
+      "path": ".mindweaver/skills/home-you-src-tools-market.formatter/tidy",
+      "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+      "source": {
+        "directory": "home-you-src-tools-market.formatter",
+        "entry": "formatter",
+        "kind": "git",
+        "name": "acme-tools.formatter",
+        "parent": "acme-tools",
+        "pin": null,
+        "reference": null,
+        "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+        "subdirectory": "plugins/formatter",
+        "url": "/home/you/src/tools-market"
+      },
+      "summary": "Tidy the code",
+      "upstream_path": "plugins/formatter/skills/tidy"
+    },
+    {
+      "content_hash": "740097a154001395cf8607b555628eec6c65d9fa74d4ce9e58e8bb927660973e",
+      "gathered_at": 1792850400,
+      "kind": "skill",
+      "licence": {
+        "file": "LICENSE",
+        "from": "file",
+        "text": "Apache License"
+      },
+      "name": "triage",
+      "origin": "/home/you/src/acme-skills",
+      "path": ".mindweaver/skills/home-you-src-acme-skills/triage",
+      "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
+      "source": {
+        "directory": "home-you-src-acme-skills",
+        "entry": null,
+        "kind": "git",
+        "name": "src-acme-skills",
+        "parent": null,
+        "pin": null,
+        "reference": null,
+        "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
+        "subdirectory": ".",
+        "url": "/home/you/src/acme-skills"
+      },
+      "summary": "Sort new issues by what they need",
+      "upstream_path": "skills/triage"
+    },
+    {
+      "content_hash": "490ce8fbff19cb7a772951382219d68e5a4be7949d99eb6266241e959f6f7dec",
+      "gathered_at": 1792850400,
+      "kind": "rule",
+      "licence": {
+        "file": "LICENSE",
+        "from": "file",
+        "text": "MIT License"
+      },
+      "name": "git/commits",
+      "origin": "/home/you/src/team-rules",
+      "path": ".mindweaver/rules/home-you-src-team-rules/git/commits.md",
+      "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+      "source": {
+        "directory": "home-you-src-team-rules",
+        "entry": null,
+        "kind": "git",
+        "name": "team-rules",
+        "parent": null,
+        "pin": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+        "reference": null,
+        "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+        "subdirectory": "rules",
+        "url": "/home/you/src/team-rules"
+      },
+      "summary": "Commits",
+      "upstream_path": "rules/git/commits.md"
+    },
+    {
+      "content_hash": "28ca007aff8d28b12792431e831c79e7fc1929e5bf9e9a0271d2d3dbb9f9eeda",
+      "gathered_at": 1792850400,
+      "kind": "rule",
+      "licence": {
+        "file": "LICENSE",
+        "from": "file",
+        "text": "MIT License"
+      },
+      "name": "style/comments",
+      "origin": "/home/you/src/team-rules",
+      "path": ".mindweaver/rules/home-you-src-team-rules/style/comments.md",
+      "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+      "source": {
+        "directory": "home-you-src-team-rules",
+        "entry": null,
+        "kind": "git",
+        "name": "team-rules",
+        "parent": null,
+        "pin": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+        "reference": null,
+        "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+        "subdirectory": "rules",
+        "url": "/home/you/src/team-rules"
+      },
+      "summary": "Comments",
+      "upstream_path": "rules/style/comments.md"
+    }
+  ],
+  "sources": [
+    {
+      "directory": "home-you-src-acme-skills",
+      "entry": null,
+      "gathered_at": 1792850400,
+      "kind": "git",
+      "licences": [
+        {
+          "count": 1,
+          "licence": "Apache License"
+        },
+        {
+          "count": 1,
+          "licence": "MIT"
+        }
+      ],
+      "name": "src-acme-skills",
+      "origin": "/home/you/src/acme-skills",
+      "parent": null,
+      "pin": null,
+      "reference": null,
+      "revision": "e6fb32f2e943fe17f7191e01d70d3fdcbb2b0598",
+      "shelved": [
+        {
+          "count": 2,
+          "kind": "skill"
+        }
+      ],
+      "subdirectory": ".",
+      "url": "/home/you/src/acme-skills"
+    },
+    {
+      "directory": "home-you-src-team-rules",
+      "entry": null,
+      "gathered_at": 1792850400,
+      "kind": "git",
+      "licences": [
+        {
+          "count": 2,
+          "licence": "MIT License"
+        }
+      ],
+      "name": "team-rules",
+      "origin": "/home/you/src/team-rules",
+      "parent": null,
+      "pin": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+      "reference": null,
+      "revision": "df0e9c6145c88ea329d5f1a0e3075f9c32500a68",
+      "shelved": [
+        {
+          "count": 2,
+          "kind": "rule"
+        }
+      ],
+      "subdirectory": "rules",
+      "url": "/home/you/src/team-rules"
+    },
+    {
+      "directory": "home-you-src-tools-market",
+      "entry": null,
+      "gathered_at": null,
+      "kind": "marketplace",
+      "licences": [],
+      "name": "acme-tools",
+      "origin": "/home/you/src/tools-market",
+      "parent": null,
+      "pin": null,
+      "reference": null,
+      "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+      "shelved": [],
+      "subdirectory": ".",
+      "url": "/home/you/src/tools-market"
+    },
+    {
+      "directory": "home-you-src-tools-market.formatter",
+      "entry": "formatter",
+      "gathered_at": 1792850400,
+      "kind": "git",
+      "licences": [
+        {
+          "count": 1,
+          "licence": "Apache-2.0"
+        }
+      ],
+      "name": "acme-tools.formatter",
+      "origin": "/home/you/src/tools-market",
+      "parent": "acme-tools",
+      "pin": null,
+      "reference": null,
+      "revision": "ab3b11b123525f68ca31bb780fcc419945d7ed8b",
+      "shelved": [
+        {
+          "count": 1,
+          "kind": "skill"
+        }
+      ],
+      "subdirectory": "plugins/formatter",
+      "url": "/home/you/src/tools-market"
+    }
+  ],
+  "states": [
+    "current",
+    "outdated",
+    "edited",
+    "missing",
+    "orphaned",
+    "foreign",
+    "authored"
+  ],
+  "summary": {
+    "held": {
+      "kinds": [
+        {
+          "count": 0,
+          "kind": "skill"
+        },
+        {
+          "count": 0,
+          "kind": "rule"
+        },
+        {
+          "count": 0,
+          "kind": "mcp"
+        }
+      ],
+      "states": [
+        {
+          "count": 0,
+          "state": "current"
+        },
+        {
+          "count": 0,
+          "state": "outdated"
+        },
+        {
+          "count": 0,
+          "state": "edited"
+        },
+        {
+          "count": 0,
+          "state": "missing"
+        },
+        {
+          "count": 0,
+          "state": "orphaned"
+        },
+        {
+          "count": 0,
+          "state": "foreign"
+        },
+        {
+          "count": 0,
+          "state": "authored"
+        }
+      ],
+      "total": 0
+    },
+    "library": {
+      "kinds": [
+        {
+          "count": 0,
+          "kind": "skill"
+        },
+        {
+          "count": 0,
+          "kind": "rule"
+        },
+        {
+          "count": 0,
+          "kind": "mcp"
+        }
+      ],
+      "states": [
+        {
+          "count": 0,
+          "state": "current"
+        },
+        {
+          "count": 0,
+          "state": "outdated"
+        },
+        {
+          "count": 0,
+          "state": "edited"
+        },
+        {
+          "count": 0,
+          "state": "missing"
+        },
+        {
+          "count": 0,
+          "state": "orphaned"
+        },
+        {
+          "count": 0,
+          "state": "foreign"
+        },
+        {
+          "count": 0,
+          "state": "authored"
+        }
+      ],
+      "total": 0
+    },
+    "projects": 0,
+    "shelf": {
+      "kinds": [
+        {
+          "count": 3,
+          "kind": "skill"
+        },
+        {
+          "count": 2,
+          "kind": "rule"
+        },
+        {
+          "count": 0,
+          "kind": "mcp"
+        }
+      ],
+      "states": [
+        {
+          "count": 0,
+          "state": "current"
+        },
+        {
+          "count": 0,
+          "state": "outdated"
+        },
+        {
+          "count": 0,
+          "state": "edited"
+        },
+        {
+          "count": 0,
+          "state": "missing"
+        },
+        {
+          "count": 0,
+          "state": "orphaned"
+        },
+        {
+          "count": 0,
+          "state": "foreign"
+        },
+        {
+          "count": 0,
+          "state": "authored"
+        }
+      ],
+      "total": 5
+    },
+    "stale": 0
+  },
+  "warnings": [],
+  "workspace": {
+    "made": true,
+    "name": "Sources",
+    "path": "/home/you/Sources",
+    "reason": "above"
+  }
+}

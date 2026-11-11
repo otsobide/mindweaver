@@ -274,6 +274,16 @@ const EXPECTED: &str = r#"{
     "broken",
     "stale"
   ],
+  "gatherable": [
+    {
+      "kind": "skill",
+      "folder": "."
+    },
+    {
+      "kind": "rule",
+      "folder": null
+    }
+  ],
   "summary": {
     "projects": 1,
     "stale": 1,
@@ -762,7 +772,13 @@ const EXPECTED: &str = r#"{
           "count": 1
         }
       ],
-      "gathered_at": 1790000000
+      "gathered_at": 1790000000,
+      "licences": [
+        {
+          "licence": "unknown",
+          "count": 1
+        }
+      ]
     }
   ],
   "offers": [
