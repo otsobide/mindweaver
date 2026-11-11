@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import type { VueWrapper } from '@vue/test-utils'
 import type { Folders } from '@/api/generated/Folders'
 import type { Health } from '@/api/generated/Health'
-import { answering, answers, applying, commanded, commanding, drafts, fixture, plans, render, servers, unmount, updates, walks, type Answered } from './panel'
+import { answering, answers, applying, commanded, commanding, drafts, fixture, plans, render, searched, servers, unmount, updates, walks, type Answered } from './panel'
 
 /** Every `<style>` element anything adds while a test runs, which the CSP would refuse. */
 let styles: Element[]
@@ -59,7 +59,7 @@ function everyLook() {
 }
 
 describe('the views', () => {
-  it.each(['/', '/projects', '/projects?sort=name', '/projects?sort=name&order=desc', '/project?entry=api', '/project?entry=docs', '/project?entry=gone', '/library', '/library?kind=rule', '/artifact?kind=skill&name=review&file=SKILL.md', '/artifact?kind=rule&name=style/comments', '/shelf', '/shelf?kind=skill', '/sources', '/discover', '/discover?root=%2Fhome%2Fyou%2FProjects', '/assign', '/assign?by=project'])(
+  it.each(['/', '/projects', '/projects?sort=name', '/projects?sort=name&order=desc', '/project?entry=api', '/project?entry=docs', '/project?entry=gone', '/library', '/library?kind=rule', '/artifact?kind=skill&name=review&file=SKILL.md', '/artifact?kind=rule&name=style/comments', '/shelf', '/shelf?kind=skill', '/sources', '/catalogs', '/discover', '/discover?root=%2Fhome%2Fyou%2FProjects', '/assign', '/assign?by=project'])(
     '%s draws every icon from the bundle and adds no style element',
     async (path) => {
       const { page } = await render(path, everyLook())
@@ -134,6 +134,39 @@ describe('the page of MCP servers', () => {
     const { transport } = answering(fixture('serving'), servers())
     const { page } = await render(path, transport)
 
+    drawsEveryIcon(page)
+    expect(styles).toEqual([])
+  })
+})
+
+describe('the page of catalogs', () => {
+  it('draws every icon from the bundle, what both searches found and an add\'s dry run shown, and adds no style element', async () => {
+    const found = searched()
+    found[0]!.ran.outcome.runs[0]!.stderr = [
+      { text: 'hint: github was not asked, since its search needs a token: --token-env or --gh hands one over', code: null },
+      { text: 'warning: skills.sh: result 3 (`odd`): it names no repository, so it is not listed', code: 'finder_result_dropped' }
+    ]
+    const { transport } = commanding(fixture('workspace'), found)
+    const { page } = await render('/catalogs', transport)
+
+    for (const [of, query] of [['skills', 'commit'], ['servers', 'mcp']] as const) {
+      await page.get(`input[data-testid="${of}-query"]`).setValue(query)
+      await page.get(`[data-testid="${of}-form"]`).trigger('submit')
+      await flushPromises()
+      document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="preview"]')).toBeNull())
+      await flushPromises()
+    }
+    await page.findAll('[data-testid="take"]')[0]!.trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(page.find('[data-testid="taken"]').exists()).toBe(true))
+    await page.findAll('[data-testid="add-dry"]')[0]!.trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLElement>('[data-testid="run"]')!.click()
+    await vi.waitFor(() => expect(page.find('[data-testid="add-yes"]').exists()).toBe(true))
+
+    expect(page.findAll('[data-testid="said-line"]')).toHaveLength(2)
     drawsEveryIcon(page)
     expect(styles).toEqual([])
   })

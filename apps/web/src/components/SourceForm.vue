@@ -130,14 +130,18 @@ const listingAsked = computed(() => JSON.stringify(listing() ?? null))
  */
 const plugins = ref<{ of: string, listed: Listed, source: string, reference: string | null }>()
 
-/** `mindweaver gather marketplace --list --json`: its catalog, read back. */
+/**
+ * `mindweaver gather marketplace --list --json`: its catalog, read back,
+ * which the page draws, so the toast saying how it ended leaves the JSON
+ * out.
+ */
 async function list() {
   const task = listing()
   if (task === undefined || task.type !== 'list_marketplace') {
     return
   }
   const of = listingAsked.value
-  const ran = await runner.ask(task)
+  const ran = await runner.ask(task, { drawn: true })
   const read = ran && listed(ran)
   if (read) {
     plugins.value = { of, listed: read, source: task.source, reference: task.reference }

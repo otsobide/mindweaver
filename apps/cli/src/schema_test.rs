@@ -442,6 +442,25 @@ impl Fixtures {
                     fixtures.ran(at, kept);
                 }
             }),
+            // Each a task run, and what a search's one line printed, read
+            // back by the panel, the envelope of `--json` holding what core
+            // found, as its root says it.
+            "searched" => self.each(name, fixture, |fixtures, at, searched| {
+                fixtures.ran(at, searched);
+                let data = match searched["task"]["type"].as_str() {
+                    Some("search_skills") => "SkillsFound",
+                    Some("search_servers") => "ServerListing",
+                    _ => return,
+                };
+                let stdout = searched["ran"]["outcome"]["runs"][0]["stdout"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{at}: its line printed nothing"));
+                let printed: Value = serde_json::from_str(stdout)
+                    .unwrap_or_else(|error| panic!("{at}: {error}: {stdout}"));
+                let at = format!("{at}/ran/outcome/runs/0/stdout");
+                fixtures.is(&at, "Envelope", &printed);
+                fixtures.is(&format!("{at}/data"), data, &printed["data"]);
+            }),
             // What a run reports as it goes, each `progress` event's.
             "steps" | "gathering" => self.each(name, fixture, |fixtures, at, step| {
                 fixtures.is(at, "Step", step);

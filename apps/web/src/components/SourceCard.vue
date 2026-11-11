@@ -58,7 +58,8 @@ const plugins = ref<Listed>()
 
 /** `mindweaver gather marketplace --list --json`, of the marketplace it is, at its branch. */
 async function list() {
-  const ran = await runner.ask({ type: 'list_marketplace', source: props.source.url, reference: props.source.reference })
+  // The page draws what it printed: the toast leaves the JSON out.
+  const ran = await runner.ask({ type: 'list_marketplace', source: props.source.url, reference: props.source.reference }, { drawn: true })
   plugins.value = (ran && listed(ran)) || undefined
 }
 

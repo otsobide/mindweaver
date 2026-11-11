@@ -59,6 +59,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/catalogs': RouteRecordInfo<
+      '/catalogs',
+      '/catalogs',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/discover': RouteRecordInfo<
       '/discover',
       '/discover',
@@ -176,6 +183,14 @@ declare module 'vue-router/auto-routes' {
     'src/pages/assign.vue': {
       routes:
         | '/assign'
+      views:
+        | never
+      pathParamNames:
+        | never
+    }
+    'src/pages/catalogs.vue': {
+      routes:
+        | '/catalogs'
       views:
         | never
       pathParamNames:

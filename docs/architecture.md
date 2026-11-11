@@ -2492,6 +2492,17 @@ type derives `Serialize` from the start:
   it loads it by (`loaded_as`) and whether it could load it (`loadable`),
   as a shelf row's origin is flattened beside the ledger's row: what one
   workspace loads is nothing that list of the machine says.
+- **Read back by the panel since #114**: what `gather search --json` and
+  `gather mcp search --json` print in the envelope's `data`, which the
+  page of catalogs reads from a search's run, each written through a
+  derived type of its own (`finder::SkillsFound`, beside the hand-written
+  `Found` it writes, and `mcp_registry::ServerListing`), so its TypeScript
+  and its schema are read off the attributes serde writes by, under names
+  a scan's `Found` and the workspace's `Listing` and `Summary` leave free
+  (`ServerSummary`); a result (`finder::Hit`), which the panel sends back
+  to be taken and so is read too, its repository redacted again, and a
+  finder by its name (`Finder`, through `described::words!`). A status a
+  registry gives is any word, kept as written, so it is said as a string.
 - **Listed for the panel by #212**: the folders directly inside one
   (`browse::Folders`, each `Folder` and each `Crumb` of its trail), a path
   through `paths::lossy`, what a folder is a word (`browse::Is`, by its
@@ -4315,10 +4326,17 @@ reads back as it goes out, its repository redacted again), never a table's
 columns, and draws each as the command's table does
 (`commands::search::rows`). `enter` on one runs `Task::Gather` of its
 repository, folder and branch, the line `--take` amounts to rather than
-`--take` itself, so the transcript gathers the same again however the
-finders answer by then. The panel has no page for it yet; its server runs a
-`search_skills` task as any other, which asks the finders the workspace
-enables with no token.
+`--take` itself (`Task::taking`), so the transcript gathers the same again
+however the finders answer by then.
+
+**The panel** searches from its page of catalogs (#114, [its
+views](#its-views)): the same `search_skills` task, which asks the finders
+the workspace enables with no token, run through the runner and read back
+from the line's JSON as the TUI's is; a result is taken by a `take_skill`
+task carrying it back whole, whose line is `Task::taking`'s, so the three
+take a result by one function. Where each finder is asked is the
+launch's, `mindweaver ui --finder-url`, never a request's
+([launching it](#launching-it-mindweaver-ui)).
 
 Rejected: reading the TUI's results back from the HTTP cache once the line
 is over, which a search asked with a token could not be read from and which
@@ -4537,9 +4555,10 @@ starts a server, nor asks one anything: a definition is text until
 the registry's word and each way it is started or reached by its word
 (`Way::word`: a package's registry type, a remote's transport as a
 definition writes its `type`), in the order `--way` counts them. Its
-`--json` is the listing (`Listing`, serialized by hand, each entry as its
-summary, since an entry keeps its packages and remotes as the registry
-wrote them, for an import to read), which reads back as it went out, so
+`--json` is the listing (`Listing`, written through a derived
+`ServerListing`, each entry as its summary, since an entry keeps its
+packages and remotes as the registry wrote them, for an import to read),
+which reads back as it went out, so
 the TUI's results are read from the line's JSON as the skill
 directories' are. The table leaves the description to `--json`: a
 publisher's description is free text a column a line cannot hold, and
@@ -4598,9 +4617,11 @@ gather mcp search --json <query>`; `enter` on a server runs
 as a page whose `y` runs the same task told yes, so a definition is
 written only once what it would be has been read, as the install screen
 shows each agent's line before it applies. Neither task names a
-registry: a front end asks the official one, so a browser sends no
-address a line would take a program from. The panel has no page for it
-yet; its server runs either task as any other.
+registry: a front end asks the official one, or the mirror `mindweaver ui
+--registry` was started with, so a browser sends no address a line would
+take a program from. The panel's page of catalogs (#114) runs both tasks
+as the TUI does: the search read back from its line's JSON, the add's dry
+run shown, then the same task told yes ([its changes](#its-changes)).
 
 **Tested** with no network: the CLI's suites serve [#106's recorded
 answers](#the-official-mcp-registry) from a server each test starts on
@@ -7743,7 +7764,20 @@ of it a browser may name.
   (`path_in_mindflayer`). The folder in the source and the reference are
   values the gather holds to its own rules. What a gather can reach is no
   more than a page holding the token could already: link any folder and
-  read its skills ([open questions](#open-questions)).
+  read its skills ([open questions](#open-questions)). A search result
+  sent back to be taken (`take_skill`) is held the same way by its
+  repository, whatever finder named it, the rest of what it says going to
+  no line but its folder and branch, values the gather holds to its own
+  rules.
+- **No catalog's address, nor a token for one.** A search of the skill
+  directories or of the MCP Registry, and an add from the registry, carry
+  a query, a server's name and a version, which name nothing on the disk:
+  where each is asked is the launch's (`mindweaver ui --registry`,
+  `--finder-url`, held at launch to the rules the line holds them to),
+  never a request's, since what a registry answers is a program every
+  agent of a project will start, and a finder's answer what a take
+  gathers. A task has no field for either, and no token goes with a
+  search, so GitHub's code search is never asked from the panel.
 - **A scan only under the folders the browser names** (`Query::Scan`), each
   held to the same rule as a folder to link, and refused with its code
   otherwise before anything is walked; none named is the workspace's root,
@@ -8322,6 +8356,30 @@ change was sent nor which commands it ran. Not "nothing a request sent",
 which a read sends in its query, and which somebody passing a log on
 would take at its word.
 
+`--registry URL` and `--finder-url FINDER=URL` (#114) name the catalogs
+the panel's searches and adds ask in place of each command's own: an MCP
+registry serving the official one's API, a mirror, and a skill directory
+at another address that speaks its API, a GitHub Enterprise server's or
+a test's on loopback, as `gather mcp --registry` and `gather search
+--finder-url` do. They are the launch's, as its home and agent homes are
+(`PanelBackend::asking`, `task::Catalogs`): no task has a field for an
+address, so a browser never names where a line asks, nor where a
+program agents start comes from. The task module puts them on the lines
+that ask, `--registry` on a `search_servers` and an `import_server`,
+`--finder-url` on a `search_skills` (`Task::commands_asking`), so the
+line previewed, run and kept in the transcript names the catalog it
+asked and asks it again pasted at a terminal. Each is held as the panel
+starts to the rules the line would hold it to, over https or plain http
+on this machine, a `FINDER=URL` naming a finder (`ui::catalogs`, through
+`Registry::at`, `finder::addressed` and `Search::at`), so a launch naming
+one no line would ask fails with the line's code before anything
+listens, rather than every search sent from the panel afterwards. Which
+finders are asked is still the workspace's `finders`: `--finder-url`
+moves one, and enables none. Rejected: an environment variable read by
+every command, which would move where any line asks behind its back,
+and a key of `weaver.toml`, which would have a workspace copied or
+loaded decide where its user's panel takes programs from.
+
 The runtime is tokio's with one thread: every query goes to the blocking pool
 and every run to the server's writer thread, so it only moves bytes. `--dev`
 serves the panel through its dev server ([through the panel's dev
@@ -8790,8 +8848,8 @@ relative to where the document is served, and as `info.version`.
 ### Its views
 
 Ten pages draw the snapshot ([the read model](#the-read-model)), an
-eleventh a scan beside it and a twelfth what an update would do, each a
-file under `src/pages`:
+eleventh a scan beside it, a twelfth what an update would do and a
+thirteenth what a search's run printed, each a file under `src/pages`:
 
 - **The overview** (`/`) names the workspace, where it is and why that one,
   counts what it holds from the snapshot's `summary`, a card for every kind
@@ -8890,6 +8948,35 @@ file under `src/pages`:
   both the snapshot's rather than a list of kinds in TypeScript, which
   would offer an MCP server a gather only refuses
   ([its changes](#its-changes)).
+- **Catalogs** (`/catalogs`, #114), below them, searches the skill
+  directories the workspace enables and the MCP Registry
+  (`SkillSearch.vue`, `ServerSearch.vue`): each search a run, read back
+  as described below, each result as core listed it, a take and an add
+  its changes ([its changes](#its-changes)).
+
+A search of a catalog is a run, never a query: the line is the network,
+followed and stopped as a gather is when it asks the skill directories
+([searching the skill directories](#searching-the-skill-directories)),
+and it is the TUI's own (`f` and `r` on the shelf's page), whose results
+are read from what the line printed. So are the panel's: `search_skills`
+and `search_servers` are previewed, shown and run through the runner as
+every change is, and the page reads the envelope the line's `--json`
+printed (`src/api/catalogs.ts`), its `data` typed from Rust as the
+search's own types (`SkillsFound`, `ServerListing`), holding it for as long
+as the page is open, as a dry run's words are held. What the line said on
+stderr, a finder skipped for want of a token among it, is drawn under the
+results by its code, and a line that did not run says why, by its code,
+in its place. The runner is told the page draws what the run printed
+(`ask`'s `drawn`), so the toast saying how it ended leaves the JSON out.
+A query answered by the backend calling core's search itself was the
+other way, rejected: it would be a path into core beside the command's,
+take no cancel, and have the backend, not a line, decide where a catalog
+is asked. Nothing the page shows of a result is worked out: a result
+with no folder or no branch says what the line does then, the whole
+repository at its default branch, in words, as a source's page says a
+branch none was asked for, and a result is never a link, since a
+browser following a finder's address is a request the panel did not
+preview.
 
 A project holds a copy of one of the library's own when core names it
 among `library.holders`, and the copy is its artifact of that kind and
@@ -9108,7 +9195,10 @@ was let go.
   say. A cancel the server refuses, the run over already, changes nothing,
   and is said nowhere beside it.
 - **How it went is a toast, and what it said a drawer.** A toast says what
-  ran, or which line failed, and what the lines printed. When a run failed,
+  ran, or which line failed, and what the lines printed, but for a page
+  that draws what they printed itself, as the page of catalogs draws a
+  search's results, which asks so (`ask`'s `drawn`): its toast says only
+  what ran, or why a line did not. When a run failed,
   or said a line with a code, the warnings drawer (`WarningsDrawer.vue`)
   opens, every warning, note and error under the line that said it, each
   with its code beside its words and an icon chosen by that code: a plain
@@ -9301,6 +9391,21 @@ What the pages offer:
   workspace above a project (`Task::LoadHere`), is no page's: the panel is
   launched on a workspace, and loads into that one
   ([open questions](#open-questions)).
+- **A search, a take and an add, from the page of catalogs** (#114): a
+  search of the skill directories (`Task::SearchSkills`) or of the MCP
+  Registry (`Task::SearchServers`), its query sent without the white
+  space around it, as the TUI's form sends it, and nothing else, no
+  address and no token; a result taken by sending it back whole, as the
+  search printed it in `hits` (`Task::TakeSkill`), never a gather the
+  panel puts together, so which folder a result naming none is gathered
+  from, and the kind a take gathers, are said by the one function the
+  TUI's take and `--take` follow (`Task::taking`), as the panel's marks
+  are turned into lines by `Task::minds`; and a server added from the
+  registry, the add's dry run first (`Task::ImportServer` without `yes`),
+  whose words the page shows once it ran, then the same task told yes,
+  offered only then, as a removal everywhere is. A take is followed and
+  stopped as a gather is, its repository held to the path policy as a
+  gather's source is ([what a browser may name](#what-a-browser-may-name)).
 - **An install, an update of every project and a link, from the command
   palette**, each the task of the page offering the same change: one box's
   plan applied as the matrix applies its marks, **Update all**'s, and the
@@ -9678,7 +9783,16 @@ variable no agent can refer to, `github` given another transport, and
 plans of the team's server and of one of the library's own; and
 `served.json` a server added, one changed, and the team's server
 installed by the plan's task, which writes nothing, then by its
-confirmation's. No token is in any of them: a fixture is a file of the
+confirmation's. `searched.json` is what the page of catalogs sends,
+in turn, to the first workspace, its `weaver.toml` listing skills.sh, and
+served by a backend asking skills.sh and the MCP Registry on loopback, as
+`ui --finder-url --registry` launches it (`common::finder::SkillsSh`,
+`common::mcp_registry::Registry`): a search of the skill directories
+finding a repository on the disk and one on GitHub, the first taken as
+the search printed it, a search of the registry from #106's recordings,
+and a server's add, its dry run then its yes; each catalog's port reads
+as a fixed address, and each search's printed envelope is held to its
+data's schema. No token is in any of them: a fixture is a file of the
 repository, so what core refuses there is a variable's name. So
 the panel's tests render what core says rather than what a person drew,
 and a field the snapshot adds, renames or fills differently reaches them.
@@ -9901,6 +10015,26 @@ each line shown first, has to be in `.mcp.json`, `.codex/config.toml` and
 and the value in none of them nor in the library; the run's own warning
 says Codex reads it only in a project it trusts, by its code; and the twin
 given the same lines has to hold the same files.
+
+`e2e/search.spec.ts` takes `searchable` (#114): a workspace whose
+`weaver.toml` lists skills.sh in `finders`, the one key no command writes,
+written in by hand as a person writes it, and a repository beside it made
+with git, holding a skill. Its builder also starts the catalogs on
+loopback (`e2e/catalogs.ts`), one server in the worker answering as
+skills.sh answers a search, naming that repository, and as the MCP
+Registry answers its API, with #106's recording of a server read from
+core's fixtures, and hands back the options its `mindweaver ui` is
+launched with, `--registry` and `--finder-url` naming them (`Launched`),
+which `own` passes to `serve` and stops after the test. A skill searched
+for and taken has to be on the shelf, each line the dialog shows the
+CLI's, and the twin given the line has to hold the same shelf; a server
+searched for, its dry run read, writing nothing, and then added, has to
+be in the library, written as the same line writes it into the twin but
+for when it was fetched. Nothing reaches the network, which the catalogs'
+own record of what they were asked holds. A line of the twin's asking
+them runs apart (`succeedApart`), since one run as every other spec's is,
+waiting for the line with nothing else running here, would keep the
+server in the same process from answering until the line gave up on it.
 
 `e2e/palette.spec.ts` takes `assignable` too, and drives the palette with
 the keyboard alone once the sidebar's **Search** has the focus: opened by
@@ -13815,11 +13949,14 @@ repository, stays on `gix`.
   `gather git` is another source, offering the same skills under another
   origin. Telling a branch that is the default from one that is not would
   ask the remote, which reading a finder's answer should not.
-- **The panel has no search yet.** Its server runs a `search_skills` task,
-  and reports the finder asked, but no page sends one or lists what it
-  found: what the TUI's results screen shows waits for a page of the
-  shelf's to show it. So does a search of the MCP Registry and an add from
-  it (`search_servers`, `import_server`), which its server runs too.
+- **The panel's results last as long as its page.** What a search found
+  is read back from its run and held by the page of catalogs, so leaving
+  the page or a reload forgets it, and the same search is a run again,
+  shown first, answered from the HTTP cache for ten minutes but for
+  GitHub's. Keeping what a search found where every answer is, in Vue
+  Query by its query, waits for somebody to want results across pages;
+  and a search from another tab or a script is not drawn here, its
+  results being its own run's.
 - **A registry search is not followed.** `gather mcp search` and `add`
   report no step and take no cancel, so they run where a read of the disk
   runs, the TUI's own thread and the panel's writer, for as long as the
@@ -13827,11 +13964,12 @@ repository, stays on `gix`.
   narrow search reads one page; one as wide as `mcp` reads up to twenty.
   Following one, a page at a time and stopped between two, waits for a
   search somebody finds slow.
-- **No front end holds a registry's listing.** `Registry::refresh` asks
-  only what changed since a listing, but the TUI runs the search's line
-  again rather than hold what it read, the line's answers kept in the
-  HTTP cache for ten minutes; the panel, holding a listing for as long as
-  a page is open, would be the first to refresh one.
+- **No front end refreshes a registry's listing.** `Registry::refresh`
+  asks only what changed since a listing, but the TUI runs the search's
+  line again rather than hold what it read, the line's answers kept in
+  the HTTP cache for ten minutes, and so does the panel, which holds a
+  listing only for as long as its page of catalogs is open: a refresh
+  would be a line of its own, which no command has.
 
 - **What ssh asks during a backup.** `git` is told never to prompt, but the
   ssh it runs for an ssh URL asks for a key's passphrase or a host key on

@@ -7,9 +7,11 @@
  * would save it, and what a repository to gather from holds, committed with
  * git, as somebody's work is.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { git, repository, succeed, type Places } from './environment.ts'
+import { catalogs, SKILL } from './catalogs.ts'
+import { environment, git, repository, succeed, type Places } from './environment.ts'
 
 /** The workspace's own, each as `mindweaver add` takes it: kind, name, description. */
 export const LIBRARY = [
@@ -246,4 +248,83 @@ export function gatherable(at: Places): void {
   writeFileSync(skill, `---\nname: ${GATHERED.name}\ndescription: ${GATHERED.description}\nlicense: ${GATHERED.licence}\n---\n\n# ${GATHERED.name}\n\nRun the formatter, then read what it changed.\n`)
   git(at, source, ['add', 'skills'])
   git(at, source, ['commit', '--quiet', '-m', 'Add format'])
+}
+
+/**
+ * What a builder hands back beside what it built, when its `mindweaver ui`
+ * is launched with options of its own: those options, each request what
+ * they name was sent, and what stops it once the test is done.
+ */
+export interface Launched {
+  options: string[]
+  asked(): string[]
+  stop(): Promise<void>
+}
+
+/** The repository `searchable`'s skill directory names, beside the workspace, by its folder's name. */
+export const HOUSE_RULES = 'house-rules' as const
+
+/** What `searchable`'s repository holds of the skill it offers. */
+export const SKILL_FILE = `---\nname: ${SKILL}\ndescription: How this repo writes commit messages\n---\n\n# ${SKILL}\n\nSay why, in the imperative.\n`
+
+/**
+ * A git repository at `folder` holding `files`, committed once, as its
+ * author would make it: by a fixed author at a fixed time, none of the
+ * git configuration of the person running the suite read.
+ */
+function committed(at: Places, folder: string, files: Record<string, string>): void {
+  for (const [route, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(folder, route)), { recursive: true })
+    writeFileSync(join(folder, route), text)
+  }
+  const author = {
+    GIT_AUTHOR_NAME: 'Fixture',
+    GIT_AUTHOR_EMAIL: 'fixture@example.com',
+    GIT_AUTHOR_DATE: '2026-10-01T09:00:00Z',
+    GIT_COMMITTER_NAME: 'Fixture',
+    GIT_COMMITTER_EMAIL: 'fixture@example.com',
+    GIT_COMMITTER_DATE: '2026-10-01T09:00:00Z',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null'
+  }
+  for (const args of [['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'Add the house rules']]) {
+    const ran = spawnSync('git', ['-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], {
+      cwd: folder,
+      env: { ...environment(at), ...author },
+      encoding: 'utf8',
+      timeout: 60_000
+    })
+    if (ran.error || ran.status !== 0) {
+      throw ran.error ?? new Error(`\`git ${args.join(' ')}\` in ${folder} exited ${ran.status}:\n${ran.stdout}${ran.stderr}`)
+    }
+  }
+}
+
+/**
+ * A workspace for the spec that searches the catalogs from the panel,
+ * which no other spec reads, and the catalogs its `mindweaver ui` asks:
+ *
+ * - the workspace, made by `mindweaver init`, its `weaver.toml` listing
+ *   skills.sh in `finders`, the one key no command writes, written in by
+ *   hand as a person writes it once they have read the directory's terms
+ *   (D-15);
+ * - `house-rules`, a repository beside it holding the skill
+ *   `commit-style`, made with git as its author would make it;
+ * - skills.sh and the MCP Registry on loopback (catalogs.ts), the first
+ *   naming that repository as the skill's source, which a finder on this
+ *   machine may, and `mindweaver ui` launched asking them.
+ */
+export async function searchable(at: Places): Promise<Launched> {
+  succeed(at, 'mindweaver', at.scratch, ['init', at.workspace], 'none')
+  const marker = join(at.workspace, '.mindweaver', 'weaver.toml')
+  const text = readFileSync(marker, 'utf8')
+  const listed = text.replace('loaded = []\n', 'loaded = []\nfinders = ["skills.sh"]\n')
+  if (listed === text) {
+    throw new Error(`${marker} holds no \`loaded = []\` to list a finder after:\n${text}`)
+  }
+  writeFileSync(marker, listed)
+  const repository = join(dirname(at.workspace), HOUSE_RULES)
+  committed(at, repository, { [`skills/${SKILL}/SKILL.md`]: SKILL_FILE })
+  const served = await catalogs(repository)
+  return { options: served.options, asked: served.asked, stop: served.stop }
 }
