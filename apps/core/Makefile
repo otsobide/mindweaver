@@ -12,7 +12,7 @@ release: ## Release (optimized) build of mindweaver-core
 	cargo build -p mindweaver-core --release --locked
 
 test: ## Run mindweaver-core tests
-	cargo test -p mindweaver-core
+	cargo test -p mindweaver-core $(CARGO_TEST_FLAGS)
 
 fmt: ## Format mindweaver-core
 	cargo fmt -p mindweaver-core

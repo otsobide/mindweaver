@@ -36,8 +36,8 @@ endif
 # again would cost far more than what it could find. All of them rather
 # than that one by name, which a rename would leave matching nothing.
 test: ## Run mindweaver-cli tests, then its unit tests without the panel
-	cargo test -p mindweaver-cli
-	cargo test -p mindweaver-cli --no-default-features --lib
+	cargo test -p mindweaver-cli $(CARGO_TEST_FLAGS)
+	cargo test -p mindweaver-cli --no-default-features --lib $(CARGO_TEST_FLAGS)
 
 run: ## Run the CLI (pass args via ARGS="list")
 	cargo run -p mindweaver-cli -- $(ARGS)

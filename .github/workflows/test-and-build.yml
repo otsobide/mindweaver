@@ -398,10 +398,12 @@ jobs:
       #
       # `-k`, as `fail-fast` is off above: one app failing on a platform must
       # not hide whether the others pass there, and make stops at the first
-      # app that fails otherwise.
+      # app that fails otherwise. `--no-fail-fast` for the same reason one
+      # level down: cargo stops at an app's first suite that fails, and a
+      # run on these platforms costs too much to learn one suite at a time.
       - name: Run the suite
         shell: bash
-        run: make -k test
+        run: make -k test CARGO_TEST_FLAGS=--no-fail-fast
 
   # -------------------------------------------------------------------------
   # Builds: each app builds only after its own tests pass, and never while the
