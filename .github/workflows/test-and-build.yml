@@ -354,8 +354,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS's temporary folder is reached through a link, `/var` to
+          # `/private/var`, deep under `/var/folders`: git and some commands
+          # say its real path and others the one given, and the TUI's
+          # screens lay out a path that long apart from Linux's, so the
+          # suite's expectations, written on Linux, read neither. The suite
+          # is handed `/private/tmp`, which no link leads to and which is
+          # named `tmp` as Linux's is; a link on the way to a project is the
+          # watcher's tests' to cover.
           - os: macos-latest
             label: macos
+            tmpdir: /private/tmp
           - os: windows-latest
             label: windows
     runs-on: ${{ matrix.os }}
@@ -398,10 +407,16 @@ jobs:
       #
       # `-k`, as `fail-fast` is off above: one app failing on a platform must
       # not hide whether the others pass there, and make stops at the first
-      # app that fails otherwise.
+      # app that fails otherwise. `--no-fail-fast` for the same reason one
+      # level down: cargo stops at an app's first suite that fails, and a
+      # run on these platforms costs too much to learn one suite at a time.
       - name: Run the suite
         shell: bash
-        run: make -k test
+        env:
+          SUITE_TMPDIR: ${{ matrix.tmpdir }}
+        run: |
+          if [ -n "$SUITE_TMPDIR" ]; then export TMPDIR="$SUITE_TMPDIR"; fi
+          make -k test CARGO_TEST_FLAGS=--no-fail-fast
 
   # -------------------------------------------------------------------------
   # Builds: each app builds only after its own tests pass, and never while the

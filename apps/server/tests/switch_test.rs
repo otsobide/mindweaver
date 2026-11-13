@@ -226,7 +226,7 @@ async fn once_switched_what_the_backend_names_now_is_watched_and_not_what_it_nam
     );
 
     fs::write(before.path().join("old.md"), "# Old\n").unwrap();
-    assert_eq!(stream.within(debounced()).await, None);
+    stream.quiet(debounced()).await;
     fs::write(after.path().join("new.md"), "# New\n").unwrap();
     assert_eq!(
         stream.next().await,

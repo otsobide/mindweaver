@@ -550,7 +550,12 @@ fn a_draft_is_judged_as_the_command_would_refuse_it_with_nothing_written() {
                             and digits, joined by single hyphens",
             },
         }));
-    assert!(!scenario.exists("~/Projects/.mindweaver/library/skills/Review"));
+    // By the names the folder lists, not by asking for `Review`, which a
+    // file system that folds case, as macOS's does, finds as the `review`
+    // already there.
+    let skills = std::fs::read_dir(scenario.at("~/Projects/.mindweaver/library/skills")).unwrap();
+    let names: Vec<_> = skills.map(|entry| entry.unwrap().file_name()).collect();
+    assert!(!names.iter().any(|name| name == "Review"), "{names:?}");
 }
 
 #[test]

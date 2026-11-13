@@ -13,7 +13,7 @@ release: ## Release (optimized) build of mindweaver-server
 	cargo build -p mindweaver-server --release --locked
 
 test: ## Run mindweaver-server tests
-	cargo test -p mindweaver-server
+	cargo test -p mindweaver-server $(CARGO_TEST_FLAGS)
 
 fmt: ## Format mindweaver-server
 	cargo fmt -p mindweaver-server

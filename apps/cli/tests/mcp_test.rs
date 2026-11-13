@@ -865,7 +865,10 @@ fn a_server_is_renamed_and_removed_as_every_kind_is() {
     assert!(!folder.join("octocat.toml").exists());
 }
 
-#[cfg(unix)]
+/// Linux alone, whose file systems hold `github.toml` and `Github.toml` as
+/// two files, where macOS's and Windows' fold case and hold them as one:
+/// the clash this is about, which a library made on Linux can carry there.
+#[cfg(target_os = "linux")]
 #[test]
 fn edit_says_a_server_clashes_with_one_beside_it_in_another_case_as_validate_does() {
     let dir = library();

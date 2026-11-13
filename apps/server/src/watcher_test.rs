@@ -149,6 +149,7 @@ fn state(stand: Stand, list: &Arc<Mutex<Vec<Watched>>>, events: &Events) -> Stat
         paths: Box::new(move || named.lock().unwrap().clone()),
         plan: Plan::default(),
         watched: BTreeSet::new(),
+        real: BTreeMap::new(),
         events: events.clone(),
         said: None,
     }
@@ -361,4 +362,40 @@ fn a_folder_that_cannot_be_watched_is_named_once_with_why() {
             std::io::Error::from(std::io::ErrorKind::PermissionDenied)
         )
     );
+}
+
+/// macOS's FSEvents names a change by the real path of where it happened,
+/// `/private/var/...` for a folder watched as `/var/...`: it is told by the
+/// path listed, as inotify names it. A link in the listed path stands in
+/// for `/var` here, on every system.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_change_named_by_its_real_path_is_told_by_the_path_listed() {
+    let dir = tree();
+    let link = TempDir::new().unwrap();
+    let through = link.path().join("var");
+    std::os::unix::fs::symlink(dir.path(), &through).unwrap();
+    let skills = through.join("skills");
+    let list = Arc::new(Mutex::new(vec![watched(&skills, "project")]));
+    let events = Events::new();
+    let mut subscription = events.subscribe();
+    let mut state = state(Stand::default(), &list, &events);
+    state.apply(&list.lock().unwrap().clone(), &[]);
+
+    let real = fs::canonicalize(dir.path()).unwrap().join("skills");
+    state.changed(&[change(
+        EventKind::Create(CreateKind::File),
+        real.join("new"),
+    )]);
+
+    assert_eq!(
+        told(&events, &mut subscription).await,
+        [
+            Event::Watching,
+            Event::Changed {
+                scopes: vec![json!("project")]
+            }
+        ]
+    );
+    assert_eq!(state.as_listed(&real), skills);
 }

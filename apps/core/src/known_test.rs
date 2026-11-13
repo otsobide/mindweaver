@@ -211,8 +211,10 @@ fn the_workspace_launched_on_is_offered_once_another_is_in_use() {
 }
 
 /// Every line names the workspace by its path, so one whose path is no
-/// text a command line can hold is listed and never offered.
-#[cfg(unix)]
+/// text a command line can hold is listed and never offered. Linux alone,
+/// whose file systems take any bytes in a name, where macOS's refuse one
+/// that is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_workspace_whose_path_is_not_utf_8_is_never_offered_a_switch() {
     use std::ffi::OsStr;

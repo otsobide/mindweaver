@@ -319,7 +319,9 @@ fn a_folder_nobody_may_list_is_refused_with_its_code() {
     assert_eq!(read.unwrap_err().code(), "browse_unlisted");
 }
 
-#[cfg(unix)]
+/// Linux alone, whose file systems take any bytes in a name, where macOS's
+/// refuse one that is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_name_that_is_not_utf8_is_said_with_its_code_and_not_listed() {
     use std::ffi::OsStr;

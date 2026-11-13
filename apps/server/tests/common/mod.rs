@@ -634,6 +634,20 @@ impl Stream {
         }
     }
 
+    /// Nothing told within `wait`, where a change is nobody's. On macOS,
+    /// FSEvents now and then tells a change to a folder watched that
+    /// nobody made there (`docs/architecture.md`, open questions), which
+    /// costs the panel a snapshot and nothing more: there what comes is
+    /// passed over, and a test holds the watcher to what it must tell.
+    pub async fn quiet(&mut self, wait: Duration) {
+        if cfg!(target_os = "macos") {
+            while self.within(wait).await.is_some() {}
+        } else {
+            let told = self.within(wait).await;
+            assert_eq!(told, None, "told where nothing changed");
+        }
+    }
+
     /// Every event up to the first of `type`, which is the last returned,
     /// or a failed test once [`PATIENCE`] has passed without one.
     pub async fn until(&mut self, kind: &str) -> Vec<Value> {

@@ -58,7 +58,7 @@ async fn a_change_below_what_a_watched_folder_holds_directly_is_not_told() {
 
     fs::write(deep.join("run.sh"), "true\n").unwrap();
 
-    assert_eq!(stream.within(debounced()).await, None);
+    stream.quiet(debounced()).await;
 }
 
 /// A file named on its own is watched through its folder, and nothing
@@ -71,7 +71,7 @@ async fn a_file_named_is_told_and_nothing_beside_it() {
     let mut stream = opened(&server, Auth::Bearer(server.token())).await;
 
     fs::write(dir.path().join("README.md"), "# Readme\n").unwrap();
-    assert_eq!(stream.within(debounced()).await, None);
+    stream.quiet(debounced()).await;
     fs::write(&agents, "# Working here\n").unwrap();
 
     assert_eq!(stream.next().await, changed("project"));
@@ -97,6 +97,10 @@ async fn a_folder_named_before_it_is_there_is_watched_once_made() {
 /// only by the topmost folder it took, which is no path named, and what is
 /// named there is watched from above for its being made again.
 #[tokio::test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FSEvents tells no folder made again after its removal (architecture.md, open questions)"
+)]
 async fn a_folder_above_what_is_named_removed_whole_is_told() {
     let dir = TempDir::new().unwrap();
     let api = dir.path().join("api");

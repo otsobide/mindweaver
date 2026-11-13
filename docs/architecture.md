@@ -8285,6 +8285,15 @@ ten watches, and one for each copy of a skill it holds, so a workspace
 reaches the old 8192 only past a few hundred projects; a watch of every
 folder in each repository would reach it with one `node_modules`.
 
+**A change by the path listed.** inotify and `ReadDirectoryChangesW` name a
+change under the folder as it was watched, but macOS's FSEvents names it by
+its real path, every link followed: `/private/var/...` for a folder the
+backend named as `/var/...`, as every temporary folder there is, or the
+target of a link somebody keeps a project behind. So the watcher reads each
+folder's real path as it sets its watch, and spells a change under one
+again from the folder as listed before it asks which scope it reaches;
+otherwise it would reach none, and the panel would hear nothing.
+
 ### The log
 
 The server prints nothing of its own accord. A front end that wants a log hands
@@ -15257,6 +15266,19 @@ repository, stays on `gix`.
 - **Shells elsewhere.** The tests that run a shell run on Linux only. macOS
   has bash 3.2 and zsh, and Windows has PowerShell, and each wants running
   there before activation is said to work on it.
+- **What FSEvents tells that inotify does not.** On CI's `macos-latest`
+  the watcher tells, now and then, a change nobody made: a file written
+  beside the one named, one further down than a folder holds, or one to
+  the folder of the workspace before a switch, each told as a change of a
+  scope it is not. It costs the panel a snapshot it did not need, so there
+  the server's tests pass over what comes where nothing changed
+  (`Stream::quiet`) and hold the watcher to what it must tell. What it
+  must tell and does not is one case: a project's folder made again after
+  `rm -rf` of it is not told within ten seconds, and the panel shows it
+  gone until the next change or a return to the window; that test is
+  ignored on macOS. Both look like how FSEvents reports a stream set up
+  again (a rescan of everything, events from before the watch), which wants
+  a Mac to read the events on before the watcher is changed for it.
 - **Worktrees share one exclude file.** Every linked worktree of a repository
   reads the same `info/exclude`, and an entry is anchored at whichever work
   tree reads it. An install keys a project's group by its id, so a project

@@ -248,7 +248,9 @@ fn a_made_workspace_is_activated_by_its_root_and_named_by_its_marker() {
     assert_eq!(code, written(Shell::Bash, root, "(weaver:writing) "));
 }
 
-#[cfg(unix)]
+/// Linux alone, whose file systems take any bytes in a name, where macOS's
+/// refuse one that is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_path_that_is_not_utf8_is_refused_rather_than_mangled() {
     use std::ffi::OsStr;

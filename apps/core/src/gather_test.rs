@@ -1003,7 +1003,9 @@ fn any_path_below_the_workspace_is_filed_by_its_route() {
     }
 }
 
-#[cfg(unix)]
+/// Linux alone, whose file systems take any bytes in a name, where macOS's
+/// refuse one that is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_skill_whose_folder_is_not_utf_8_cannot_be_filed() {
     use std::ffi::OsStr;
