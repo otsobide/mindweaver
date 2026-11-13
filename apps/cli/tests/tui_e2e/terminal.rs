@@ -35,6 +35,24 @@ pub const COLUMNS: u16 = 120;
 /// takes, for a machine under load, and still bounded.
 const PATIENCE: Duration = Duration::from_secs(20);
 
+/// A pseudo-terminal's side the test keeps, closed in every command it
+/// starts: Linux opens it so, where macOS's `posix_openpt` takes no
+/// `O_CLOEXEC`, and the flag is set as soon as it is open.
+fn openpt() -> OwnedFd {
+    #[cfg(target_os = "linux")]
+    let master = pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)
+        .expect("open a pseudo-terminal");
+    #[cfg(not(target_os = "linux"))]
+    let master = {
+        let master =
+            pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).expect("open a pseudo-terminal");
+        rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC)
+            .expect("close it in what is started");
+        master
+    };
+    master
+}
+
 impl Scenario {
     /// `line`, typed in `at`, run in a terminal of its own.
     pub fn open(&self, at: &str, line: &str) -> Terminal<'_> {
@@ -45,8 +63,7 @@ impl Scenario {
     /// environment every command here gets: a variable the use case is
     /// about, such as the editor `e` hands the terminal to.
     pub fn open_with(&self, at: &str, line: &str, env: &[(&str, &str)]) -> Terminal<'_> {
-        let master = pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)
-            .expect("open a pseudo-terminal");
+        let master = openpt();
         pty::grantpt(&master).expect("grant it");
         pty::unlockpt(&master).expect("unlock it");
         let name = pty::ptsname(&master, Vec::new()).expect("name its other end");
