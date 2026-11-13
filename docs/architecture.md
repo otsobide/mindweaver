@@ -10418,18 +10418,40 @@ CI gives the panel jobs of its own:
 The rulesets for `dev` and `main` require every check that runs on every
 pull request, the panel's three among them; AGENTS.md lists them by name.
 
-Every Linux job, `Gitflow`'s two among them, runs on GitHub's runners,
-named `ubuntu-latest` in the workflow. For a while they ran on the
-repository's own runner, a self-hosted one asked for by its labels
-(`runs-on: [self-hosted, Linux, X64]`): GitHub's Linux runners stopped
-starting jobs once the account was locked over billing, and a check that
-never starts is one the rulesets wait on for ever. Once billing was settled
-they went back, since one runner runs one job at a time and the jobs
-GitHub runs side by side waited for each other there. A variable naming the
-runner was rejected both ways: it would switch without a commit, but the
-workflow would no longer say where a job runs. What the self-hosted runner
-needed stays, so it can take the jobs again by its labels alone. Its image
-is not GitHub's, and it keeps what a job installed, so a step that needs
+Every Linux job of `test-and-build` runs on the runner its first job,
+`pick the Linux runner`, picks for the run: the repository's own, a
+self-hosted one asked for by its labels (`[self-hosted, Linux, X64]`), when
+one is online and running nothing, and GitHub's `ubuntu-latest` otherwise.
+GitHub has no way to say a job prefers one runner and falls back to
+another: every label a job names must be one runner's, so a job naming the
+self-hosted labels waits for that runner however long it is away, and a
+check that never starts is one the rulesets wait on for ever. That is how
+the repository's runner came in: GitHub's Linux runners stopped starting
+jobs once the account was locked over billing, and every Linux job named
+its labels until billing was settled, then `ubuntu-latest` again, until
+the runner was put back beside them. A variable naming the runner was
+rejected both ways: it switches only by hand, and the workflow would no
+longer say where a job runs.
+
+The picker reads the repository's runners through the API, which only a
+token reading its administration may do, a permission the workflow's own
+token can never be given: the `RUNNERS_TOKEN` secret, a fine-grained token
+for this repository alone, read-only. It picks once for the whole run, not
+job by job, which would take a hosted job beside each: one runner runs one
+job at a time, so a run picked for it runs its jobs one after another
+where GitHub's run them side by side, and a run picked for it waits for it
+if it goes away after the pick. A runner that is busy counts as away, so a
+run that starts while another holds it goes to GitHub's rather than queue
+behind it. Without the secret, when the API does not answer, and for a
+pull request from a fork, the run is GitHub's. The picker never fails a
+run, which would leave every required check unstarted: its step says
+GitHub's whatever goes wrong, the job may fail without failing the run
+(`continue-on-error`), and every job falls back to `ubuntu-latest` on its
+own when the picker gave nothing. `Gitflow`'s two jobs run on GitHub's
+alone, since a picker would take one of GitHub's runners as long as either
+check does.
+
+The self-hosted runner's image is not GitHub's, and it keeps what a job installed, so a step that needs
 what an image may lack installs it only where it is missing, as `test (cli)` does zsh and the
 python3 its virtualenv is made with. What every job needs is the image's:
 `make` and a C compiler (`build-essential`), which links every binary and
@@ -10452,7 +10474,10 @@ change is all it takes for a stranger's next pull request to run unasked.
 So the repository's Actions settings hold a pull request from a fork for a
 maintainer's approval from every outside contributor
 (`all_external_contributors`); collaborators work in branches of the
-repository, which no setting holds.
+repository, which no setting holds. And the picker never picks the
+repository's runner for a pull request from a fork, approved or not: a fork
+is given no secret to read the runners with in any case, and the check
+says so in the workflow rather than leave it to that.
 
 The tests are split by app and by nothing else. A crate's unit tests, its
 value objects and its integration suites run in its one `test (<app>)`,
