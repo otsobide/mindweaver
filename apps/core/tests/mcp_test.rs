@@ -1032,6 +1032,10 @@ fn rename_holds_the_new_name_to_the_keys_an_agent_takes_and_to_what_none_keeps()
     assert!(folder.join("anthropic-skills.toml").is_file());
 }
 
+/// Linux alone, whose file systems hold `github.toml` and `Github.toml` as
+/// two files, where macOS's and Windows' fold case and hold them as one:
+/// the clash this is about, which a library made on Linux can carry there.
+#[cfg(target_os = "linux")]
 #[test]
 fn two_servers_whose_names_differ_only_by_case_clash_each_with_the_other() {
     let (_dir, project, folder) = authoring();
@@ -1074,6 +1078,10 @@ fn two_servers_whose_names_differ_only_by_case_clash_each_with_the_other() {
     assert_eq!(issues("linear"), []);
 }
 
+/// Linux alone, whose file systems hold `github.toml` and `Github.toml` as
+/// two files, where macOS's and Windows' fold case and hold them as one:
+/// the clash this is about, which a library made on Linux can carry there.
+#[cfg(target_os = "linux")]
 #[test]
 fn no_change_leaves_a_server_beside_one_named_as_it_is_in_another_case() {
     let (_dir, project, folder) = authoring();
