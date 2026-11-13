@@ -8285,6 +8285,15 @@ ten watches, and one for each copy of a skill it holds, so a workspace
 reaches the old 8192 only past a few hundred projects; a watch of every
 folder in each repository would reach it with one `node_modules`.
 
+**A change by the path listed.** inotify and `ReadDirectoryChangesW` name a
+change under the folder as it was watched, but macOS's FSEvents names it by
+its real path, every link followed: `/private/var/...` for a folder the
+backend named as `/var/...`, as every temporary folder there is, or the
+target of a link somebody keeps a project behind. So the watcher reads each
+folder's real path as it sets its watch, and spells a change under one
+again from the folder as listed before it asks which scope it reaches;
+otherwise it would reach none, and the panel would hear nothing.
+
 ### The log
 
 The server prints nothing of its own accord. A front end that wants a log hands

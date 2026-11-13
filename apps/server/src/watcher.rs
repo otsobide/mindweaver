@@ -6,7 +6,8 @@
 //! nothing of a project or a skill, only files, folders and the system's
 //! watches on them.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::thread;
@@ -128,6 +129,7 @@ impl Watcher {
             paths: Box::new(move || paths()),
             plan: Plan::default(),
             watched: BTreeSet::new(),
+            real: BTreeMap::new(),
             events: self.events.clone(),
             said: None,
         };
@@ -202,6 +204,12 @@ struct State<W> {
     plan: Plan,
     /// Every folder watched now.
     watched: BTreeSet<PathBuf>,
+    /// Each folder watched whose real path is not the one listed, by that
+    /// real path: macOS's FSEvents names a change by where it happened once
+    /// every link is followed, `/private/var/...` for a folder watched as
+    /// `/var/...`, where inotify and `ReadDirectoryChangesW` name it under
+    /// the folder as it was watched.
+    real: BTreeMap<PathBuf, PathBuf>,
     events: Events,
     /// The last [`Event::Watching`] or [`Event::Unwatched`] told, so each
     /// is told when it changes and not with every change.
@@ -239,8 +247,9 @@ impl<W: Watches> State<W> {
         let mut named = Vec::new();
         for change in changes.iter().filter(|change| counts(&change.kind)) {
             for path in &change.paths {
-                reached.extend(self.plan.reached(path));
-                named.push(path.clone());
+                let path = self.as_listed(path);
+                reached.extend(self.plan.reached(&path));
+                named.push(path);
             }
         }
         if reached.is_empty() {
@@ -265,6 +274,26 @@ impl<W: Watches> State<W> {
             }
         }
         self.events.publish(Event::Changed { scopes });
+    }
+
+    /// `path` as the list spells it: under the folder watched it is in, as
+    /// that folder was listed, when the system named it by the folder's
+    /// real path ([`real`](Self::real)); as it is otherwise. The deepest
+    /// such folder wins, as the one the change is directly in.
+    fn as_listed(&self, path: &Path) -> PathBuf {
+        let deepest = self
+            .real
+            .iter()
+            .filter(|(real, _)| path.starts_with(real))
+            .max_by_key(|(real, _)| real.components().count());
+        match deepest {
+            Some((real, listed)) => match path.strip_prefix(real) {
+                Ok(rest) if rest.as_os_str().is_empty() => listed.clone(),
+                Ok(rest) => listed.join(rest),
+                Err(_) => path.to_path_buf(),
+            },
+            None => path.to_path_buf(),
+        }
     }
 
     /// Ask for the list again and watch what it names, before the change
@@ -299,6 +328,7 @@ impl<W: Watches> State<W> {
         for folder in dropped {
             // One the system dropped itself, with the folder, is no failure.
             let _ = self.watches.unwatch(&folder);
+            self.real.retain(|_, listed| *listed != folder);
             self.watched.remove(&folder);
         }
         let mut failed = None;
@@ -309,6 +339,13 @@ impl<W: Watches> State<W> {
             match self.watches.watch(folder, RecursiveMode::NonRecursive) {
                 Ok(()) => {
                     self.watched.insert(folder.clone());
+                    // One gone since has no real path to read, and nothing
+                    // is named under it but by the path listed, if at all.
+                    if let Ok(real) = fs::canonicalize(folder) {
+                        if real != *folder {
+                            self.real.insert(real, folder.clone());
+                        }
+                    }
                 }
                 // Gone between looking and watching: the folder above it is
                 // watched, and says so.
