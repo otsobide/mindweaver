@@ -58,7 +58,7 @@ async fn a_change_below_what_a_watched_folder_holds_directly_is_not_told() {
 
     fs::write(deep.join("run.sh"), "true\n").unwrap();
 
-    assert_eq!(stream.within(debounced()).await, None);
+    stream.quiet(debounced()).await;
 }
 
 /// A file named on its own is watched through its folder, and nothing
@@ -71,7 +71,7 @@ async fn a_file_named_is_told_and_nothing_beside_it() {
     let mut stream = opened(&server, Auth::Bearer(server.token())).await;
 
     fs::write(dir.path().join("README.md"), "# Readme\n").unwrap();
-    assert_eq!(stream.within(debounced()).await, None);
+    stream.quiet(debounced()).await;
     fs::write(&agents, "# Working here\n").unwrap();
 
     assert_eq!(stream.next().await, changed("project"));

@@ -202,10 +202,6 @@ async fn a_switch_is_kept_in_no_transcript() {
 /// before is not, before the panel is told: a change to the folder of the
 /// one before is nobody's, and one to the new one's is told by its scope.
 #[tokio::test]
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "FSEvents tells the change before the switch as the new scope's (architecture.md, open questions)"
-)]
 async fn once_switched_what_the_backend_names_now_is_watched_and_not_what_it_named_before() {
     let before = TempDir::new().unwrap();
     let after = TempDir::new().unwrap();
@@ -230,7 +226,7 @@ async fn once_switched_what_the_backend_names_now_is_watched_and_not_what_it_nam
     );
 
     fs::write(before.path().join("old.md"), "# Old\n").unwrap();
-    assert_eq!(stream.within(debounced()).await, None);
+    stream.quiet(debounced()).await;
     fs::write(after.path().join("new.md"), "# New\n").unwrap();
     assert_eq!(
         stream.next().await,
