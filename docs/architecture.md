@@ -15266,6 +15266,17 @@ repository, stays on `gix`.
 - **Shells elsewhere.** The tests that run a shell run on Linux only. macOS
   has bash 3.2 and zsh, and Windows has PowerShell, and each wants running
   there before activation is said to work on it.
+- **FSEvents and the watcher's two hardest cases.** On macOS two of the
+  server's watch tests are ignored, each failing the same way on every run
+  of CI's `macos-latest` and never on Linux: after a switch, a change to the
+  folder of the workspace before is told as one to the new one's scope
+  (`switch_test`), and a project's folder made again after `rm -rf` of it
+  is not told within ten seconds (`watch_test`). The first costs a snapshot
+  the panel did not need; the second leaves the panel showing the folder
+  gone until the next change or a return to the window. Both look like how
+  FSEvents reports a stream set up again (a rescan of everything, events
+  from before the watch), which wants a Mac to read the events on before
+  the watcher is changed for it.
 - **Worktrees share one exclude file.** Every linked worktree of a repository
   reads the same `info/exclude`, and an entry is anchored at whichever work
   tree reads it. An install keys a project's group by its id, so a project

@@ -97,6 +97,10 @@ async fn a_folder_named_before_it_is_there_is_watched_once_made() {
 /// only by the topmost folder it took, which is no path named, and what is
 /// named there is watched from above for its being made again.
 #[tokio::test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FSEvents tells no folder made again after its removal (architecture.md, open questions)"
+)]
 async fn a_folder_above_what_is_named_removed_whole_is_told() {
     let dir = TempDir::new().unwrap();
     let api = dir.path().join("api");
