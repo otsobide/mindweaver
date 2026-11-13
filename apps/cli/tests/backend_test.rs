@@ -3243,7 +3243,9 @@ fn a_known_workspace_that_does_not_open_is_refused_and_never_made() {
 /// A workspace whose root no word of a command line can hold, not UTF-8,
 /// is acted on as it was before every line named it: its lines name no
 /// workspace, run against it all the same, and nothing switches to it.
-#[cfg(unix)]
+/// Linux alone, whose file systems take any bytes in a name, where macOS's
+/// refuse one that is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_workspace_whose_root_is_not_text_runs_its_lines_naming_none() {
     use std::ffi::OsStr;
