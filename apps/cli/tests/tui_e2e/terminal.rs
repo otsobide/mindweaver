@@ -67,8 +67,16 @@ impl Scenario {
         pty::grantpt(&master).expect("grant it");
         pty::unlockpt(&master).expect("unlock it");
         let name = pty::ptsname(&master, Vec::new()).expect("name its other end");
+        let slave: OwnedFd = File::options()
+            .read(true)
+            .write(true)
+            .open(name.to_str().expect("a terminal's name is text"))
+            .expect("open the terminal's other end")
+            .into();
+        // Sized through the screen's side: Linux takes it on either, and
+        // macOS refuses it on the side the test keeps (ENOTTY).
         termios::tcsetwinsize(
-            &master,
+            &slave,
             Winsize {
                 ws_row: ROWS,
                 ws_col: COLUMNS,
@@ -77,12 +85,6 @@ impl Scenario {
             },
         )
         .expect("size the window");
-        let slave: OwnedFd = File::options()
-            .read(true)
-            .write(true)
-            .open(name.to_str().expect("a terminal's name is text"))
-            .expect("open the terminal's other end")
-            .into();
 
         let mut env = env.to_vec();
         env.push(("TERM", "xterm-256color"));
