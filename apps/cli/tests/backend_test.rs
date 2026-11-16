@@ -2838,7 +2838,7 @@ fn a_servers_add_and_edit_are_judged_and_run_as_add_mcp_and_edit_told_its_option
         [format!(
             "mindweaver -W {} add --command npx --arg=-y --arg @acme/server \
              --secret-env GITHUB_TOKEN mcp github GitHub",
-            as_typed(&root)
+            as_typed(root)
         )]
     );
     assert!(ran.ok, "{ran:?}");
@@ -2967,7 +2967,7 @@ fn a_save_writes_the_text_through_edit_contents_and_takes_its_file_away_after() 
         ran.runs[0].command,
         format!(
             "mindweaver -W {} edit --contents {route} --if-unchanged {} skill:deploy",
-            as_typed(&root),
+            as_typed(root),
             mindweaver_core::hash::bytes(read.as_bytes())
         )
     );
