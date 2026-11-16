@@ -143,6 +143,31 @@ fn files(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 }
 
 /// A path under `dir`, spelled with the platform's separator.
+/// `line`'s words as a POSIX shell reads them, for a line `task::shell`
+/// wrote: split at spaces, each `'...'` taken whole without its quotes,
+/// and a `\` outside one taking the character after it as it is.
+fn read_back(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut quoted = false;
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        match (quoted, c) {
+            (true, '\'') => quoted = false,
+            (true, c) => word.get_or_insert_with(String::new).push(c),
+            (false, '\'') => {
+                quoted = true;
+                word.get_or_insert_with(String::new);
+            }
+            (false, '\\') => word.get_or_insert_with(String::new).extend(chars.next()),
+            (false, ' ') => words.extend(word.take()),
+            (false, c) => word.get_or_insert_with(String::new).push(c),
+        }
+    }
+    words.extend(word);
+    words
+}
+
 fn under(dir: &Path, parts: &[&str]) -> String {
     let mut text = dir.to_str().unwrap().to_owned();
     for part in parts {
@@ -421,7 +446,7 @@ fn a_task_cannot_carry_a_directory_a_home_a_workspace_or_an_agent_home() {
             backend.preview(&task(sent)).map(|preview| preview.lines),
             Ok(vec![format!(
                 "mindweaver -W {} gather list",
-                dir.path().display()
+                as_typed(dir.path())
             )])
         );
     }
@@ -438,8 +463,8 @@ fn a_task_held_by_a_linked_project_runs_in_that_project_with_the_directory_resol
     let sent = add_to(json!({"type": "project", "entry": "alpha"}));
     let line = format!(
         "mind -W {} -C {} add skill deploy 'Ship it'",
-        dir.path().display(),
-        alpha.display()
+        as_typed(dir.path()),
+        as_typed(&alpha)
     );
     let beta_before = files(&beta);
 
@@ -874,7 +899,11 @@ fn the_default_workspace_is_made_by_the_first_change_and_said_first() {
         backend.preview(&task(link.clone())).unwrap().lines,
         [
             String::from("mindweaver init"),
-            format!("mindweaver -W {} link {}", home.display(), fresh.display())
+            format!(
+                "mindweaver -W {} link {}",
+                as_typed(&home),
+                as_typed(&fresh)
+            )
         ]
     );
     assert!(!home.join(WEAVER_DIR).exists(), "a preview made it");
@@ -1054,7 +1083,10 @@ fn what_to_confirm_counts_the_line_that_makes_the_default_workspace() {
         preview.lines,
         [
             String::from("mindweaver init"),
-            format!("mindweaver -W {} remove --yes skill:deploy", home.display())
+            format!(
+                "mindweaver -W {} remove --yes skill:deploy",
+                as_typed(&home)
+            )
         ]
     );
     assert_eq!(preview.confirm.len(), 1, "{preview:?}");
@@ -1476,7 +1508,7 @@ fn a_scan_names_the_entry_a_moved_project_left_for_its_relink() {
     weaver(&projects, &["link", "collapse"]).unwrap();
     weaver(&projects, &["install", "-p", "collapse", "deploy"]).unwrap();
     fs::create_dir_all(projects.join("apps")).unwrap();
-    let moved = projects.join("apps/collapse");
+    let moved = projects.join("apps").join("collapse");
     fs::rename(&collapse, &moved).unwrap();
     let backend = backend(&projects);
 
@@ -1498,8 +1530,8 @@ fn a_scan_names_the_entry_a_moved_project_left_for_its_relink() {
         backend.preview(&relink).unwrap().lines,
         [format!(
             "mindweaver -W {} relink collapse {}",
-            projects.display(),
-            moved.to_str().unwrap()
+            as_typed(&projects),
+            as_typed(&moved)
         )]
     );
     let outcome = backend.run(relink).unwrap();
@@ -1566,11 +1598,16 @@ fn the_panels_link_batch_is_the_minds_screens_for_the_same_selection() {
     assert_eq!(
         previewed,
         [
-            format!("mind -W {named} -C {} init", under(work.path(), &["plain"])),
             format!(
-                "mindweaver -W {named} link {} {}",
-                under(work.path(), &["acme", "delta"]),
-                under(work.path(), &["plain"])
+                "mind -W {} -C {} init",
+                as_typed(named),
+                as_typed(under(work.path(), &["plain"]))
+            ),
+            format!(
+                "mindweaver -W {} link {} {}",
+                as_typed(named),
+                as_typed(under(work.path(), &["acme", "delta"])),
+                as_typed(under(work.path(), &["plain"]))
             ),
         ]
     );
@@ -1750,7 +1787,11 @@ fn loading_and_unloading_from_the_panel_are_the_tuis_tasks_for_the_same_workspac
     assert_eq!(previewed.lines, lines(&screened));
     assert_eq!(
         previewed.lines,
-        [format!("mindweaver -W {named} load {path}")]
+        [format!(
+            "mindweaver -W {} load {}",
+            as_typed(&named),
+            as_typed(path)
+        )]
     );
     assert!(previewed.confirm.is_empty(), "{:?}", previewed.confirm);
     let loaded = registry(&root);
@@ -2047,13 +2088,13 @@ fn a_plan_is_answered_with_the_tasks_that_carry_it_out_and_changes_nothing() {
         [
             format!(
                 "mindweaver -W {} install -p {} --from load:../team skill:deploy",
-                home.display(),
-                under(&home, &["beta"])
+                as_typed(&home),
+                as_typed(under(&home, &["beta"]))
             ),
             format!(
                 "mindweaver -W {} uninstall -p {} skill:deploy",
-                home.display(),
-                under(&home, &["alpha"])
+                as_typed(&home),
+                as_typed(under(&home, &["alpha"]))
             ),
         ]
     );
@@ -2326,11 +2367,9 @@ fn applying_a_batch_leaves_the_ledger_as_running_its_lines_in_the_cli() {
         .lines;
     assert_eq!(lines.len(), applied.runs.len(), "{lines:?}");
     for line in &lines {
-        // A line names a folder by its path, which a temporary one spells
-        // with nothing a shell would quote.
-        assert!(!line.contains(['\'', '"', '\\']), "{line}");
-        let words: Vec<&str> = line.split_whitespace().collect();
+        let words = read_back(line);
         assert_eq!(words[0], "mindweaver", "{line}");
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
         let ran = weaver(&typed, &words[1..]).unwrap();
         assert!(ran.ok, "{line}: {ran:?}");
     }
@@ -2531,10 +2570,10 @@ fn a_query_of_what_an_update_would_do_takes_no_field() {
 fn each_change_the_pages_of_updates_and_of_the_library_send_is_the_line_the_cli_takes() {
     let (_dir, home) = updating();
     let backend = backend(&home);
-    let alpha = under(&home, &["alpha"]);
-    let beta = under(&home, &["beta"]);
+    let alpha = as_typed(under(&home, &["alpha"]));
+    let beta = as_typed(under(&home, &["beta"]));
     let project = |entry: &str| json!({"type": "project", "entry": entry});
-    let named = home.display();
+    let named = as_typed(&home);
 
     for (sent, line, confirm) in [
         (
@@ -2799,7 +2838,7 @@ fn a_servers_add_and_edit_are_judged_and_run_as_add_mcp_and_edit_told_its_option
         [format!(
             "mindweaver -W {} add --command npx --arg=-y --arg @acme/server \
              --secret-env GITHUB_TOKEN mcp github GitHub",
-            root.display()
+            as_typed(&root)
         )]
     );
     assert!(ran.ok, "{ran:?}");
@@ -2928,7 +2967,7 @@ fn a_save_writes_the_text_through_edit_contents_and_takes_its_file_away_after() 
         ran.runs[0].command,
         format!(
             "mindweaver -W {} edit --contents {route} --if-unchanged {} skill:deploy",
-            root.display(),
+            as_typed(&root),
             mindweaver_core::hash::bytes(read.as_bytes())
         )
     );
@@ -3110,7 +3149,7 @@ fn a_switch_to_a_known_workspace_is_what_every_query_preview_and_run_acts_on() {
     let validate = json!({"type": "validate", "holder": {"type": "workspace"}});
     assert_eq!(
         backend.preview(&task(validate.clone())).unwrap().lines,
-        [format!("mindweaver -W {} validate", team.display())]
+        [format!("mindweaver -W {} validate", as_typed(&team))]
     );
     let add = json!({
         "type": "add", "holder": {"type": "workspace"}, "kind": "skill",
@@ -3136,7 +3175,7 @@ fn a_switch_to_a_known_workspace_is_what_every_query_preview_and_run_acts_on() {
     assert_eq!(snapshot_of(&backend), (path(&root), json!("above")));
     assert_eq!(
         backend.preview(&task(validate)).unwrap().lines,
-        [format!("mindweaver -W {} validate", root.display())]
+        [format!("mindweaver -W {} validate", as_typed(&root))]
     );
 }
 
@@ -3191,7 +3230,7 @@ fn a_switch_to_a_path_outside_the_list_is_refused_and_nothing_is_switched() {
             .preview(&task(json!({"type": "shelf"})))
             .unwrap()
             .lines,
-        [format!("mindweaver -W {} gather list", root.display())]
+        [format!("mindweaver -W {} gather list", as_typed(&root))]
     );
     assert_eq!(files(dir.path()), before);
 }
@@ -3506,7 +3545,11 @@ fn a_gather_takes_a_cancel_and_reports_each_step_it_takes_as_it_takes_it() {
 
     assert_eq!(
         preview.lines,
-        [format!("mindweaver -W {} gather git {url}", root.display())]
+        [format!(
+            "mindweaver -W {} gather git {}",
+            as_typed(root),
+            as_typed(&url)
+        )]
     );
     assert!(preview.cancellable);
     assert!(outcome.ok, "{outcome:?}");
@@ -3683,8 +3726,8 @@ fn an_export_is_previewed_and_run_into_the_folder_named_asked_about_only_when_it
         preview.lines,
         [format!(
             "mindweaver -W {} export --kind skills {}",
-            root.display(),
-            folder.display()
+            as_typed(root),
+            as_typed(&folder)
         )]
     );
     assert!(preview.confirm.is_empty());
@@ -3715,8 +3758,9 @@ fn a_backup_is_previewed_as_a_run_that_takes_a_cancel_and_asks_nothing() {
     assert_eq!(
         preview.lines,
         [format!(
-            "mindweaver -W {} backup --token-env GITHUB_TOKEN {url}",
-            root.display()
+            "mindweaver -W {} backup --token-env GITHUB_TOKEN {}",
+            as_typed(root),
+            as_typed(url)
         )]
     );
     assert!(preview.confirm.is_empty());
@@ -3872,7 +3916,7 @@ fn the_panels_searches_and_adds_ask_the_catalogs_its_launch_names_on_each_line()
     let registry = common::mcp_registry::Registry::recorded();
     let directory = common::finder::SkillsSh::answering(&[]);
     let backend = asking(root, &registry, &directory);
-    let named = |line: &str| format!("mindweaver -W {} {line}", root.display());
+    let named = |line: &str| format!("mindweaver -W {} {line}", as_typed(root));
 
     let searched = task(json!({"type": "search_servers", "query": "clawfetch"}));
     let dry = task(
@@ -3983,8 +4027,8 @@ fn a_result_sent_back_is_gathered_onto_the_shelf_by_the_line_a_take_runs() {
         preview.lines,
         [format!(
             "mindweaver -W {} gather git {}",
-            root.display(),
-            source.display()
+            as_typed(&root),
+            as_typed(&source)
         )]
     );
     assert!(preview.cancellable);

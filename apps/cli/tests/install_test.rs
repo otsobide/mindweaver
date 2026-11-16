@@ -176,6 +176,8 @@ fn applying_installs_what_was_marked_and_reports_it() {
     let (dir, workspace, ledger) = shelved(&["collapse"], &["deploy"]);
     let mut screen = screen_for(&workspace, &ledger);
     let origin = screen.targets[0].rows[0].candidate.origin();
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     press(&mut screen, &[KeyCode::Right, KeyCode::Char(' ')]);
 
     let outcome = install_screen::apply(&workspace, &screen, &Lookup::default());
@@ -184,7 +186,7 @@ fn applying_installs_what_was_marked_and_reports_it() {
     assert_eq!(
         outcome.stdout,
         format!(
-            "$ mindweaver install -p collapse --from {origin} skill:deploy\n\
+            "$ mindweaver install -p collapse --from {from} skill:deploy\n\
              installed deploy into collapse, from {origin}\n"
         )
     );
@@ -441,6 +443,8 @@ fn a_mark_on_one_address_gathered_at_two_branches_installs_the_one_ticked() {
     let (dir, workspace, ledger) = shelved(&["collapse"], &["review"]);
     let source = repository(&[("skills/deploy/SKILL.md", &skill_file("deploy", "Ship it"))]);
     let url = source.path().to_string_lossy().into_owned();
+    // As the line a front end shows spells it.
+    let from = as_typed(&url);
     let head = fs::read_to_string(source.path().join(".git").join("HEAD")).unwrap();
     let branch = head.trim().rsplit('/').next().unwrap().to_owned();
     weaver(dir.path(), &["gather", "git", &url]).unwrap();
@@ -461,7 +465,7 @@ fn a_mark_on_one_address_gathered_at_two_branches_installs_the_one_ticked() {
     assert_eq!(
         outcome.stdout,
         format!(
-            "$ mindweaver install -p collapse --from {url} skill:deploy\n\
+            "$ mindweaver install -p collapse --from {from} skill:deploy\n\
              installed deploy into collapse, from {url}\n"
         )
     );
@@ -1384,10 +1388,12 @@ fn ticking_projects_for_one_artifact_marks_each_projects_box_and_applies_as_one_
 
     // One line for the artifact, with a `-p` for each project ticked.
     let origin = screen.targets[0].rows[0].candidate.origin();
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     assert_eq!(
         outcome.stdout,
         format!(
-            "$ mindweaver install -p collapse -p tanukeys --from {origin} skill:deploy\n\
+            "$ mindweaver install -p collapse -p tanukeys --from {from} skill:deploy\n\
              installed deploy into collapse, from {origin}\n\
              installed deploy into tanukeys, from {origin}\n"
         )
