@@ -8294,6 +8294,15 @@ folder's real path as it sets its watch, and spells a change under one
 again from the folder as listed before it asks which scope it reaches;
 otherwise it would reach none, and the panel would hear nothing.
 
+**A folder's own time is no change.** `ReadDirectoryChangesW` tells a folder
+watched of each folder in it whose entries changed, its last write moved,
+which inotify and FSEvents do not: a file a skill's scripts write in
+`scripts/` would be told as a change to `scripts`, which the folder above
+holds directly. So a change that only modifies a folder, its time, size or
+attributes, is passed over (`is_below`); a folder made, removed or
+renamed is still a change, and the folder's own entries are told by its
+own watch where it is named.
+
 ### The log
 
 The server prints nothing of its own accord. A front end that wants a log hands
@@ -15279,6 +15288,15 @@ repository, stays on `gix`.
   ignored on macOS. Both look like how FSEvents reports a stream set up
   again (a rescan of everything, events from before the watch), which wants
   a Mac to read the events on before the watcher is changed for it.
+- **A folder above one watched cannot be renamed on Windows.** The
+  watcher holds each folder it watches open, and Windows renames no folder
+  holding one open: while `mindweaver ui` runs, moving a project's folder,
+  or `.claude` aside and back as some tools do, is refused there with
+  `Access is denied`, where Linux and macOS take the rename and the
+  watcher sets its watches again. The test of that rename is ignored on
+  Windows. Watching each project from one recursive watch of its root would
+  free every folder but that root, at the price of every change under it,
+  a `node_modules` included, reaching the watcher to be passed over.
 - **Worktrees share one exclude file.** Every linked worktree of a repository
   reads the same `info/exclude`, and an entry is anchored at whichever work
   tree reads it. An install keys a project's group by its id, so a project
