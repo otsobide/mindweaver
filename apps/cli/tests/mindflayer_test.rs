@@ -30,9 +30,7 @@ fn a_workspace_a_mindflayer_build_made_links_adds_and_lists_under_its_own_names(
         added.stdout,
         format!(
             "created skill review at {}\n",
-            dir.path()
-                .join(".mindflayer/library/skills/review/SKILL.md")
-                .display()
+            at(dir.path(), ".mindflayer/library/skills/review/SKILL.md")
         )
     );
     assert!(listed.stdout.contains("review"), "{}", listed.stdout);
@@ -72,7 +70,9 @@ fn the_default_workspace_a_mindflayer_build_made_in_home_is_the_one_a_write_uses
     .unwrap();
 
     assert!(
-        added.stdout.contains(".mindflayer/library/skills/review"),
+        added
+            .stdout
+            .contains(&at(home.path(), ".mindflayer/library/skills/review")),
         "{}",
         added.stdout
     );
@@ -213,16 +213,25 @@ fn migrate_names_says_what_it_would_move_and_moves_nothing() {
     assert_eq!(
         outcome.stdout,
         format!(
-            "would move {root}/.mindflayer to {root}/.mindweaver\n\
-             would rename {root}/.mindflayer/flayer.toml to {root}/.mindweaver/weaver.toml\n\
-             would rename {root}/.mindflayer/mindflayer.db to {root}/.mindweaver/mindweaver.db\n\
+            "would move {} to {}\n\
+             would rename {} to {}\n\
+             would rename {} to {}\n\
              would point skills in the marker at .mindweaver/library/skills\n\
              would point rules in the marker at .mindweaver/library/rules\n\
-             would spell the markers of the block in {root}/app/AGENTS.md as Mindweaver's\n\
-             would move {root}/app/.claude/rules/mindflayer/rust.md to {root}/app/.claude/rules/mindweaver/rust.md\n\
-             would spell the markers of the block in {root}/.git/info/exclude as Mindweaver's\n\
+             would spell the markers of the block in {} as Mindweaver's\n\
+             would move {} to {}\n\
+             would spell the markers of the block in {} as Mindweaver's\n\
              nothing moved: add --yes to go ahead\n",
-            root = root.display()
+            at(root, ".mindflayer"),
+            at(root, ".mindweaver"),
+            at(root, ".mindflayer/flayer.toml"),
+            at(root, ".mindweaver/weaver.toml"),
+            at(root, ".mindflayer/mindflayer.db"),
+            at(root, ".mindweaver/mindweaver.db"),
+            at(root, "app/AGENTS.md"),
+            at(root, "app/.claude/rules/mindflayer/rust.md"),
+            at(root, "app/.claude/rules/mindweaver/rust.md"),
+            at(root, ".git/info/exclude"),
         )
     );
     assert!(outcome.ok);
@@ -274,9 +283,9 @@ fn a_rule_file_not_there_is_put_back_under_the_new_name_once_the_workspace_moved
     let planned = weaver(root, &["migrate", "--names"]).unwrap();
     assert!(
         planned.stdout.contains(&format!(
-            "would point the record of rule `rust` at {}/app/.claude/rules/mindweaver/rust.md: \
+            "would point the record of rule `rust` at {}: \
              its file is not there, so nothing moves, and an update puts it back there\n",
-            root.display()
+            at(root, "app/.claude/rules/mindweaver/rust.md")
         )),
         "{}",
         planned.stdout
@@ -340,10 +349,11 @@ fn migrate_names_names_each_tracked_rule_file_it_moves_and_none_it_leaves() {
     assert_eq!(
         hints,
         [format!(
-            "hint: git tracks what moved from {0}/app/.claude/rules/mindflayer; `git rm --cached \
+            "hint: git tracks what moved from {}; `git rm --cached \
              -- .claude/rules/mindflayer/rust.md` and `git add -- \
-             .claude/rules/mindweaver/rust.md` in {0}/app take the move into the index",
-            root.display()
+             .claude/rules/mindweaver/rust.md` in {} take the move into the index",
+            at(root, "app/.claude/rules/mindflayer"),
+            at(root, "app")
         )]
     );
     assert!(
@@ -410,12 +420,20 @@ fn migrate_names_refuses_a_name_taken_and_moves_nothing() {
     assert_eq!(
         refused.error.to_string(),
         format!(
-            "nothing moved: {0}/.mindweaver: already there, so {0}/.mindflayer cannot be moved \
-             onto it",
-            root.display()
+            "nothing moved: {}: already there, so {} cannot be moved onto it",
+            at(root, ".mindweaver"),
+            at(root, ".mindflayer")
         )
     );
     assert!(root.join(".mindflayer/flayer.toml").is_file());
+}
+
+/// `route` under `root`, as a command says the path: with the platform's
+/// separator throughout.
+fn at(root: &Path, route: &str) -> String {
+    mindweaver_core::paths::joined(root, route)
+        .display()
+        .to_string()
 }
 
 /// What a line run on a workspace a Mindflayer build made says last.
