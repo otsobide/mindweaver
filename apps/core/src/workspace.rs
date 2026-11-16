@@ -952,7 +952,7 @@ impl MindProject {
     /// folder at the project's root that nobody asked for.
     pub fn directory_for(&self, kind: Kind) -> Option<PathBuf> {
         if let Some(directory) = self.config.directories().get(kind) {
-            return Some(self.root.join(directory));
+            return Some(paths::joined(&self.root, directory));
         }
         match &self.config {
             ProjectConfig::Settings(_) => None,
@@ -962,7 +962,7 @@ impl MindProject {
                 Directories::default_for(kind).map(|_| self.mind_dir().join(kind.folder()))
             }
             ProjectConfig::Toml(_) => {
-                Directories::default_for(kind).map(|directory| self.root.join(directory))
+                Directories::default_for(kind).map(|directory| paths::joined(&self.root, directory))
             }
         }
     }

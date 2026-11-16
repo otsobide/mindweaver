@@ -27,6 +27,15 @@ pub fn canonical(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
     dunce::canonicalize(path)
 }
 
+/// `route`, a route a marker or a setting keeps with `/` on every platform,
+/// under `base`, spelled with the platform's separator throughout: `join`
+/// keeps a route's `/` as it is, which Windows reads but which a path
+/// shown there would then mix, `C:\work\.mindweaver/library/skills\deploy`.
+/// An absolute `route` replaces `base`, as with `join`.
+pub fn joined(base: &Path, route: impl AsRef<Path>) -> PathBuf {
+    base.join(route.as_ref().components().collect::<PathBuf>())
+}
+
 /// Resolve `.` and `..` without touching the disk.
 ///
 /// `..` at the root is dropped rather than escaping it, so the result of
