@@ -43,7 +43,10 @@ fn tree_leaving(
     within: &Path,
     leave_out: &[&str],
 ) -> Result<(), io::Error> {
-    let bounds = [crate::paths::canonical(within)?, crate::paths::canonical(from)?];
+    let bounds = [
+        crate::paths::canonical(within)?,
+        crate::paths::canonical(from)?,
+    ];
     let mut path = Vec::new();
     copy_tree(from, to, &bounds, &mut path, leave_out)
 }

@@ -860,7 +860,9 @@ fn a_link_out_of_the_project_is_refused_and_nothing_is_written_or_taken_away_the
         match refused {
             Err(ClaudeRulesError::LinkedOut { folder, target }) => {
                 assert_eq!(folder, fixture.folder());
-                assert!(target.starts_with(mindweaver_core::paths::canonical(outside.path()).unwrap()));
+                assert!(
+                    target.starts_with(mindweaver_core::paths::canonical(outside.path()).unwrap())
+                );
             }
             other => panic!("{other:?}"),
         }

@@ -391,7 +391,9 @@ fn forget_removes_every_spelling_of_a_path() {
     let absolute = writing.to_string_lossy().into_owned();
     let text = registry(&home).replace(
         "\"weavers/writing\",",
-        &format!("\"weavers/writing\", \"./weavers/writing/\", \"{absolute}\","),
+        // A literal string, which reads no escapes: a Windows path in a
+        // basic one would.
+        &format!("\"weavers/writing\", \"./weavers/writing/\", '{absolute}',"),
     );
     fs::write(&path, text).unwrap();
 

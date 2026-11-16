@@ -2828,7 +2828,10 @@ fn points_at(root: &Path, entry: &Path, target: &Path) -> bool {
     if resolved == target {
         return true;
     }
-    match (crate::paths::canonical(&resolved), crate::paths::canonical(target)) {
+    match (
+        crate::paths::canonical(&resolved),
+        crate::paths::canonical(target),
+    ) {
         (Ok(followed), Ok(wanted)) => followed == wanted,
         _ => false,
     }

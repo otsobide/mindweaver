@@ -149,11 +149,19 @@ fn codes(examined: &Examined) -> Vec<&'static str> {
         .collect()
 }
 
+/// `root` as the key of Codex's `[projects.<key>]` table, quoted as TOML
+/// reads it: a Windows path in a basic string would read as escapes.
+fn projects_key(root: &Path) -> String {
+    toml_edit::Key::new(root.to_string_lossy())
+        .display_repr()
+        .into_owned()
+}
+
 /// Trust `root` in Codex's config, as `level`.
 fn trusting(root: &Path, level: &str) -> String {
     format!(
-        "[projects.\"{}\"]\ntrust_level = \"{level}\"\n",
-        root.display()
+        "[projects.{}]\ntrust_level = \"{level}\"\n",
+        projects_key(root)
     )
 }
 
@@ -181,8 +189,8 @@ fn a_codex_project_with_a_config_nothing_trusts_is_found() {
     assert_eq!(finding.agents, vec![Agent::Codex]);
     assert!(
         finding.fix.contains(&format!(
-            "`[projects.\"{}\"]` in {}",
-            fixture.root().display(),
+            "`[projects.{}]` in {}",
+            projects_key(fixture.root()),
             fixture.codex_config().display()
         )),
         "{}",

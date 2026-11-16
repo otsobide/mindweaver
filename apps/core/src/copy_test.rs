@@ -436,7 +436,10 @@ fn a_link_is_followed_to_where_it_leads_and_judged_there() {
     assert!(!inside);
     assert_eq!(
         followed(&from.join("in.md"), &bounds).unwrap(),
-        (crate::paths::canonical(from.join("SKILL.md")).unwrap(), true)
+        (
+            crate::paths::canonical(from.join("SKILL.md")).unwrap(),
+            true
+        )
     );
 }
 

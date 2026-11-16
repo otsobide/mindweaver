@@ -675,7 +675,10 @@ fn is_below(path: &Path, folder: &Path) -> bool {
     if paths::relative_to(path, folder).is_some_and(down) {
         return true;
     }
-    match (crate::paths::canonical(path), crate::paths::canonical(folder)) {
+    match (
+        crate::paths::canonical(path),
+        crate::paths::canonical(folder),
+    ) {
         (Ok(path), Ok(folder)) => path
             .strip_prefix(&folder)
             .is_ok_and(|route| route.components().next().is_some()),

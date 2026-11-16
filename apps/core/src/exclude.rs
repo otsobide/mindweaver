@@ -453,7 +453,10 @@ fn discover(project: &Path) -> Result<Option<(gix::Repository, PathBuf)>, Exclud
 /// `/tmp` on a Mac). Lexically only when a path cannot be resolved.
 fn route(worktree: &Path, project: &Path) -> Option<PathBuf> {
     let project = std::path::absolute(project).ok()?;
-    match (crate::paths::canonical(worktree), crate::paths::canonical(&project)) {
+    match (
+        crate::paths::canonical(worktree),
+        crate::paths::canonical(&project),
+    ) {
         (Ok(worktree), Ok(project)) => {
             let route = project.strip_prefix(&worktree).ok()?;
             Some(if route.as_os_str().is_empty() {
