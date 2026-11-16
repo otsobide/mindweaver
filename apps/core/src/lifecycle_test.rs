@@ -587,7 +587,7 @@ fn a_file_inside_every_bound_is_written_at_where_it_resolves() {
 
     assert_eq!(
         written_at(None, &project, &target, &directory).unwrap(),
-        fs::canonicalize(&target.path).unwrap()
+        crate::paths::canonical(&target.path).unwrap()
     );
 }
 

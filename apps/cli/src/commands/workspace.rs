@@ -183,7 +183,7 @@ fn loaded_listing(workspace: &WeaverWorkspace, home: Option<&Path>) -> Outcome {
 pub(crate) fn same_directory(a: &Path, b: &Path) -> bool {
     paths::normalize(a) == paths::normalize(b)
         || matches!(
-            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (mindweaver_core::paths::canonical(a), mindweaver_core::paths::canonical(b)),
             (Ok(a), Ok(b)) if a == b
         )
 }

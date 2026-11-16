@@ -708,7 +708,7 @@ fn a_project_reached_through_a_link_is_trusted_under_either_path() {
     let above = TempDir::new().unwrap();
     let linked = above.path().join("project");
     std::os::unix::fs::symlink(real.path(), &linked).unwrap();
-    let resolved = fs::canonicalize(real.path()).unwrap();
+    let resolved = mindweaver_core::paths::canonical(real.path()).unwrap();
     let definition = parsed(&McpMother::address_for_codex(&McpMother::name()));
 
     for marked in [linked.as_path(), resolved.as_path()] {

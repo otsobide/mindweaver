@@ -801,7 +801,7 @@ pub(super) fn within(workspace: &WeaverWorkspace, offer: &Offer, path: &Path) ->
 /// go into every agent's instructions in the project, and a credential is
 /// how such a file ends up there, as a skill's copy refuses one.
 pub(super) fn inside(path: &Path, within: &Path) -> Result<(), InstallError> {
-    let (Ok(real), Ok(root)) = (fs::canonicalize(path), fs::canonicalize(within)) else {
+    let (Ok(real), Ok(root)) = (crate::paths::canonical(path), crate::paths::canonical(within)) else {
         // Nothing to follow: reading it says what is wrong.
         return Ok(());
     };

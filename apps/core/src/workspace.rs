@@ -1782,8 +1782,8 @@ impl WeaverWorkspace {
     /// portable rather than being frozen to one machine's symlink layout.
     fn route_reaches(&self, route: &Path, target: &Path) -> bool {
         match (
-            fs::canonicalize(self.root.join(route)),
-            fs::canonicalize(target),
+            crate::paths::canonical(self.root.join(route)),
+            crate::paths::canonical(target),
         ) {
             (Ok(followed), Ok(wanted)) => followed == wanted,
             // Nothing to compare against: a route that only descends is safe
@@ -2537,7 +2537,7 @@ pub(crate) fn same_directory(a: &Path, b: &Path) -> bool {
     let (a, b) = (paths::normalize(a), paths::normalize(b));
     a == b
         || matches!(
-            (fs::canonicalize(&a), fs::canonicalize(&b)),
+            (crate::paths::canonical(&a), crate::paths::canonical(&b)),
             (Ok(a), Ok(b)) if a == b
         )
 }
@@ -2828,7 +2828,7 @@ fn points_at(root: &Path, entry: &Path, target: &Path) -> bool {
     if resolved == target {
         return true;
     }
-    match (fs::canonicalize(&resolved), fs::canonicalize(target)) {
+    match (crate::paths::canonical(&resolved), crate::paths::canonical(target)) {
         (Ok(followed), Ok(wanted)) => followed == wanted,
         _ => false,
     }
@@ -2889,7 +2889,7 @@ pub(crate) fn replace_bytes(path: &Path, contents: &[u8]) -> Result<(), (PathBuf
     // Follow a symlinked config to the file it names. Replacing the link
     // itself would silently detach a workspace from a config someone chose to
     // share, and leave the original holding stale contents.
-    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let resolved = crate::paths::canonical(path).unwrap_or_else(|_| path.to_path_buf());
     replace_bytes_unresolved(&resolved, contents)
 }
 

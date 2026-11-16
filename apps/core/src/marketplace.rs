@@ -1197,9 +1197,9 @@ fn read_catalog(root: &Path, url: &str) -> Result<Catalog, MarketplaceError> {
         file: dialect.file().to_owned(),
         why,
     };
-    let inside = fs::canonicalize(root)
+    let inside = crate::paths::canonical(root)
         .ok()
-        .zip(fs::canonicalize(&file).ok())
+        .zip(crate::paths::canonical(&file).ok())
         .is_some_and(|(root, file)| file.starts_with(root));
     if !inside {
         return Err(MarketplaceError::Outside {
@@ -1345,9 +1345,9 @@ impl Manifest {
 /// The JSON at `file`, when it is a file inside `clone` that reads as JSON,
 /// to [`MANIFEST_AT_MOST`].
 fn read_inside(file: &Path, clone: &Path) -> Option<Value> {
-    let inside = fs::canonicalize(clone)
+    let inside = crate::paths::canonical(clone)
         .ok()
-        .zip(fs::canonicalize(file).ok())
+        .zip(crate::paths::canonical(file).ok())
         .is_some_and(|(clone, file)| file.starts_with(clone));
     if !inside {
         return None;
@@ -2076,9 +2076,9 @@ fn take(
         };
         // Nothing in a folder that leads out of the clone is looked at,
         // which the gather then refuses.
-        let inside = fs::canonicalize(&clone.root)
+        let inside = crate::paths::canonical(&clone.root)
             .ok()
-            .zip(fs::canonicalize(&at).ok())
+            .zip(crate::paths::canonical(&at).ok())
             .is_some_and(|(root, at)| at.starts_with(root));
         let manifest = match inside.then(|| Manifest::of(&at, &clone.root)) {
             None => Manifest::none(),

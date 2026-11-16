@@ -679,7 +679,7 @@ fn written_at(
         Layout::Files { .. } | Layout::Flat { .. } => None,
     };
     let canonical = |path: &Path| {
-        fs::canonicalize(path).map_err(|source| LifecycleError::Io {
+        crate::paths::canonical(path).map_err(|source| LifecycleError::Io {
             path: path.to_path_buf(),
             source,
         })

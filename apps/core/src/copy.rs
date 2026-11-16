@@ -43,7 +43,7 @@ fn tree_leaving(
     within: &Path,
     leave_out: &[&str],
 ) -> Result<(), io::Error> {
-    let bounds = [fs::canonicalize(within)?, fs::canonicalize(from)?];
+    let bounds = [crate::paths::canonical(within)?, crate::paths::canonical(from)?];
     let mut path = Vec::new();
     copy_tree(from, to, &bounds, &mut path, leave_out)
 }
@@ -55,7 +55,7 @@ fn copy_tree(
     path: &mut Vec<PathBuf>,
     leave_out: &[&str],
 ) -> Result<(), io::Error> {
-    path.push(fs::canonicalize(from)?);
+    path.push(crate::paths::canonical(from)?);
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
@@ -106,7 +106,7 @@ fn copy_tree(
 /// a link the other would refuse. By components, as `Path::starts_with`
 /// compares, so `/work/app-old` is not inside `/work/app`.
 pub fn followed(path: &Path, bounds: &[PathBuf]) -> Result<(PathBuf, bool), io::Error> {
-    let resolved = fs::canonicalize(path)?;
+    let resolved = crate::paths::canonical(path)?;
     let inside = bounds.iter().any(|bound| resolved.starts_with(bound));
     Ok((resolved, inside))
 }

@@ -115,14 +115,14 @@ pub fn reads_agents_md(folder: &Path, homes: &AgentHomes) -> Result<bool, Claude
 /// [`NAMES`]: spelled from `folder` resolved, as Claude, started there, has
 /// it from the operating system.
 fn stopping(folder: &Path, homes: &AgentHomes) -> Result<Vec<PathBuf>, ClaudeMdError> {
-    let start = fs::canonicalize(folder).map_err(|source| ClaudeMdError::Read {
+    let start = crate::paths::canonical(folder).map_err(|source| ClaudeMdError::Read {
         path: folder.to_path_buf(),
         source,
     })?;
     let memory = homes
         .claude_config_dir
         .as_deref()
-        .and_then(|folder| fs::canonicalize(folder.join(CLAUDE_MD)).ok());
+        .and_then(|folder| crate::paths::canonical(folder.join(CLAUDE_MD)).ok());
     let mut found = Vec::new();
     for folder in searched(&start) {
         for name in NAMES {
@@ -139,7 +139,7 @@ fn stopping(folder: &Path, homes: &AgentHomes) -> Result<Vec<PathBuf>, ClaudeMdE
                 }
                 Err(source) => return Err(ClaudeMdError::Read { path, source }),
             }
-            if memory.is_some() && fs::canonicalize(&path).ok() == memory {
+            if memory.is_some() && crate::paths::canonical(&path).ok() == memory {
                 continue;
             }
             found.push(path);
@@ -156,7 +156,7 @@ fn stopping(folder: &Path, homes: &AgentHomes) -> Result<Vec<PathBuf>, ClaudeMdE
 /// does not resolve; the user memory file among them, which is watched all
 /// the same.
 pub(crate) fn looked_at(folder: &Path) -> Vec<PathBuf> {
-    let start = fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let start = crate::paths::canonical(folder).unwrap_or_else(|_| folder.to_path_buf());
     searched(&start)
         .flat_map(|folder| NAMES.iter().map(move |name| joined(folder, name)))
         .collect()
@@ -388,7 +388,7 @@ impl Survey {
             root: root.to_path_buf(),
             real: resolved(root)?,
             stopping: stopping(root, homes)?,
-            agents: fs::canonicalize(root.join(agents_md::FILE)).ok(),
+            agents: crate::paths::canonical(root.join(agents_md::FILE)).ok(),
         })
     }
 
@@ -404,13 +404,13 @@ impl Survey {
     /// Whether `file` is the project's `AGENTS.md`, through a link one way or
     /// the other.
     fn is_agents_md(&self, file: &Path) -> bool {
-        self.agents.is_some() && fs::canonicalize(file).ok() == self.agents
+        self.agents.is_some() && crate::paths::canonical(file).ok() == self.agents
     }
 
     /// Whether the project's `file` at `name` is a file in its place, no
     /// link leading anywhere on the way to it.
     fn in_place(&self, file: &Path, name: &[&str]) -> bool {
-        fs::canonicalize(file).is_ok_and(|target| target == joined(&self.real, name))
+        crate::paths::canonical(file).is_ok_and(|target| target == joined(&self.real, name))
     }
 }
 
@@ -702,7 +702,7 @@ fn joined(folder: &Path, name: &[&str]) -> PathBuf {
 }
 
 fn resolved(path: &Path) -> Result<PathBuf, ClaudeMdError> {
-    fs::canonicalize(path).map_err(|source| ClaudeMdError::Read {
+    crate::paths::canonical(path).map_err(|source| ClaudeMdError::Read {
         path: path.to_path_buf(),
         source,
     })

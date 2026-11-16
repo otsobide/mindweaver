@@ -2805,6 +2805,7 @@ name = "mindweaver-core"
 version = "0.1.0"
 dependencies = [
  "boon",
+ "dunce",
  "gix",
  "jsonc-parser",
  "mindweaver-core",

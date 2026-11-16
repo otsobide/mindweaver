@@ -302,7 +302,7 @@ fn what_codex_reads_from_the_git_root_down_is_watched_and_no_git() {
     )
     .unwrap();
     workspace.link(&project).unwrap();
-    let root = fs::canonicalize(dir.path()).unwrap();
+    let root = mindweaver_core::paths::canonical(dir.path()).unwrap();
 
     let watched = watch::watched(&workspace, None, &AgentHomes::default());
 

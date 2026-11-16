@@ -1754,7 +1754,7 @@ fn examine_plugin(
 ) -> Result<Examined, GatherError> {
     let manifest = crate::artifact::manifest_of(Kind::Skill);
     let root = folder_in(plugin.clone, plugin.folder, plugin.url)?;
-    let bound = fs::canonicalize(&root).map_err(|source| GatherError::Read {
+    let bound = crate::paths::canonical(&root).map_err(|source| GatherError::Read {
         path: root.clone(),
         source,
     })?;
@@ -1841,7 +1841,7 @@ fn folder_in(clone: &Cloned, path: &str, url: &str) -> Result<PathBuf, GatherErr
         let path = path.to_path_buf();
         move |source| GatherError::Read { path, source }
     };
-    let within = fs::canonicalize(&clone.root).map_err(unread(&clone.root))?;
+    let within = crate::paths::canonical(&clone.root).map_err(unread(&clone.root))?;
     let (_, inside) =
         copy::followed(&root, std::slice::from_ref(&within)).map_err(unread(&root))?;
     if !inside {
@@ -2003,9 +2003,9 @@ fn read(
 ) -> Option<(PathBuf, String, Artifact)> {
     let manifest = directory.join(crate::artifact::manifest_of(Kind::Skill));
     if fs::symlink_metadata(&manifest).is_ok_and(|metadata| metadata.is_symlink()) {
-        let outside = fs::canonicalize(clone)
+        let outside = crate::paths::canonical(clone)
             .ok()
-            .zip(fs::canonicalize(&manifest).ok())
+            .zip(crate::paths::canonical(&manifest).ok())
             .is_some_and(|(clone, file)| !file.starts_with(clone));
         if outside {
             failures.push(Failure::Outside { path: manifest });
@@ -2071,9 +2071,9 @@ fn read_rule(
     failures: &mut Vec<Failure>,
 ) -> Option<(PathBuf, String, Artifact)> {
     if fs::symlink_metadata(file).is_ok_and(|metadata| metadata.is_symlink()) {
-        let outside = fs::canonicalize(clone)
+        let outside = crate::paths::canonical(clone)
             .ok()
-            .zip(fs::canonicalize(file).ok())
+            .zip(crate::paths::canonical(file).ok())
             .is_none_or(|(clone, real)| !real.starts_with(clone));
         if outside {
             failures.push(Failure::Outside {
@@ -2232,7 +2232,7 @@ const PASSED_OVER: [&str; 2] = [".git", "node_modules"];
 /// `.claude/skills` to `skills`, is one skill, found where it really is,
 /// or at the first of the ways in order when it is under no layout itself.
 fn candidates(root: &Path, manifest: &str) -> Result<Vec<PathBuf>, GatherError> {
-    let bound = fs::canonicalize(root).map_err(|source| GatherError::Read {
+    let bound = crate::paths::canonical(root).map_err(|source| GatherError::Read {
         path: root.to_path_buf(),
         source,
     })?;

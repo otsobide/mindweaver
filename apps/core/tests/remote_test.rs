@@ -412,8 +412,8 @@ fn a_fetch_writes_the_tree_where_it_was_asked_and_names_its_root_and_revision<U:
         .unwrap();
 
     assert_eq!(
-        fs::canonicalize(&cloned.root).unwrap(),
-        fs::canonicalize(&into).unwrap()
+        mindweaver_core::paths::canonical(&cloned.root).unwrap(),
+        mindweaver_core::paths::canonical(&into).unwrap()
     );
     assert_eq!(tree_of(&cloned.root), tree(&files));
     assert_eq!(cloned.revision, Some(upstream.head()));

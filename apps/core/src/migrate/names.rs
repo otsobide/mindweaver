@@ -748,7 +748,7 @@ fn project_names(
     // reads the block itself there (`Reach::Same`): its markers are spelled
     // the new way through the `AGENTS.md`, and read as a `CLAUDE.md` it is
     // a block of rules, which no import ever is.
-    let agents_real = fs::canonicalize(root.join(agents_md::FILE)).ok();
+    let agents_real = crate::paths::canonical(root.join(agents_md::FILE)).ok();
     for route in [
         PathBuf::from(CLAUDE_MD),
         Path::new(".claude").join(CLAUDE_MD),
@@ -757,7 +757,7 @@ fn project_names(
         if !fs::symlink_metadata(&claude).is_ok_and(|found| found.is_file()) {
             continue;
         }
-        if agents_real.is_some() && fs::canonicalize(&claude).ok() == agents_real {
+        if agents_real.is_some() && crate::paths::canonical(&claude).ok() == agents_real {
             continue;
         }
         match fs::read(&claude).map(|bytes| ClaudeMd::parse(&bytes)) {

@@ -784,7 +784,7 @@ fn a_folder_the_kind_is_kept_under_linked_out_of_the_project_is_never_written_th
                 .root()
                 .join(".claude/skills/deploy/SKILL.md")
                 .display(),
-            fs::canonicalize(home.path())
+            mindweaver_core::paths::canonical(home.path())
                 .unwrap()
                 .join("skills/deploy/SKILL.md")
                 .display(),

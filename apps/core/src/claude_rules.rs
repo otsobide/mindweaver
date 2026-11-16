@@ -361,7 +361,7 @@ pub fn render<'a>(
     routes.sort();
     routes.dedup();
     let top = root.join(folder());
-    let real = fs::canonicalize(root).map_err(|source| ClaudeRulesError::Read {
+    let real = crate::paths::canonical(root).map_err(|source| ClaudeRulesError::Read {
         path: root.to_path_buf(),
         source,
     })?;
