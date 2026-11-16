@@ -745,11 +745,12 @@ fn copies_that_differ_are_a_warning_and_validate_counts_them() {
         ".claude/skills/deploy/SKILL.md",
         &skill_file("deploy", "Ship it otherwise"),
     );
-    let warning = format!(
+    let warning =
+        format!(
         "warning: the copies of `deploy` at {} and {} differ, so the agents reading them do not \
          all load the same skill",
-        dir.path().join(".agents/skills/deploy").display(),
-        dir.path().join(".claude/skills/deploy").display()
+        dir.path().join(".agents").join("skills").join("deploy").display(),
+        dir.path().join(".claude").join("skills").join("deploy").display()
     );
 
     let listed = mind(dir.path(), &["list"]).unwrap();

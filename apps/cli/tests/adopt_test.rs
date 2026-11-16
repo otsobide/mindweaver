@@ -158,7 +158,10 @@ fn adopting_a_name_the_library_holds_is_refused_with_both_paths() {
     assert!(
         said.contains(
             &dir.path()
-                .join("alpha/.claude/skills/notes")
+                .join("alpha")
+                .join(".claude")
+                .join("skills")
+                .join("notes")
                 .display()
                 .to_string()
         ),

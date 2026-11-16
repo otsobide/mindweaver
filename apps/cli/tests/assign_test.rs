@@ -148,7 +148,7 @@ fn what_a_projects_rules_warn_of_after_an_uninstall_is_said_of_that_project() {
     }
     // Somebody's edit of another rule's section in `beta`, which every
     // render of its rules keeps and warns of.
-    let agents_md = dir.path().join("beta/AGENTS.md");
+    let agents_md = dir.path().join("beta").join("AGENTS.md");
     let rendered = fs::read_to_string(&agents_md).unwrap();
     assert!(rendered.contains("# Review kindly\n"), "{rendered}");
     fs::write(

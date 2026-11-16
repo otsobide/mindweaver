@@ -118,14 +118,14 @@ fn weaver_list_of_a_project_names_none_and_makes_nothing() {
 #[test]
 fn weaver_scan_reads_the_default_workspace_without_making_it() {
     let (home, elsewhere) = unmade_home();
-    fs::create_dir_all(home.path().join("code/api/.git")).unwrap();
+    fs::create_dir_all(home.path().join("code").join("api").join(".git")).unwrap();
 
     let outcome = weaver_at_home(elsewhere.path(), home.path(), &["scan"]).unwrap();
 
     // What is under it does not wait for it to be made. Spelled by its path,
     // since it is not under where the command ran: `mindweaver link code/api`
     // typed there would miss it.
-    let api = home.path().join("code/api");
+    let api = home.path().join("code").join("api");
     assert!(
         outcome
             .stdout

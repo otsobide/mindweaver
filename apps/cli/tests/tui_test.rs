@@ -530,7 +530,7 @@ fn weaver_minds_given_a_folder_offers_what_is_under_it_beside_every_linked_one()
     // By path, since the lines run from the workspace root, outside the
     // folder; and not `gamma` or `repo`, under the workspace it was not
     // told to look under.
-    let delta = work.path().join("acme/delta").display().to_string();
+    let delta = work.path().join("acme").join("delta").display().to_string();
     let plain = work.path().join("plain").display().to_string();
     assert_eq!(
         minds_rows(&app),
@@ -586,7 +586,7 @@ fn weaver_minds_given_only_a_folder_that_is_not_there_is_not_an_empty_answer() {
 fn applying_the_minds_screen_given_a_folder_links_by_path_and_looks_there_again() {
     let (dir, work) = candidates_and_a_folder_beside();
     let mut app = tui::minds(dir.path(), &[work.path().to_path_buf()], &Lookup::default()).unwrap();
-    let delta = work.path().join("acme/delta");
+    let delta = work.path().join("acme").join("delta");
     let spelled = delta.display().to_string();
 
     press_key(&mut app, KeyCode::Char(' '));
@@ -3840,7 +3840,12 @@ fn a_project_given_a_rule_some_of_its_agents_read_nowhere_is_marked_and_its_pane
 #[test]
 fn a_project_doctor_finds_something_in_is_marked_with_how_much_and_its_pane_says_what() {
     let dir = workspace_with_own();
-    let stage = dir.path().join("alpha/.mind/tmp/4242-00112233445566ff");
+    let stage = dir
+        .path()
+        .join("alpha")
+        .join(".mind")
+        .join("tmp")
+        .join("4242-00112233445566ff");
     fs::create_dir_all(&stage).unwrap();
 
     let app = tui_in(dir.path());
@@ -3902,7 +3907,10 @@ fn a_project_no_workspace_links_is_marked_for_what_doctor_finds_in_it_too() {
     let project = elsewhere.path().join("collapse");
     fs::create_dir(&project).unwrap();
     new_project(&project);
-    let stage = project.join(".mind/tmp/4242-00112233445566ff");
+    let stage = project
+        .join(".mind")
+        .join("tmp")
+        .join("4242-00112233445566ff");
     fs::create_dir_all(&stage).unwrap();
 
     let View::Workspace(workspace) =
@@ -4116,7 +4124,7 @@ fn w_lists_the_workspaces_this_machine_knows_with_the_one_on_screen_marked() {
     fs::create_dir(&home).unwrap();
     weaver_at_home(&home, &home, &["init"]).unwrap();
     weaver_at_home(&home, &home, &["init", "weavers/writing"]).unwrap();
-    let writing = home.join("weavers/writing");
+    let writing = home.join("weavers").join("writing");
     let mut app = tui_at_home(&writing, &home);
 
     assert_eq!(
@@ -4324,7 +4332,7 @@ fn x_exports_the_library_into_a_folder_as_weaver_export_does() {
         "{drawn}"
     );
     assert!(
-        drawn.contains(&format!("mindweaver export {typed}")),
+        drawn.contains(&format!("mindweaver export {}", as_typed(&typed))),
         "{drawn}"
     );
     let task = press_and_run(&mut app, KeyCode::Enter);

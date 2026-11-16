@@ -367,7 +367,11 @@ fn projects_that_hold_nothing_say_where_status_looked() {
 
     let outcome = weaver(dir.path(), &["status"]).unwrap();
 
-    let at = |folder: &str| alpha.join(folder).display().to_string();
+    let at = |folder: &str| {
+        mindweaver_core::paths::joined(&alpha, folder)
+            .display()
+            .to_string()
+    };
     assert_eq!(
         outcome.stdout,
         format!(

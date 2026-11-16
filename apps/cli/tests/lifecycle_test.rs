@@ -882,7 +882,7 @@ fn a_name_the_project_authors_and_its_agents_read_is_one_row_whose_change_reache
     let listed = mind(dir.path(), &["list"]).unwrap();
     assert_eq!(listed.stdout, "deploy  My own source\n");
     let shown = mind(dir.path(), &["show", "skill:deploy"]).unwrap();
-    let own = dir.path().join("skills/deploy/SKILL.md");
+    let own = dir.path().join("skills").join("deploy").join("SKILL.md");
     assert!(
         shown.stdout.contains(&own.display().to_string()),
         "{}",
@@ -891,8 +891,14 @@ fn a_name_the_project_authors_and_its_agents_read_is_one_row_whose_change_reache
 
     mind(dir.path(), &["remove", "--yes", "skill:deploy"]).unwrap();
 
-    assert!(!dir.path().join("skills/deploy").exists());
-    assert!(dir.path().join(".claude/skills/deploy/SKILL.md").is_file());
+    assert!(!dir.path().join("skills").join("deploy").exists());
+    assert!(dir
+        .path()
+        .join(".claude")
+        .join("skills")
+        .join("deploy")
+        .join("SKILL.md")
+        .is_file());
     let left = mind(dir.path(), &["list"]).unwrap();
     assert_eq!(left.stdout, "deploy  My own source\n");
 }

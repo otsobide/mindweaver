@@ -33,7 +33,7 @@ fn init_remembers_the_workspace_in_the_default_one() {
         outcome.stdout,
         format!(
             "initialized weaver workspace `writing` in {}\n  remembered as weavers/writing by the default workspace\n",
-            home.join("weavers/writing").join(WEAVER_DIR).display()
+            home.join("weavers").join("writing").join(WEAVER_DIR).display()
         )
     );
     assert!(outcome.ok && outcome.stderr.is_empty(), "{outcome:?}");
@@ -154,7 +154,7 @@ fn home_with_two() -> (TempDir, PathBuf) {
 #[test]
 fn workspaces_lists_the_default_then_what_it_remembers_with_the_one_in_use_marked() {
     let (dir, home) = home_with_two();
-    let writing = home.join("weavers/writing");
+    let writing = home.join("weavers").join("writing");
 
     let outcome = weaver_at_home(&writing.join("essays"), &home, &["workspaces"]).unwrap();
 
@@ -199,7 +199,7 @@ fn a_remembered_workspace_that_has_gone_is_shown_not_raised() {
              -        {}                 cannot be opened\n\
              \n  `mindweaver workspaces forget <path>` forgets one that cannot be opened\n",
             home.display(),
-            home.join("weavers/writing").display(),
+            home.join("weavers").join("writing").display(),
             notes.display(),
         )
     );
@@ -292,13 +292,13 @@ fn nothing_is_known_with_no_default() {
 
     // `common::weaver` pins `--home=`: the default and what it remembers are
     // out of reach, and only the workspace in use is left to list.
-    let outcome = weaver(&home.join("weavers/writing"), &["workspaces"]).unwrap();
+    let outcome = weaver(&home.join("weavers").join("writing"), &["workspaces"]).unwrap();
 
     assert_eq!(
         outcome.stdout,
         format!(
             "* writing  {}  1 project; not remembered\n",
-            home.join("weavers/writing").display()
+            home.join("weavers").join("writing").display()
         )
     );
 }
@@ -328,7 +328,7 @@ fn json_prints_the_list_in_the_envelope_with_its_warnings() {
     let (dir, home) = home_with_two();
     let notes = dir.path().join("notes");
     fs::remove_dir_all(&notes).unwrap();
-    let writing = home.join("weavers/writing");
+    let writing = home.join("weavers").join("writing");
 
     let outcome = weaver_at_home(&writing, &home, &["workspaces", "--json"]).unwrap();
 
