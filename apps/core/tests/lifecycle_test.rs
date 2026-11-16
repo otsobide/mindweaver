@@ -155,7 +155,11 @@ fn a_skill_only_in_an_agents_folder_is_listed_but_never_changed_from_here() {
         format!(
             "`review` is at {}, in a folder this project's agents read and it does not author \
              in, so it is not changed from here",
-            dir.path().join(".claude/skills/review").display()
+            dir.path()
+                .join(".claude")
+                .join("skills")
+                .join("review")
+                .display()
         )
     );
     // Which a listing shows all the same.
@@ -529,7 +533,7 @@ fn a_skills_contents_are_replaced_whole_and_nothing_else_it_holds_is() {
 fn contents_the_file_holds_already_write_nothing() {
     let (dir, project) = project();
     create(&project, Kind::Skill, "deploy", "Ship it").unwrap();
-    let manifest = dir.path().join("skills/deploy/SKILL.md");
+    let manifest = dir.path().join("skills").join("deploy").join("SKILL.md");
     let held = fs::read(&manifest).unwrap();
 
     let replaced = replace(&project, "deploy", &held, None).unwrap();
@@ -543,7 +547,7 @@ fn contents_the_file_holds_already_write_nothing() {
 fn a_skills_contents_that_break_a_rule_are_refused_and_nothing_is_written() {
     let (dir, project) = project();
     create(&project, Kind::Skill, "deploy", "Ship it").unwrap();
-    let manifest = dir.path().join("skills/deploy/SKILL.md");
+    let manifest = dir.path().join("skills").join("deploy").join("SKILL.md");
     let held = fs::read(&manifest).unwrap();
 
     let refusals: [(&[u8], &str); 6] = [
@@ -660,7 +664,7 @@ fn a_rules_contents_must_say_something_with_front_matter_that_reads() {
 fn contents_made_from_what_the_file_no_longer_holds_are_refused() {
     let (dir, project) = project();
     create(&project, Kind::Skill, "deploy", "Ship it").unwrap();
-    let manifest = dir.path().join("skills/deploy/SKILL.md");
+    let manifest = dir.path().join("skills").join("deploy").join("SKILL.md");
     let read = hash::bytes(&fs::read(&manifest).unwrap());
     // Somebody else's editor, between the read and the write.
     type_into(&manifest);
@@ -697,7 +701,7 @@ fn contents_made_from_what_the_file_no_longer_holds_are_refused() {
 fn a_hash_that_is_no_sha256_is_refused_rather_than_called_stale() {
     let (dir, project) = project();
     create(&project, Kind::Skill, "deploy", "Ship it").unwrap();
-    let manifest = dir.path().join("skills/deploy/SKILL.md");
+    let manifest = dir.path().join("skills").join("deploy").join("SKILL.md");
     let held = fs::read(&manifest).unwrap();
     let read = hash::bytes(&held);
 
@@ -726,7 +730,7 @@ fn a_manifest_leading_out_of_where_its_kind_is_kept_is_never_written_through() {
     let theirs = elsewhere.path().join("bashrc");
     fs::write(&theirs, "export EDITOR=vi\n").unwrap();
     fs::create_dir_all(dir.path().join("skills/deploy")).unwrap();
-    let manifest = dir.path().join("skills/deploy/SKILL.md");
+    let manifest = dir.path().join("skills").join("deploy").join("SKILL.md");
     std::os::unix::fs::symlink(&theirs, &manifest).unwrap();
 
     let error = replace(&project, "deploy", SHIP.as_bytes(), None).unwrap_err();
@@ -746,7 +750,7 @@ fn a_manifest_linked_to_a_file_where_its_kind_is_kept_is_written_through() {
         "skills/deploy/notes/manifest.md",
         "no front matter\n",
     );
-    let manifest = dir.path().join("skills/deploy/SKILL.md");
+    let manifest = dir.path().join("skills").join("deploy").join("SKILL.md");
     std::os::unix::fs::symlink("notes/manifest.md", &manifest).unwrap();
 
     replace(&project, "deploy", SHIP.as_bytes(), None).unwrap();

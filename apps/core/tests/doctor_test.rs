@@ -436,13 +436,13 @@ fn copies_of_one_skill_that_differ_in_folders_opencode_reads_alike_are_found() {
     let fixture = fixture(&[Agent::OpenCode]);
     let agents = skill_in(
         &fixture,
-        &fixture.root().join(".agents/skills"),
+        &fixture.root().join(".agents").join("skills"),
         "review",
         "Read it",
     );
     let claude = skill_in(
         &fixture,
-        &fixture.root().join(".claude/skills"),
+        &fixture.root().join(".claude").join("skills"),
         "review",
         "Read it twice",
     );
@@ -467,7 +467,7 @@ fn copies_that_hold_the_same_or_that_no_one_agent_reads_both_of_are_not_found() 
     let fixture = fixture(&[Agent::Claude, Agent::Codex, Agent::OpenCode]);
     skill_in(
         &fixture,
-        &fixture.root().join(".agents/skills"),
+        &fixture.root().join(".agents").join("skills"),
         "review",
         "Read it",
     );
@@ -846,14 +846,24 @@ fn opencode_s_folders_in_the_home_are_read_beside_those_its_variables_name() {
     };
     let ours = skill_in(
         &fixture,
-        &fixture.root().join(".opencode/skills"),
+        &fixture.root().join(".opencode").join("skills"),
         "review",
         "Read it",
     );
-    let theirs = skill_in(&fixture, &home.join(".claude/skills"), "review", "Mine");
+    let theirs = skill_in(
+        &fixture,
+        &home.join(".claude").join("skills"),
+        "review",
+        "Mine",
+    );
     // Claude's own, which OpenCode does not read.
-    skill_in(&fixture, &home.join("claude/skills"), "review", "Not read");
-    let global = home.join(".config/opencode/opencode.json");
+    skill_in(
+        &fixture,
+        &home.join("claude").join("skills"),
+        "review",
+        "Not read",
+    );
+    let global = home.join(".config").join("opencode").join("opencode.json");
     fixture.write(&global, "{\"mcp\": {\"github\": {\"type\": \"remote\"}}}\n");
     let machine = Machine::new(homes, [String::from("DOCTOR_TEST_TOKEN")]);
 

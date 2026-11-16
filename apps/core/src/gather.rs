@@ -2475,11 +2475,12 @@ impl Failure {
         }
     }
 
-    /// The same failure, its path a route from `root` when it is under it:
-    /// what a dry run says of a clone it does not keep ([`dry_run`]).
+    /// The same failure, its path a route from `root` when it is under it,
+    /// `/` separated on every platform, as the source spells it: what a dry
+    /// run says of a clone it does not keep ([`dry_run`]).
     fn routed(self, root: &Path) -> Failure {
         let routed = |path: PathBuf| match path.strip_prefix(root) {
-            Ok(route) => route.to_path_buf(),
+            Ok(route) => PathBuf::from(paths::as_route(route)),
             Err(_) => path,
         };
         match self {

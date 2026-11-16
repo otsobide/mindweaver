@@ -2597,12 +2597,17 @@ pub enum WorkspaceError {
     NotKnown { path: PathBuf, workspace: PathBuf },
     #[error("{path}: not valid UTF-8, so it cannot be written into a marker")]
     NonUtf8Path { path: PathBuf },
-    #[error("{path}: cannot hold a project's {kinds}, because it is not inside the project", kinds = .kind.plural())]
+    #[error(
+        "{}: cannot hold a project's {kinds}, because it is not inside the project",
+        as_named(.path),
+        kinds = .kind.plural()
+    )]
     OutsideProject { path: PathBuf, kind: Kind },
     #[error(
-        "{path}: cannot hold a project's {kinds}, \
+        "{}: cannot hold a project's {kinds}, \
          because it is inside {MIND_DIR}, which holds Mindweaver's own files \
          and is kept out of git unless the project is shared",
+        as_named(.path),
         kinds = .kind.plural()
     )]
     InsideMind { path: PathBuf, kind: Kind },
@@ -2624,7 +2629,8 @@ pub enum WorkspaceError {
     /// A folder a change to a project's settings would send a kind's
     /// installs to that no install would use ([`Misplaced`]).
     #[error(
-        "{path}: cannot be where a project's {kinds} are installed, because {because}",
+        "{}: cannot be where a project's {kinds} are installed, because {because}",
+        as_named(.path),
         kinds = .kind.plural(),
         because = .why.because(*.kind)
     )]
@@ -2709,6 +2715,19 @@ impl WorkspaceError {
             | WorkspaceError::OverlapsGathered { path, .. } => path,
             WorkspaceError::Lock(error) => error.path(),
         }
+    }
+}
+
+/// A folder a project's settings name, as they spell it: a route `/`
+/// separated on every platform, as `directories` and `targets` keep one and
+/// a command line types it, or an absolute path as the platform writes it.
+/// A route rebuilt from its folder names would read `..\shared` on
+/// Windows, which is not what was typed.
+fn as_named(path: &Path) -> String {
+    if path.is_relative() {
+        paths::as_route(path)
+    } else {
+        path.display().to_string()
     }
 }
 

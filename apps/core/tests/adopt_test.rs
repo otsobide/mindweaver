@@ -45,11 +45,11 @@ fn write_skill(folder: &Path, text: &str) {
 }
 
 fn claudes(project: &MindProject, name: &str) -> PathBuf {
-    project.root().join(".claude/skills").join(name)
+    project.root().join(".claude").join("skills").join(name)
 }
 
 fn agents(project: &MindProject, name: &str) -> PathBuf {
-    project.root().join(".agents/skills").join(name)
+    project.root().join(".agents").join("skills").join(name)
 }
 
 /// Where the workspace keeps its own `name`.
