@@ -365,8 +365,16 @@ jobs:
           - os: macos-latest
             label: macos
             tmpdir: /private/tmp
+          # Windows's temporary folder, `C:\Users\RUNNER~1\AppData\Local\Temp`,
+          # is named through the account's short 8.3 name, which a path
+          # resolved on the disk spells long (`runneradmin`): the same
+          # trouble as macOS's link, so the suite is handed the runner's own
+          # temporary folder, which has no short name, as `TMP` and `TEMP`,
+          # where Windows looks for one. A matrix value cannot name it, as
+          # the runner's folder is known only once the job runs.
           - os: windows-latest
             label: windows
+            runner-temp: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -414,8 +422,10 @@ jobs:
         shell: bash
         env:
           SUITE_TMPDIR: ${{ matrix.tmpdir }}
+          SUITE_RUNNER_TEMP: ${{ matrix.runner-temp }}
         run: |
           if [ -n "$SUITE_TMPDIR" ]; then export TMPDIR="$SUITE_TMPDIR"; fi
+          if [ -n "$SUITE_RUNNER_TEMP" ]; then export TMP="$RUNNER_TEMP" TEMP="$RUNNER_TEMP"; fi
           make -k test CARGO_TEST_FLAGS=--no-fail-fast
 
   # -------------------------------------------------------------------------
