@@ -1,7 +1,7 @@
 name: test-and-build
 
 # Per app: run its tests, and only if they pass, build it, on Linux, with the
-# other two platforms run only when asked for (see test-cross).
+# other two platforms reserved for the shipping path (see test-cross).
 #
 # Each Linux job runs on the runner the first job picks for the run: the
 # repository's own, a self-hosted one asked for by its labels, when one is
@@ -330,24 +330,28 @@ jobs:
           retention-days: 7
 
   # The whole suite on the two platforms Linux cannot speak for. Linux runs on
-  # every push and every pull request; these two run only when asked for, by
-  # hand (workflow_dispatch) or with the `full-matrix` label on a PR.
+  # every push and every pull request; these two are reserved for the branches
+  # that ship, because a macOS or Windows runner costs several times a Linux
+  # one and feature work rarely needs them.
   #
-  # Development targets Linux only until the compatibility pass (#154). Until
-  # then both platforms fail, and running them on every push to dev would spend
-  # runners that cost several times a Linux one on a known red, and skip the
-  # Linux builds below, which wait for this job to pass or be skipped. That
-  # pass puts them back on the shipping branches: any push to dev or main, or a
-  # PR from dev, main or release/*.
+  # They run when the code is on, or heading to, a shipping branch: any push to
+  # dev or main, or a PR from dev, main or release/*. A feature branch that does
+  # touch path handling asks for them with the `full-matrix` label, and anyone
+  # by hand (workflow_dispatch). Both passed again in the compatibility pass
+  # (#154), which put them back here.
   #
   # This app finds projects by walking up a directory tree and identifies them
   # by marker files, which is exactly the kind of code that behaves differently
-  # on Windows, so the matrix stays, ready for that pass.
+  # on Windows, so the matrix earns its place on every release.
   test-cross:
     name: test (${{ matrix.label }})
     needs: test-core
     if: >-
+      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
+      github.head_ref == 'dev' ||
+      github.head_ref == 'main' ||
+      startsWith(github.head_ref, 'release/') ||
       contains(github.event.pull_request.labels.*.name, 'full-matrix')
     strategy:
       # One platform failing must not hide the other's result.

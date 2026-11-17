@@ -14414,7 +14414,7 @@ repository, stays on `gix`.
   core reading something of the front end's it has never needed.
 - **On Windows the trail ends at a drive.** The trail goes up to the root
   of the folder listed, `C:\` say, and nothing lists the other drives,
-  which only a path typed reaches. Development is Linux's for now (#154).
+  which only a path typed reaches.
 - **The TUI's link form has no explorer.** It keeps its text field, where
   the shell's completion is not to hand either; the minds screen's scan is
   how it finds a folder, and a list of folders on a screen of its own
