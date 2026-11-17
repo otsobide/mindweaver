@@ -1656,12 +1656,13 @@ impl ArtifactError {
         }
     }
 
-    /// The same error, its path a route from `root` when it is under it:
-    /// for a file read from a folder that is gone by the time it is said, as
-    /// a gather's dry run reads its clone ([`crate::gather::dry_run`]).
+    /// The same error, its path a route from `root` when it is under it,
+    /// `/` separated on every platform, as the source spells it: for a file
+    /// read from a folder that is gone by the time it is said, as a
+    /// gather's dry run reads its clone ([`crate::gather::dry_run`]).
     pub(crate) fn routed(self, root: &Path) -> Self {
         let routed = |path: PathBuf| match path.strip_prefix(root) {
-            Ok(route) => route.to_path_buf(),
+            Ok(route) => PathBuf::from(crate::paths::as_route(route)),
             Err(_) => path,
         };
         match self {

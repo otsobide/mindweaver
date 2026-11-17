@@ -8294,6 +8294,15 @@ folder's real path as it sets its watch, and spells a change under one
 again from the folder as listed before it asks which scope it reaches;
 otherwise it would reach none, and the panel would hear nothing.
 
+**A folder's own time is no change.** `ReadDirectoryChangesW` tells a folder
+watched of each folder in it whose entries changed, its last write moved,
+which inotify and FSEvents do not: a file a skill's scripts write in
+`scripts/` would be told as a change to `scripts`, which the folder above
+holds directly. So a change that only modifies a folder, its time, size or
+attributes, is passed over (`is_below`); a folder made, removed or
+renamed is still a change, and the folder's own entries are told by its
+own watch where it is named.
+
 ### The log
 
 The server prints nothing of its own accord. A front end that wants a log hands
@@ -14038,7 +14047,11 @@ there pointed at the new folder all the same, since left naming the old
 one it would be written there again by the update that puts it back), then
 the
 ledger's shelf paths, the marker's folders inside the old one, the marker,
-the ledger and every copy kept of either renamed, and the folder last. A
+the ledger and every copy kept of either renamed, and the folder last,
+renamed whole, or on Windows, which renames no folder holding a file open
+and this one holds the lock's, made anew and given each of the old one's
+entries in turn, the lock's file among them, the old one taken away once
+empty (`entry_by_entry`). A
 name taken where anything would go, a block that cannot be read, a project
 whose marker cannot and a ledger another process has open, whose log a
 rename would leave behind, refuse the whole move; a step that fails puts
@@ -14401,7 +14414,7 @@ repository, stays on `gix`.
   core reading something of the front end's it has never needed.
 - **On Windows the trail ends at a drive.** The trail goes up to the root
   of the folder listed, `C:\` say, and nothing lists the other drives,
-  which only a path typed reaches. Development is Linux's for now (#154).
+  which only a path typed reaches.
 - **The TUI's link form has no explorer.** It keeps its text field, where
   the shell's completion is not to hand either; the minds screen's scan is
   how it finds a folder, and a list of folders on a screen of its own
@@ -15279,6 +15292,15 @@ repository, stays on `gix`.
   ignored on macOS. Both look like how FSEvents reports a stream set up
   again (a rescan of everything, events from before the watch), which wants
   a Mac to read the events on before the watcher is changed for it.
+- **A folder above one watched cannot be renamed on Windows.** The
+  watcher holds each folder it watches open, and Windows renames no folder
+  holding one open: while `mindweaver ui` runs, moving a project's folder,
+  or `.claude` aside and back as some tools do, is refused there with
+  `Access is denied`, where Linux and macOS take the rename and the
+  watcher sets its watches again. The test of that rename is ignored on
+  Windows. Watching each project from one recursive watch of its root would
+  free every folder but that root, at the price of every change under it,
+  a `node_modules` included, reaching the watcher to be passed over.
 - **Worktrees share one exclude file.** Every linked worktree of a repository
   reads the same `info/exclude`, and an entry is anchored at whichever work
   tree reads it. An install keys a project's group by its id, so a project
@@ -15984,12 +16006,16 @@ repository, stays on `gix`.
   between, a panel's read, keeps a log under the old name that the rename
   leaves behind. Reads take no lock, by design; renaming the log with the
   file would move it under a connection SQLite has open.
-- **On Windows, a folder holding an open file is not renamed.** The move
-  renames `.mindflayer` while it holds the lock file in it open, which
-  Windows refuses, so there the move fails at its last step and puts back
-  every step before it. Letting go of the lock for the last rename would
-  leave a moment with no lock held; the compatibility pass (#154) is where
-  to weigh it.
+- **On Windows, a workspace half moved for a moment.** Windows renames no
+  folder holding a file open, and the move holds the lock's file open in
+  `.mindflayer`, so there it makes `.mindweaver` and renames each entry
+  into it, the lock's file among them, which `std` opens for others to
+  rename, and takes the old folder away once empty: the lock is held
+  throughout, as everywhere. A reader, which takes no lock, may find the
+  workspace between the two folders for as long as those renames take,
+  where a rename of the folder whole shows it under one name or the other.
+  Letting go of the lock for one rename of the folder (#154 weighed it)
+  would have left a moment with no writer kept out instead.
 - **A project's rules in two folders until it is moved.** A rule file a
   Mindflayer build recorded stays in `.claude/rules/mindflayer`, and one
   given a file since goes to `.claude/rules/mindweaver`, both read by

@@ -351,8 +351,10 @@ fn plan_folder(
 /// new folder. A step that fails puts back every step taken before it, the
 /// last first, so the workspace and its projects read as they did; what
 /// could not be put back is named ([`MigrateError::left_behind_names`]).
-/// The lock is held throughout and follows its folder, so no writer gets in
-/// between.
+/// The lock is held throughout and follows its file, so no writer gets in
+/// between: the folder is renamed whole, and on Windows, which renames no
+/// folder holding a file open, made again and given each of its entries
+/// ([`entry_by_entry`]).
 pub fn names(workspace: &mut WeaverWorkspace) -> Result<NamesMigrated, MigrateError> {
     if !workspace.is_made() {
         return Ok(NamesMigrated {
@@ -522,12 +524,53 @@ fn carry_out(
         });
     }
     if let Some(folder) = &plan.folder {
-        rename(&folder.from, &folder.to)?;
-        done.0.push(Step::Renamed {
-            from: folder.from.clone(),
-            to: folder.to.clone(),
-        });
+        if cfg!(windows) {
+            entry_by_entry(&folder.from, &folder.to, done)?;
+        } else {
+            rename(&folder.from, &folder.to)?;
+            done.0.push(Step::Renamed {
+                from: folder.from.clone(),
+                to: folder.to.clone(),
+            });
+        }
     }
+    Ok(())
+}
+
+/// Move the folder `from` to `to`, which is not there yet, as Windows lets
+/// one holding a file open be moved: `to` made, every entry of `from`
+/// renamed into it in turn, and `from` taken away once empty, each a step
+/// put back on a failure. Windows renames no folder holding a file open,
+/// and this one holds the workspace's lock, which the move keeps
+/// throughout; a file opened letting others delete it, as `std` opens the
+/// lock, is renamed, and its lock goes with it. A rename of the folder
+/// whole elsewhere, so a reader there sees the workspace under one name or
+/// the other, never between: a reader on Windows may find it half moved
+/// for as long as the renames take (docs/architecture.md, open questions).
+fn entry_by_entry(from: &Path, to: &Path, done: &mut Done) -> Result<(), NamesFailure> {
+    let failed = |source| NamesFailure::Rename {
+        from: from.to_path_buf(),
+        to: to.to_path_buf(),
+        source,
+    };
+    fs::create_dir(to).map_err(failed)?;
+    done.0.push(Step::Made {
+        folder: to.to_path_buf(),
+    });
+    let mut names = Vec::new();
+    for entry in fs::read_dir(from).map_err(failed)? {
+        names.push(entry.map_err(failed)?.file_name());
+    }
+    names.sort();
+    for name in names {
+        let (from, to) = (from.join(&name), to.join(&name));
+        rename(&from, &to)?;
+        done.0.push(Step::Renamed { from, to });
+    }
+    fs::remove_dir(from).map_err(failed)?;
+    done.0.push(Step::Pruned {
+        folder: from.to_path_buf(),
+    });
     Ok(())
 }
 
@@ -538,6 +581,8 @@ struct Done(Vec<Step>);
 enum Step {
     /// A file or a folder renamed.
     Renamed { from: PathBuf, to: PathBuf },
+    /// A folder made, taken away empty to put back.
+    Made { folder: PathBuf },
     /// A file written over, and what it held.
     Written { path: PathBuf, before: Vec<u8> },
     /// A rule file carried from `from` to `to`, folders made on the way.
@@ -573,6 +618,11 @@ impl Done {
                 Step::Renamed { from, to } => {
                     if fs::rename(&to, &from).is_err() {
                         stranded.push(to);
+                    }
+                }
+                Step::Made { folder } => {
+                    if fs::remove_dir(&folder).is_err() {
+                        stranded.push(folder);
                     }
                 }
                 Step::Written { path, before } => {
@@ -748,7 +798,7 @@ fn project_names(
     // reads the block itself there (`Reach::Same`): its markers are spelled
     // the new way through the `AGENTS.md`, and read as a `CLAUDE.md` it is
     // a block of rules, which no import ever is.
-    let agents_real = fs::canonicalize(root.join(agents_md::FILE)).ok();
+    let agents_real = crate::paths::canonical(root.join(agents_md::FILE)).ok();
     for route in [
         PathBuf::from(CLAUDE_MD),
         Path::new(".claude").join(CLAUDE_MD),
@@ -757,7 +807,7 @@ fn project_names(
         if !fs::symlink_metadata(&claude).is_ok_and(|found| found.is_file()) {
             continue;
         }
-        if agents_real.is_some() && fs::canonicalize(&claude).ok() == agents_real {
+        if agents_real.is_some() && crate::paths::canonical(&claude).ok() == agents_real {
             continue;
         }
         match fs::read(&claude).map(|bytes| ClaudeMd::parse(&bytes)) {
@@ -784,7 +834,7 @@ fn project_names(
             {
                 continue;
             }
-            let from = root.join(&target.path);
+            let from = paths::joined(&root, &target.path);
             let to = root.join(claude_rules::file_under(Names::Mindweaver, &record.name));
             let found = fs::symlink_metadata(&from).ok();
             let held = found

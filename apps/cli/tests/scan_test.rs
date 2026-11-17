@@ -83,13 +83,13 @@ fn scan_looks_under_each_folder_given_taken_from_where_it_runs() {
     let ws = dir.path().join("ws");
     fs::create_dir(&ws).unwrap();
     weaver(&ws, &["init"]).unwrap();
-    fs::create_dir_all(ws.join("inside/.git")).unwrap();
+    fs::create_dir_all(ws.join("inside").join(".git")).unwrap();
     let work = dir.path().join("work");
-    let alpha = work.join("acme/alpha");
+    let alpha = work.join("acme").join("alpha");
     fs::create_dir_all(&alpha).unwrap();
     new_project(&alpha);
     let other = dir.path().join("other");
-    fs::create_dir_all(other.join("beta/.git")).unwrap();
+    fs::create_dir_all(other.join("beta").join(".git")).unwrap();
     let before = registry(&ws);
 
     // `work` from where it runs, as `link` takes a path; `other` whole.

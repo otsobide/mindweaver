@@ -35,6 +35,19 @@ use crate::workspace::{replace_file, WorkspaceError};
 /// about as often as a person can read a number that changes.
 const POLL: Duration = Duration::from_millis(100);
 
+/// What every clone is configured with over the machine's, and over a
+/// test's overrides too: files written as they were committed, whatever the
+/// machine converts line endings to. Git for Windows sets `core.autocrlf`
+/// in its system config, which `gix` reads, so a gather there would shelve
+/// every text file with CRLF: a hash of the shelf copy, the copies an
+/// install writes and a script's `#!` line would then depend on the
+/// machine that gathered, where a source is meant to be the same bytes
+/// everywhere. `core.eol` too, since a repository's own `text=auto` asks
+/// for the machine's native ending without `autocrlf`. An ending the
+/// repository's `.gitattributes` names (`eol=crlf`) is still honoured, as it
+/// is on every machine alike.
+const AS_COMMITTED: &[&str] = &["core.autocrlf=false", "core.eol=lf"];
+
 mod credentials;
 
 /// `gix`, as the [`Remote`] a gather fetches through.
@@ -419,7 +432,8 @@ fn emptied(into: &Path) -> Result<(), GitError> {
 /// A clone of `url` into `into` made ready to fetch, never prompting for a
 /// credential, logging in as `login` says, what is missing noted in
 /// `shortfalls`, and given `login`'s overrides beside the machine's
-/// configuration.
+/// configuration, then [`AS_COMMITTED`], which the last of a key's values
+/// wins over both.
 fn prepared<H>(
     url: &str,
     into: &Path,
@@ -434,7 +448,7 @@ where
             url: redacted(url).into_owned(),
             detail: said(error),
         })?
-        .with_in_memory_config_overrides(login.overrides.iter().copied())
+        .with_in_memory_config_overrides(login.overrides.iter().chain(AS_COMMITTED).copied())
         // Every connection `gix` lets the clone configure, not only the
         // first: a shallow clone connects once to find the branch and again
         // to fetch it, and either one may be asked for a credential. The one

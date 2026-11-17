@@ -490,8 +490,8 @@ impl Symptom {
                 ..
             } => format!(
                 "trust the project when Codex asks, or add `trust_level = \"trusted\"` under \
-                 `[projects.\"{}\"]` in {}",
-                project.display(),
+                 `[projects.{}]` in {}",
+                projects_key(project),
                 config.display()
             ),
             Symptom::CodexUntrusted { config: None, .. } => String::from(
@@ -499,9 +499,9 @@ impl Symptom {
                  project",
             ),
             Symptom::CodexDistrusted { project, .. } => format!(
-                "set `trust_level = \"trusted\"` under `[projects.\"{}\"]` there, if Codex is to \
+                "set `trust_level = \"trusted\"` under `[projects.{}]` there, if Codex is to \
                  work in the project",
-                project.display()
+                projects_key(project)
             ),
             Symptom::CodexOverridden { hidden, .. } => format!(
                 "move what Codex is to read into {} and remove this one",
@@ -1180,6 +1180,17 @@ fn defined(
         .find_map(|offer| {
             McpDefinition::parse(&fs::read_to_string(offer.source(workspace)).ok()?).ok()
         })
+}
+
+/// `project` as the key of Codex's `[projects.<key>]` table, quoted as TOML
+/// reads it, for a fix a person pastes into Codex's config: a basic string,
+/// as Codex writes its own, for a path with nothing to escape, and a literal
+/// string for one holding a backslash, as a Windows path does, which a basic
+/// string would read as escapes and refuse.
+fn projects_key(project: &Path) -> String {
+    toml_edit::Key::new(project.to_string_lossy())
+        .display_repr()
+        .into_owned()
 }
 
 #[cfg(test)]

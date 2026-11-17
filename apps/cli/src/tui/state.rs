@@ -1691,7 +1691,7 @@ impl App {
             let (a, b) = (paths::normalize(&typed), paths::normalize(into));
             a == b
                 || matches!(
-                    (std::fs::canonicalize(&a), std::fs::canonicalize(&b)),
+                    (mindweaver_core::paths::canonical(&a), mindweaver_core::paths::canonical(&b)),
                     (Ok(a), Ok(b)) if a == b
                 )
         })

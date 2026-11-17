@@ -25,6 +25,12 @@ fn marker(root: &Path) -> String {
     fs::read_to_string(root.join(WEAVER_DIR).join(WEAVER_CONFIG)).unwrap()
 }
 
+/// `text` as a TOML string, for a spelling written into the marker by
+/// hand: a Windows path in a basic string would read as escapes.
+fn toml_string(text: &str) -> String {
+    toml::Value::String(text.to_owned()).to_string()
+}
+
 #[test]
 fn remember_records_a_workspace_as_a_route_from_home_and_says_what_known_is() {
     let (_dir, home, writing) = home_and_writing();
@@ -146,7 +152,10 @@ fn forget_removes_every_spelling_of_a_workspace() {
     let path = home.join(WEAVER_DIR).join(WEAVER_CONFIG);
     let text = marker(&home).replace(
         "known = [\"weavers/writing\"]",
-        &format!("known = [\"weavers/writing\", \"./weavers/writing/\", \"{absolute}\"]"),
+        &format!(
+            "known = [\"weavers/writing\", \"./weavers/writing/\", {}]",
+            toml_string(&absolute)
+        ),
     );
     fs::write(&path, text).unwrap();
 
@@ -361,7 +370,10 @@ fn two_spellings_of_one_workspace_are_listed_once() {
     let absolute = writing.root().to_string_lossy().into_owned();
     let text = marker(&home).replace(
         "known = [\"weavers/writing\"]",
-        &format!("known = [\"weavers/writing\", \"{absolute}\", \".\"]"),
+        &format!(
+            "known = [\"weavers/writing\", {}, \".\"]",
+            toml_string(&absolute)
+        ),
     );
     fs::write(&path, text).unwrap();
 

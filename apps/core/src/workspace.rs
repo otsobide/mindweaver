@@ -952,7 +952,7 @@ impl MindProject {
     /// folder at the project's root that nobody asked for.
     pub fn directory_for(&self, kind: Kind) -> Option<PathBuf> {
         if let Some(directory) = self.config.directories().get(kind) {
-            return Some(self.root.join(directory));
+            return Some(paths::joined(&self.root, directory));
         }
         match &self.config {
             ProjectConfig::Settings(_) => None,
@@ -962,7 +962,7 @@ impl MindProject {
                 Directories::default_for(kind).map(|_| self.mind_dir().join(kind.folder()))
             }
             ProjectConfig::Toml(_) => {
-                Directories::default_for(kind).map(|directory| self.root.join(directory))
+                Directories::default_for(kind).map(|directory| paths::joined(&self.root, directory))
             }
         }
     }
@@ -1782,8 +1782,8 @@ impl WeaverWorkspace {
     /// portable rather than being frozen to one machine's symlink layout.
     fn route_reaches(&self, route: &Path, target: &Path) -> bool {
         match (
-            fs::canonicalize(self.root.join(route)),
-            fs::canonicalize(target),
+            crate::paths::canonical(self.root.join(route)),
+            crate::paths::canonical(target),
         ) {
             (Ok(followed), Ok(wanted)) => followed == wanted,
             // Nothing to compare against: a route that only descends is safe
@@ -2537,7 +2537,7 @@ pub(crate) fn same_directory(a: &Path, b: &Path) -> bool {
     let (a, b) = (paths::normalize(a), paths::normalize(b));
     a == b
         || matches!(
-            (fs::canonicalize(&a), fs::canonicalize(&b)),
+            (crate::paths::canonical(&a), crate::paths::canonical(&b)),
             (Ok(a), Ok(b)) if a == b
         )
 }
@@ -2597,12 +2597,17 @@ pub enum WorkspaceError {
     NotKnown { path: PathBuf, workspace: PathBuf },
     #[error("{path}: not valid UTF-8, so it cannot be written into a marker")]
     NonUtf8Path { path: PathBuf },
-    #[error("{path}: cannot hold a project's {kinds}, because it is not inside the project", kinds = .kind.plural())]
+    #[error(
+        "{}: cannot hold a project's {kinds}, because it is not inside the project",
+        as_named(.path),
+        kinds = .kind.plural()
+    )]
     OutsideProject { path: PathBuf, kind: Kind },
     #[error(
-        "{path}: cannot hold a project's {kinds}, \
+        "{}: cannot hold a project's {kinds}, \
          because it is inside {MIND_DIR}, which holds Mindweaver's own files \
          and is kept out of git unless the project is shared",
+        as_named(.path),
         kinds = .kind.plural()
     )]
     InsideMind { path: PathBuf, kind: Kind },
@@ -2624,7 +2629,8 @@ pub enum WorkspaceError {
     /// A folder a change to a project's settings would send a kind's
     /// installs to that no install would use ([`Misplaced`]).
     #[error(
-        "{path}: cannot be where a project's {kinds} are installed, because {because}",
+        "{}: cannot be where a project's {kinds} are installed, because {because}",
+        as_named(.path),
         kinds = .kind.plural(),
         because = .why.because(*.kind)
     )]
@@ -2709,6 +2715,19 @@ impl WorkspaceError {
             | WorkspaceError::OverlapsGathered { path, .. } => path,
             WorkspaceError::Lock(error) => error.path(),
         }
+    }
+}
+
+/// A folder a project's settings name, as they spell it: a route `/`
+/// separated on every platform, as `directories` and `targets` keep one and
+/// a command line types it, or an absolute path as the platform writes it.
+/// A route rebuilt from its folder names would read `..\shared` on
+/// Windows, which is not what was typed.
+fn as_named(path: &Path) -> String {
+    if path.is_relative() {
+        paths::as_route(path)
+    } else {
+        path.display().to_string()
     }
 }
 
@@ -2828,7 +2847,10 @@ fn points_at(root: &Path, entry: &Path, target: &Path) -> bool {
     if resolved == target {
         return true;
     }
-    match (fs::canonicalize(&resolved), fs::canonicalize(target)) {
+    match (
+        crate::paths::canonical(&resolved),
+        crate::paths::canonical(target),
+    ) {
         (Ok(followed), Ok(wanted)) => followed == wanted,
         _ => false,
     }
@@ -2889,7 +2911,7 @@ pub(crate) fn replace_bytes(path: &Path, contents: &[u8]) -> Result<(), (PathBuf
     // Follow a symlinked config to the file it names. Replacing the link
     // itself would silently detach a workspace from a config someone chose to
     // share, and leave the original holding stale contents.
-    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let resolved = crate::paths::canonical(path).unwrap_or_else(|_| path.to_path_buf());
     replace_bytes_unresolved(&resolved, contents)
 }
 

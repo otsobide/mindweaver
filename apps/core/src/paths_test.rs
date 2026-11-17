@@ -109,3 +109,26 @@ fn config_strings_use_forward_slashes() {
     assert_eq!(to_config_string(Path::new("a/b")), Some("a/b".to_owned()));
     assert_eq!(to_config_string(Path::new("..")), Some("..".to_owned()));
 }
+
+#[test]
+fn a_route_joined_under_a_base_is_spelled_with_the_platform_s_separator_throughout() {
+    let base = std::env::temp_dir();
+
+    let joined = joined(&base, ".mindweaver/library/skills");
+
+    assert_eq!(
+        joined.to_string_lossy(),
+        base.join(".mindweaver")
+            .join("library")
+            .join("skills")
+            .to_string_lossy()
+    );
+}
+
+#[test]
+fn an_absolute_route_replaces_the_base_as_join_would() {
+    let base = std::env::temp_dir();
+    let absolute = base.join("elsewhere");
+
+    assert_eq!(joined(Path::new("work"), &absolute), absolute);
+}

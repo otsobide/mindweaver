@@ -325,6 +325,10 @@ impl TokenFile {
         let mut file = made.open(path).map_err(|source| match source.kind() {
             io::ErrorKind::AlreadyExists => CliError::TokenFileExists(path.to_owned()),
             io::ErrorKind::NotFound => CliError::TokenFileFolderMissing(path.to_owned()),
+            // Windows refuses to open a folder as a file with `Access is
+            // denied` rather than saying it is there: a folder somebody made
+            // at the path is still something there, refused as a file is.
+            _ if fs::symlink_metadata(path).is_ok() => CliError::TokenFileExists(path.to_owned()),
             _ => CliError::TokenFileUnwritable {
                 path: path.to_owned(),
                 source,

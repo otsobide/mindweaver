@@ -569,7 +569,7 @@ fn in_library(workspace: &WeaverWorkspace, name: &str, copy: &Path) -> Result<Pa
         });
     }
     // One inside the other would copy a folder into itself.
-    if let (Ok(from), Some(to)) = (fs::canonicalize(copy), install::resolved(&library)) {
+    if let (Ok(from), Some(to)) = (crate::paths::canonical(copy), install::resolved(&library)) {
         if to.starts_with(&from) || from.starts_with(&to) {
             return Err(InstallError::Overlaps {
                 from: copy.to_path_buf(),

@@ -675,7 +675,10 @@ fn is_below(path: &Path, folder: &Path) -> bool {
     if paths::relative_to(path, folder).is_some_and(down) {
         return true;
     }
-    match (fs::canonicalize(path), fs::canonicalize(folder)) {
+    match (
+        crate::paths::canonical(path),
+        crate::paths::canonical(folder),
+    ) {
         (Ok(path), Ok(folder)) => path
             .strip_prefix(&folder)
             .is_ok_and(|route| route.components().next().is_some()),
@@ -701,10 +704,10 @@ pub(crate) fn linked_inside(project: &Path, file: &Path) -> Result<(), AgentsMdE
     if !is_link {
         return Ok(());
     }
-    let Ok(target) = fs::canonicalize(file) else {
+    let Ok(target) = crate::paths::canonical(file) else {
         return Ok(());
     };
-    let root = fs::canonicalize(project).map_err(|source| AgentsMdError::Read {
+    let root = crate::paths::canonical(project).map_err(|source| AgentsMdError::Read {
         path: project.to_path_buf(),
         source,
     })?;

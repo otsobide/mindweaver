@@ -1421,8 +1421,10 @@ These are easy to break from a single file without noticing.
   among them (`install::mcp`), `install::rules::render`, `gather::gather`,
   `gather::scrub`, which `WeaverWorkspace::ledger_to_write` runs, when it has
   clones to rewrite, `migrate::library`, from its plan to its rewrite of
-  the marker, `migrate::names`, from its plan to the rename of the folder
-  the lock is in, whose new place it then follows (`WorkspaceLock::moved`),
+  the marker, `migrate::names`, from its plan to the move of the folder
+  the lock is in, a rename, or on Windows its entries renamed one by one
+  into the new folder (`entry_by_entry`), whose new place it then follows
+  (`WorkspaceLock::moved`),
   `migrate::project`, for a move from a `mind.toml`, from before
   it reads the project again until its ledger is written (a move from a
   `settings.json` moves no copy, and takes none), `reapply::apply`,
@@ -2353,11 +2355,12 @@ These are easy to break from a single file without noticing.
   binaries, which `e2e (web)` downloads and drives in Chromium and WebKit
   (`make web/e2e/run`), uploading the traces of what fails. `types drift
   (web)` runs `make web/types/check`, `make web/fixtures/check`, `make
-  api/schemas/check` and `make api/openapi/check`. Development targets Linux only for now: macOS
-  and Windows (`test (macos)`, `test (windows)`, which set up Node too) run
-  only by hand (`workflow_dispatch`) or on PRs labelled `full-matrix`, until
-  the compatibility pass (#154) puts them back on pushes to `dev`/`main` and
-  PRs from `dev`, `main` or `release/*`. Every Linux job of
+  api/schemas/check` and `make api/openapi/check`. macOS and Windows
+  (`test (macos)`, `test (windows)`, which set up Node too) run on the
+  shipping path, pushes to `dev`/`main` and PRs from `dev`, `main` or
+  `release/*`, and otherwise only by hand (`workflow_dispatch`) or on PRs
+  labelled `full-matrix`, as a feature that touches paths asks for them.
+  Every Linux job of
   `test-and-build` runs on the runner its first job, `pick the Linux
   runner`, picks once for the run: the repository's own, a self-hosted one
   with the labels `[self-hosted, Linux, X64]`, when one is online and
@@ -2374,7 +2377,8 @@ These are easy to break from a single file without noticing.
   (server)`, `test (web)`, `types drift (web)`, `build (core)`, `build
   (cli)`, `e2e (web)` and `build (server)`, and `gitflow branch name` for `dev` or
   `release source branch` for `main`. `test (macos)` and `test (windows)`
-  are not required, since they run only when asked for. A check is required
+  are not required, since they run on no feature branch's pull request
+  unless asked for. A check is required
   by its job's display name, so renaming a job means changing both
   rulesets.
 - Commit messages: `<area>: <imperative summary>`, where area is `core`,

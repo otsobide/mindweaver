@@ -13,6 +13,7 @@ use mindweaver_core::claude_rules;
 use mindweaver_core::migrate::{
     self, CarriedRule, LeftWhy, MigrateError, NamesPlan, Plan, ProjectNames, ProjectPlan, Stranded,
 };
+use mindweaver_core::paths;
 use mindweaver_core::{Agent, AgentHomes, MarkerFile, MindProject, Names, Share, WeaverWorkspace};
 
 use super::all_or_nothing;
@@ -173,7 +174,7 @@ fn names_report(plan: &NamesPlan, done: bool) -> String {
             "{} {} in the marker at {}",
             would("pointed", "would point"),
             repointed.key,
-            repointed.to.display()
+            route(&repointed.to)
         );
     }
     if plan.shelf > 0 {
@@ -256,6 +257,12 @@ fn project_names(text: &mut String, project: &ProjectNames, done: bool) {
     }
 }
 
+/// `path`, a route, as a marker and git spell it: `/` separated on every
+/// platform, or as it displays when it is not UTF-8.
+fn route(path: &Path) -> String {
+    paths::to_config_string(path).unwrap_or_else(|| path.display().to_string())
+}
+
 /// What the move says on stderr: for each project with a rule file git
 /// tracks that the move carries, how to take the move into the index,
 /// which Mindweaver runs no git to do.
@@ -273,7 +280,7 @@ fn tracked(plan: &NamesPlan) -> Vec<Warning> {
                     .iter()
                     .filter(|carried| carried.tracked)
                     .filter_map(|carried| of(carried).strip_prefix(&project.root).ok())
-                    .map(|route| route.display().to_string())
+                    .map(route)
                     .collect::<Vec<String>>()
                     .join(" ")
             };

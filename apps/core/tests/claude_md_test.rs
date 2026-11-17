@@ -671,7 +671,7 @@ fn a_dot_claude_linked_out_of_the_project_is_never_imported_into() {
 
 /// `path` resolved, as the walk up from a project spells what it finds.
 fn resolved(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap()
+    mindweaver_core::paths::canonical(path).unwrap()
 }
 
 /// The line that imports `AGENTS.md` into the file at `name`.

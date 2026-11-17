@@ -583,7 +583,7 @@ fn marked(parent: &TempDir, name: &str, agents: &[Agent], skills: Option<&str>) 
 
 /// Write `contents` as the SKILL.md of `folder`, a path below the project.
 fn put(project: &MindProject, folder: &str, contents: &str) -> PathBuf {
-    let dir = project.root().join(folder);
+    let dir = mindweaver_core::paths::joined(project.root(), folder);
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("SKILL.md"), contents).unwrap();
     dir

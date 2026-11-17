@@ -1,16 +1,40 @@
 //! Lexical path arithmetic: normalising a path, and working out the route
 //! from one to another.
 //!
-//! Everything here is **lexical**. Nothing touches the disk and nothing
-//! resolves symlinks, which is deliberate twice over: a workspace can register
-//! a project directory that does not exist yet, and a path that travels
-//! through a symlink keeps the shape the user typed rather than the shape the
-//! filesystem prefers. The cost is the usual one: `a/b/../c` is treated as
-//! `a/c`, which differs from what the kernel would do if `a/b` were a symlink.
+//! Everything here is **lexical** but [`canonical`]. Nothing else touches
+//! the disk and nothing else resolves symlinks, which is deliberate twice
+//! over: a workspace can register a project directory that does not exist
+//! yet, and a path that travels through a symlink keeps the shape the user
+//! typed rather than the shape the filesystem prefers. The cost is the usual
+//! one: `a/b/../c` is treated as `a/c`, which differs from what the kernel
+//! would do if `a/b` were a symlink.
 
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serializer;
+
+/// `path` as the file system resolves it, every link followed and every `.`
+/// and `..` taken out, spelled on Windows as a person types a path there
+/// (`C:\Users\...`) rather than as the verbatim `\\?\C:\Users\...`
+/// `std::fs::canonicalize` gives: a message would show that prefix, and a
+/// path resolved one way never equals one resolved the other, since their
+/// prefixes differ as components. Every resolution in core, and in a test
+/// of one, goes through here, so both sides of a comparison are spelled
+/// alike. `dunce` keeps the prefix where dropping it would change what the
+/// path names (past `MAX_PATH`, a device's name); elsewhere it is
+/// `std::fs::canonicalize` itself.
+pub fn canonical(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+    dunce::canonicalize(path)
+}
+
+/// `route`, a route a marker or a setting keeps with `/` on every platform,
+/// under `base`, spelled with the platform's separator throughout: `join`
+/// keeps a route's `/` as it is, which Windows reads but which a path
+/// shown there would then mix, `C:\work\.mindweaver/library/skills\deploy`.
+/// An absolute `route` replaces `base`, as with `join`.
+pub fn joined(base: &Path, route: impl AsRef<Path>) -> PathBuf {
+    base.join(route.as_ref().components().collect::<PathBuf>())
+}
 
 /// Resolve `.` and `..` without touching the disk.
 ///

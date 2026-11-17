@@ -49,6 +49,11 @@ rusqlite = { version = "0.40", default-features = false, features = ["bundled", 
 # implementation rather than one of our own. 0.11, the version the server's
 # rust-embed already builds, so the workspace gains no second sha2.
 sha2 = "0.11"
+# A path resolved on the disk, spelled on Windows as a person types one
+# rather than with the verbatim `\\?\` prefix `std::fs::canonicalize` gives
+# there (`paths::canonical`). gix-discover builds it already, so the lock
+# gains no crate.
+dunce = "1"
 # The read model's types in TypeScript, for the panel to compile against
 # (#70): derived beside the serde derive each type has, so that what the
 # panel is told a snapshot holds is what serde writes, read off the same

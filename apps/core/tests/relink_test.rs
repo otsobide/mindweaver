@@ -241,7 +241,7 @@ fn a_stale_entry_whose_id_the_ledger_knows_is_not_untraced() {
 #[test]
 fn a_copy_beside_its_project_is_a_duplicate_and_never_a_move() {
     let (dir, workspace, project) = installed(Share::Local);
-    let copy = dir.path().join("Projects/copy");
+    let copy = dir.path().join("Projects").join("copy");
     copied(project.root(), &copy);
 
     let scan = scanned(&workspace);
@@ -281,7 +281,7 @@ fn two_copies_of_a_project_that_moved_are_a_duplicate_and_neither_is_its_move() 
 #[test]
 fn two_linked_copies_are_a_failure_of_the_status_naming_both() {
     let (dir, mut workspace, project) = installed(Share::Local);
-    let copy = dir.path().join("Projects/copy");
+    let copy = dir.path().join("Projects").join("copy");
     copied(project.root(), &copy);
     workspace.link(&MindProject::open(&copy).unwrap()).unwrap();
 

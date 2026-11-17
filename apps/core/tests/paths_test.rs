@@ -42,9 +42,12 @@ fn tangled() -> PathBuf {
         .collect()
 }
 
-/// An absolute path: the root and a route below it.
+/// An absolute path: the root and a route below it. On Windows a root
+/// alone, `\b`, is relative to the drive, and only a path with one is
+/// absolute.
 fn absolute() -> PathBuf {
-    Path::new("/").join(tangled())
+    let root = if cfg!(windows) { r"C:\" } else { "/" };
+    Path::new(root).join(tangled())
 }
 
 fn has(path: &Path, what: fn(&Component) -> bool) -> bool {

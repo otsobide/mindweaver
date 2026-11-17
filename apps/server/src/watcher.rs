@@ -13,6 +13,7 @@ use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use notify::event::ModifyKind;
 use notify::{ErrorKind, EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{
     new_debouncer, DebounceEventHandler, DebounceEventResult, DebouncedEvent, Debouncer,
@@ -247,6 +248,9 @@ impl<W: Watches> State<W> {
         let mut named = Vec::new();
         for change in changes.iter().filter(|change| counts(&change.kind)) {
             for path in &change.paths {
+                if is_below(&change.kind, path) {
+                    continue;
+                }
                 let path = self.as_listed(path);
                 reached.extend(self.plan.reached(&path));
                 named.push(path);
@@ -376,6 +380,21 @@ fn counts(kind: &EventKind) -> bool {
         EventKind::Access(_) | EventKind::Other => false,
         EventKind::Any | EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => true,
     }
+}
+
+/// Whether a change to `path` is one to what a folder holds below it, not
+/// to the folder: its time or size changed, which happens when an entry in
+/// it does. Windows tells a folder watched of each folder in it whose
+/// entries changed (`ReadDirectoryChangesW`'s last write), inotify and
+/// FSEvents do not; told, it would be a change further down than a folder
+/// watched on its own holds directly, a snapshot read for every file a
+/// skill's scripts write. A folder made, removed or renamed is still a
+/// change, as is anything that is no folder by the time it is read.
+fn is_below(kind: &EventKind, path: &Path) -> bool {
+    matches!(
+        kind,
+        EventKind::Modify(ModifyKind::Any | ModifyKind::Data(_) | ModifyKind::Metadata(_))
+    ) && path.is_dir()
 }
 
 fn is_gone(error: &notify::Error) -> bool {

@@ -2858,13 +2858,13 @@ pub(crate) fn route(base: &Path, target: &Path) -> String {
 
 /// Whether two paths are one directory on disk.
 fn same_place(a: &Path, b: &Path) -> bool {
-    matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
+    matches!((crate::paths::canonical(a), crate::paths::canonical(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 /// Whether one of two paths is inside the other. `to` need not exist yet, so
 /// it is resolved through the nearest ancestor that does.
 fn overlaps(from: &Path, to: &Path) -> bool {
-    match (fs::canonicalize(from), resolved(to)) {
+    match (crate::paths::canonical(from), resolved(to)) {
         (Ok(from), Some(to)) => from.starts_with(&to) || to.starts_with(&from),
         _ => false,
     }
@@ -2875,7 +2875,7 @@ pub(crate) fn resolved(path: &Path) -> Option<PathBuf> {
     let mut missing = Vec::new();
     let mut existing = path;
     loop {
-        if let Ok(real) = fs::canonicalize(existing) {
+        if let Ok(real) = crate::paths::canonical(existing) {
             return Some(
                 missing
                     .iter()
@@ -2904,7 +2904,7 @@ pub(crate) fn kept_by_a_load(
     let at = resolved(path)?;
     workspace.loads().into_iter().find_map(|loaded| {
         let source = loaded.workspace.ok()?;
-        let kept = fs::canonicalize(source.own().directory_for(kind)?).ok()?;
+        let kept = crate::paths::canonical(source.own().directory_for(kind)?).ok()?;
         (at.starts_with(&kept) || kept.starts_with(&at)).then_some(loaded.root)
     })
 }

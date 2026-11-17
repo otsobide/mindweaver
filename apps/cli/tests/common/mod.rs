@@ -61,6 +61,14 @@ pub const PINNED: [&str; 6] = [
 /// The short spelling of an option in [`PINNED`] that has one.
 const SHORT: [(&str, &str); 1] = [("--workspace", "-W")];
 
+/// `path` as a line shown for a front end spells it, a word of the shell
+/// (`task::shell`): quoted where a shell would split or expand it, as it
+/// would a Windows path's backslashes, and bare on Linux's temporary
+/// folders.
+pub fn as_typed(path: impl AsRef<Path>) -> String {
+    mindweaver_cli::task::shell(&[path.as_ref().to_string_lossy().into_owned()])
+}
+
 /// Build an argument line with `-C dir` appended, and every option in
 /// [`PINNED`] set to empty.
 pub fn line(binary: &str, args: &[&str], dir: &Path) -> Vec<String> {

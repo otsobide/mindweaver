@@ -361,7 +361,7 @@ fn locate(
         Within::Kept => holder.directory_for(kind),
     }
     .unwrap_or_else(|| holder.root().to_path_buf());
-    let bound = fs::canonicalize(&bound).map_err(|source| ContentsError::Unreadable {
+    let bound = crate::paths::canonical(&bound).map_err(|source| ContentsError::Unreadable {
         path: bound,
         source,
     })?;

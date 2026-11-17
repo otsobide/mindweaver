@@ -285,7 +285,7 @@ fn a_link_out_of_the_project_is_refused_and_what_it_points_at_left_alone() {
     match fixture.render(&[&rule], false) {
         Err(AgentsMdError::LinkedOut { file, target }) => {
             assert_eq!(file, fixture.agents_md());
-            assert_eq!(target, fs::canonicalize(&theirs).unwrap());
+            assert_eq!(target, mindweaver_core::paths::canonical(&theirs).unwrap());
         }
         other => panic!("{other:?}"),
     }

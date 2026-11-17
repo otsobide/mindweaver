@@ -161,7 +161,7 @@ fn mind_init_refuses_an_agent_it_does_not_know_before_writing_anything() {
 #[test]
 fn weaver_init_makes_the_workspace_in_the_directory_it_is_given() {
     let dir = TempDir::new().unwrap();
-    let writing = dir.path().join("weavers/writing");
+    let writing = dir.path().join("weavers").join("writing");
 
     // Typed from where the command works, and made, parents and all, as
     // `python -m venv` makes the directory it is given.
@@ -622,7 +622,8 @@ fn a_copy_changed_since_it_was_installed_is_taken_out_only_with_force() {
     let said = format!(
         "warning: commit-style in alpha was changed since it was installed, at {}, so it was \
          left alone; --force takes it out",
-        copies[0].strip_prefix(&alpha).unwrap().display()
+        // A route in the project, which is said with `/` on every platform.
+        mindweaver_core::paths::to_config_string(copies[0].strip_prefix(&alpha).unwrap()).unwrap()
     );
     for refused in [&refused, &from_the_workspace] {
         assert_eq!(refused.stdout, "");

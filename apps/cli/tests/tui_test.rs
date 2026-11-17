@@ -530,7 +530,7 @@ fn weaver_minds_given_a_folder_offers_what_is_under_it_beside_every_linked_one()
     // By path, since the lines run from the workspace root, outside the
     // folder; and not `gamma` or `repo`, under the workspace it was not
     // told to look under.
-    let delta = work.path().join("acme/delta").display().to_string();
+    let delta = work.path().join("acme").join("delta").display().to_string();
     let plain = work.path().join("plain").display().to_string();
     assert_eq!(
         minds_rows(&app),
@@ -586,7 +586,7 @@ fn weaver_minds_given_only_a_folder_that_is_not_there_is_not_an_empty_answer() {
 fn applying_the_minds_screen_given_a_folder_links_by_path_and_looks_there_again() {
     let (dir, work) = candidates_and_a_folder_beside();
     let mut app = tui::minds(dir.path(), &[work.path().to_path_buf()], &Lookup::default()).unwrap();
-    let delta = work.path().join("acme/delta");
+    let delta = work.path().join("acme").join("delta");
     let spelled = delta.display().to_string();
 
     press_key(&mut app, KeyCode::Char(' '));
@@ -604,7 +604,7 @@ fn applying_the_minds_screen_given_a_folder_links_by_path_and_looks_there_again(
     assert!(WeaverWorkspace::open(dir.path()).unwrap().is_linked(&delta));
     let transcript = app.transcript();
     assert!(
-        transcript.contains(&format!("$ mindweaver link {spelled}\n")),
+        transcript.contains(&format!("$ mindweaver link {}\n", as_typed(&spelled))),
         "{transcript}"
     );
     // Read again under the same folder: `plain` is still offered, and
@@ -1527,6 +1527,8 @@ fn shelf_origin(workspace: &WeaverWorkspace, ledger: &Ledger) -> String {
 fn the_install_screen_opens_inside_the_tui_and_applies_from_there() {
     let (dir, workspace, ledger) = shelved(&["collapse"], &["deploy"]);
     let origin = shelf_origin(&workspace, &ledger);
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     let mut app = tui_in(dir.path());
 
     press_and_run(&mut app, KeyCode::Char('i'));
@@ -1560,7 +1562,7 @@ fn the_install_screen_opens_inside_the_tui_and_applies_from_there() {
     assert!(reader.lines.iter().any(|(_, line)| *line == said));
     assert_eq!(
         app.transcript(),
-        format!("$ mindweaver install -p collapse --from {origin} skill:deploy\n{said}\n")
+        format!("$ mindweaver install -p collapse --from {from} skill:deploy\n{said}\n")
     );
 }
 
@@ -1568,6 +1570,8 @@ fn the_install_screen_opens_inside_the_tui_and_applies_from_there() {
 fn the_install_screen_inside_the_tui_turns_round_by_artifact_and_applies_the_same_batch() {
     let (dir, workspace, ledger) = shelved(&["collapse", "tanukeys"], &["deploy"]);
     let origin = shelf_origin(&workspace, &ledger);
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     let mut app = tui_in(dir.path());
     press_and_run(&mut app, KeyCode::Char('i'));
 
@@ -1593,7 +1597,7 @@ fn the_install_screen_inside_the_tui_turns_round_by_artifact_and_applies_the_sam
     assert_eq!(
         app.transcript(),
         format!(
-            "$ mindweaver install -p collapse -p tanukeys --from {origin} skill:deploy\n\
+            "$ mindweaver install -p collapse -p tanukeys --from {from} skill:deploy\n\
              installed deploy into collapse, from {origin}\n\
              installed deploy into tanukeys, from {origin}\n"
         )
@@ -1638,9 +1642,11 @@ fn the_install_screen_inside_the_tui_installs_where_each_agent_of_a_v3_project_r
     // Opened again, now that it links `alpha`.
     let workspace = WeaverWorkspace::open(dir.path()).unwrap();
     let origin = shelf_origin(&workspace, &workspace.ledger_for_reading().unwrap());
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     assert!(
         app.transcript().starts_with(&format!(
-            "$ mindweaver install -p alpha --from {origin} skill:deploy\n\
+            "$ mindweaver install -p alpha --from {from} skill:deploy\n\
              installed deploy into alpha, from {origin}\n"
         )),
         "{}",
@@ -1797,6 +1803,8 @@ fn the_install_screen_scrubs_the_ledger_when_it_applies_and_not_when_it_opens() 
 fn a_line_of_the_install_screen_that_fails_does_not_keep_the_rest_from_running() {
     let (dir, workspace, ledger) = shelved(&["collapse"], &["deploy"]);
     let origin = shelf_origin(&workspace, &ledger);
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     weaver(
         dir.path(),
         &["add", "skill", "ours", "Of the workspace's own"],
@@ -1830,7 +1838,7 @@ fn a_line_of_the_install_screen_that_fails_does_not_keep_the_rest_from_running()
     );
     assert!(
         transcript.contains(&format!(
-            "$ mindweaver install -p collapse --from {origin} skill:deploy\n\
+            "$ mindweaver install -p collapse --from {from} skill:deploy\n\
              installed deploy into collapse, from {origin}\n"
         )),
         "{transcript}"
@@ -1946,6 +1954,8 @@ fn a_line_as_the_transcript_shows_it_reads_back_into_its_words() {
 fn the_lines_the_install_screen_ran_run_again_on_a_copy_leave_the_same_ledger_and_disk() {
     let (dir, workspace, ledger) = shelved(&["collapse", "tanukeys"], &["deploy", "lint"]);
     let origin = shelf_origin(&workspace, &ledger);
+    // As the line a front end shows spells it.
+    let from = as_typed(&origin);
     weaver(
         dir.path(),
         &["add", "rule", "git/commits", "Commit one step at a time"],
@@ -1991,7 +2001,7 @@ fn the_lines_the_install_screen_ran_run_again_on_a_copy_leave_the_same_ledger_an
     assert_eq!(
         ran,
         [
-            &format!("mindweaver install -p collapse -p tanukeys --from {origin} skill:deploy"),
+            &format!("mindweaver install -p collapse -p tanukeys --from {from} skill:deploy"),
             "mindweaver uninstall -p tanukeys skill:lint",
             "mindweaver install -p collapse -p tanukeys --from workspace rule:git/commits",
         ],
@@ -3830,7 +3840,12 @@ fn a_project_given_a_rule_some_of_its_agents_read_nowhere_is_marked_and_its_pane
 #[test]
 fn a_project_doctor_finds_something_in_is_marked_with_how_much_and_its_pane_says_what() {
     let dir = workspace_with_own();
-    let stage = dir.path().join("alpha/.mind/tmp/4242-00112233445566ff");
+    let stage = dir
+        .path()
+        .join("alpha")
+        .join(".mind")
+        .join("tmp")
+        .join("4242-00112233445566ff");
     fs::create_dir_all(&stage).unwrap();
 
     let app = tui_in(dir.path());
@@ -3892,7 +3907,10 @@ fn a_project_no_workspace_links_is_marked_for_what_doctor_finds_in_it_too() {
     let project = elsewhere.path().join("collapse");
     fs::create_dir(&project).unwrap();
     new_project(&project);
-    let stage = project.join(".mind/tmp/4242-00112233445566ff");
+    let stage = project
+        .join(".mind")
+        .join("tmp")
+        .join("4242-00112233445566ff");
     fs::create_dir_all(&stage).unwrap();
 
     let View::Workspace(workspace) =
@@ -4106,7 +4124,7 @@ fn w_lists_the_workspaces_this_machine_knows_with_the_one_on_screen_marked() {
     fs::create_dir(&home).unwrap();
     weaver_at_home(&home, &home, &["init"]).unwrap();
     weaver_at_home(&home, &home, &["init", "weavers/writing"]).unwrap();
-    let writing = home.join("weavers/writing");
+    let writing = home.join("weavers").join("writing");
     let mut app = tui_at_home(&writing, &home);
 
     assert_eq!(
@@ -4314,7 +4332,7 @@ fn x_exports_the_library_into_a_folder_as_weaver_export_does() {
         "{drawn}"
     );
     assert!(
-        drawn.contains(&format!("mindweaver export {typed}")),
+        drawn.contains(&format!("mindweaver export {}", as_typed(&typed))),
         "{drawn}"
     );
     let task = press_and_run(&mut app, KeyCode::Enter);
@@ -4343,7 +4361,7 @@ fn x_exports_the_library_into_a_folder_as_weaver_export_does() {
         .is_file());
     assert!(app
         .transcript()
-        .contains(&format!("$ mindweaver export {typed}\n")));
+        .contains(&format!("$ mindweaver export {}\n", as_typed(&typed))));
 }
 
 #[test]

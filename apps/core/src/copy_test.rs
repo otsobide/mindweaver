@@ -423,7 +423,7 @@ fn replacing_beside_still_leaves_nothing_behind() {
 #[test]
 fn a_link_is_followed_to_where_it_leads_and_judged_there() {
     let (dir, from, _, _) = fixture();
-    let bounds = [fs::canonicalize(&from).unwrap()];
+    let bounds = [crate::paths::canonical(&from).unwrap()];
     fs::write(dir.path().join("private.env"), "SECRET").unwrap();
     std::os::unix::fs::symlink(dir.path().join("private.env"), from.join("out.env")).unwrap();
     std::os::unix::fs::symlink(from.join("SKILL.md"), from.join("in.md")).unwrap();
@@ -431,12 +431,15 @@ fn a_link_is_followed_to_where_it_leads_and_judged_there() {
     let (outside, inside) = followed(&from.join("out.env"), &bounds).unwrap();
     assert_eq!(
         outside,
-        fs::canonicalize(dir.path().join("private.env")).unwrap()
+        crate::paths::canonical(dir.path().join("private.env")).unwrap()
     );
     assert!(!inside);
     assert_eq!(
         followed(&from.join("in.md"), &bounds).unwrap(),
-        (fs::canonicalize(from.join("SKILL.md")).unwrap(), true)
+        (
+            crate::paths::canonical(from.join("SKILL.md")).unwrap(),
+            true
+        )
     );
 }
 
@@ -449,7 +452,7 @@ fn a_neighbour_whose_name_starts_with_a_bound_is_not_inside_it() {
 
     let (_, inside) = followed(
         &neighbour.join("SKILL.md"),
-        &[fs::canonicalize(&from).unwrap()],
+        &[crate::paths::canonical(&from).unwrap()],
     )
     .unwrap();
 

@@ -391,7 +391,9 @@ fn a_credential_typed_into_a_box_is_its_origin_as_printed_and_never_said_back() 
     assert_eq!(codes(&plan), (vec![], vec!["not_offered"]));
     let json = serde_json::to_string(&plan).unwrap();
     assert!(!json.contains("secret"), "{json}");
-    assert!(json.contains(&format!(r#""origin":"{address}""#)), "{json}");
+    // As JSON spells it, which escapes a Windows path's backslashes.
+    let origin = serde_json::to_string(&address).unwrap();
+    assert!(json.contains(&format!(r#""origin":{origin}"#)), "{json}");
 }
 
 #[test]

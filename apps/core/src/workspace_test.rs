@@ -309,7 +309,7 @@ fn a_replacement_that_cannot_be_put_in_place_leaves_no_temporary_behind() {
 
     let (path, _) = replace_bytes(&file, b"new").unwrap_err();
 
-    assert_eq!(path, fs::canonicalize(&file).unwrap());
+    assert_eq!(path, crate::paths::canonical(&file).unwrap());
     assert_eq!(names_in(dir.path()), ["weaver.toml"]);
     assert_eq!(fs::read_to_string(file.join("inside")).unwrap(), "kept");
 }

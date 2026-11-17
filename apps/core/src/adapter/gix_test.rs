@@ -394,6 +394,65 @@ fn a_pin_is_fetched_alone_where_the_server_hands_one_out_by_its_id() {
     assert!(into.join(".git").join("shallow").exists());
 }
 
+/// What Git for Windows' system config sets, which `gix` reads there, with
+/// the ending a repository's own `text=auto` would ask for: every text file
+/// checked out with CRLF, unless a clone says otherwise.
+const CONVERTING: &[&str] = &["core.autocrlf=true", "core.eol=crlf"];
+
+/// The same, over protocol v1, for a pin found on its branch.
+const CONVERTING_OVER_V1: &[&str] = &["protocol.version=1", "core.autocrlf=true", "core.eol=crlf"];
+
+#[test]
+fn a_clone_writes_its_files_as_committed_whatever_the_machine_converts_line_endings_to() {
+    let skill = crate::mother::SkillMother::create("deploy", "Ship it");
+    let script = "#!/bin/sh\necho run\n";
+    let repository = crate::mother::GitRepositoryMother::create(&[
+        ("skills/deploy/SKILL.md", &skill),
+        ("skills/deploy/scripts/run.sh", script),
+    ]);
+    let url = repository.path().to_string_lossy().into_owned();
+    let cache = tempfile::TempDir::new().unwrap();
+
+    let cloned = clone(
+        &url,
+        Wanted::Branch(None),
+        &cache.path().join("clone"),
+        &Watch::new(),
+        &plainly(CONVERTING),
+    )
+    .unwrap();
+
+    let deploy = cloned.root.join("skills").join("deploy");
+    assert_eq!(fs::read(deploy.join("SKILL.md")).unwrap(), skill.as_bytes());
+    assert_eq!(
+        fs::read(deploy.join("scripts").join("run.sh")).unwrap(),
+        script.as_bytes()
+    );
+}
+
+#[test]
+fn a_pin_found_on_its_branch_is_written_as_committed_whatever_the_machine_converts_line_endings_to()
+{
+    let (repository, first, pin) = moved_on();
+    let url = repository.path().to_string_lossy().into_owned();
+    let cache = tempfile::TempDir::new().unwrap();
+
+    let cloned = pinned(
+        &url,
+        None,
+        &pin,
+        &cache.path().join("clone"),
+        &Watch::new(),
+        &plainly(CONVERTING_OVER_V1),
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read(cloned.root.join("skills").join("deploy").join("SKILL.md")).unwrap(),
+        first.as_bytes()
+    );
+}
+
 /// A private repository's server on loopback: every request it reads is
 /// asked to log in (`401`, `WWW-Authenticate: Basic`), whatever login it
 /// came with, and the `Authorization` each one sent is noted, `None` for a

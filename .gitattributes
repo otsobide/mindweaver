@@ -1,0 +1,8 @@
+# Every text file is checked out with LF, Windows included. Git for Windows
+# sets `core.autocrlf`, which would otherwise hand a checkout there CRLF:
+# the tests read their fixtures and goldens as bytes (`include_str!`, a
+# marker written byte for byte, a block rendered in the file's own line
+# endings), and what the CLI prints ends its lines with `\n` on every
+# platform, so a fixture is the same bytes everywhere or the suite
+# disagrees with itself. `auto` leaves a binary file, an image, as it is.
+* text=auto eol=lf

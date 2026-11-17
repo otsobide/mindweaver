@@ -367,7 +367,12 @@ fn a_route_is_spelled_from_where_the_scan_is_asked_to_spell_it() {
     let elsewhere = spelled(Some(dir.path().join("other")));
     assert_eq!(
         elsewhere,
-        dir.path().join("work/acme/api").display().to_string()
+        dir.path()
+            .join("work")
+            .join("acme")
+            .join("api")
+            .display()
+            .to_string()
     );
 }
 

@@ -398,7 +398,9 @@ removed commit-style from beta
 #[test]
 fn uninstall_orphaned_leaves_what_cannot_be_read_and_says_why() {
     let dir = workspace_with_copies();
-    let manifest = own_directory_for(dir.path(), Kind::Skill).join("commit-style/SKILL.md");
+    let manifest = own_directory_for(dir.path(), Kind::Skill)
+        .join("commit-style")
+        .join("SKILL.md");
     fs::write(
         &manifest,
         "---\nname: commit-style\ndescription: [unclosed\n---\n",

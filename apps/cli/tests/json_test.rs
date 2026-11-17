@@ -1106,7 +1106,16 @@ fn gather_list_as_json_holds_the_offers_the_text_lists() {
     assert_eq!(licence, &Some(Licence::Unknown));
     // The text says the licence beside where it comes from, and a loaded
     // workspace's own nothing.
-    assert!(text.stdout.contains("deploy  tmp-"), "{}", text.stdout);
+    // The source is named after its folder and the one it is in, the
+    // system's temporary folder, whatever that is called there.
+    let named = mindweaver_core::value::SourceName::derived(&mindweaver_core::url::canonical(
+        &source.path().to_string_lossy(),
+    ));
+    assert!(
+        text.stdout.contains(&format!("deploy  {named}  ")),
+        "{}",
+        text.stdout
+    );
     assert!(
         text.stdout.contains("  unknown  Ship it\n"),
         "{}",

@@ -127,6 +127,10 @@ async fn a_folder_above_what_is_named_removed_whole_is_told() {
 /// it aside does: the system dropped the watches below it as it went, and
 /// they are set again, so a change inside is told after.
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows renames no folder above one watched (architecture.md, open questions)"
+)]
 async fn a_folder_above_what_is_named_renamed_away_and_back_is_watched_again() {
     let dir = TempDir::new().unwrap();
     let claude = dir.path().join(".claude");
@@ -162,6 +166,9 @@ async fn what_the_backend_names_since_a_change_is_watched() {
 
     fs::write(one.path().join("weaver.toml"), "linked = true\n").unwrap();
     assert_eq!(stream.next().await, changed("one"));
+    // Windows tells a file made and then written as two changes, which may
+    // fall either side of the debounce.
+    while stream.within(debounced()).await.is_some() {}
     fs::write(two.path().join("SKILL.md"), "# Two\n").unwrap();
 
     assert_eq!(stream.next().await, changed("two"));

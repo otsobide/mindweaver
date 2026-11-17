@@ -122,9 +122,10 @@ fn a_binary_file_is_reported_with_its_size_and_never_read_out() {
     let (_dir, project) = fixture();
     let skill = skill_folder(&project, "deploy");
     fs::write(skill.join("logo.png"), [0x89, b'P', b'N', b'G', 0, 0xff]).unwrap();
-    fs::write(skill.join("nul.txt"), "plain\0text").unwrap();
+    // Not `nul.txt`, which Windows takes for its null device's name.
+    fs::write(skill.join("zero.txt"), "plain\0text").unwrap();
 
-    for (file, size) in [("logo.png", 6), ("nul.txt", 10)] {
+    for (file, size) in [("logo.png", 6), ("zero.txt", 10)] {
         let contents = Contents::of_project(&project, "deploy", file).unwrap();
         assert_eq!(contents.text, None, "{file}");
         assert_eq!(contents.withheld, Some(Withheld::Binary), "{file}");

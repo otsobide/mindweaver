@@ -54,6 +54,12 @@ fn text(path: &Path) -> String {
     path.to_str().unwrap().to_owned()
 }
 
+/// `path` as a line shows it: quoted where a shell would split or expand
+/// it, as it would a Windows path's backslashes.
+fn typed(path: &str) -> String {
+    shell(&[path.to_owned()])
+}
+
 fn add(holder: Holder) -> Task {
     Task::Add {
         holder,
@@ -77,7 +83,7 @@ fn a_project_held_by_its_entry_is_named_to_the_command_by_its_folder() {
         lines(&workspace, &add(Holder::Project(String::from("alpha")))),
         [format!(
             "mind -C {} add skill deploy 'Ship it'",
-            text(&alpha)
+            typed(&text(&alpha))
         )]
     );
 }
@@ -100,8 +106,8 @@ fn a_project_s_toggles_are_held_to_its_entry_and_named_by_its_folder() {
     assert_eq!(
         lines(&workspace, &toggled("alpha")),
         [
-            format!("mind -C {alpha} agents --yes claude codex"),
-            format!("mind -C {alpha} share --yes local"),
+            format!("mind -C {} agents --yes claude codex", typed(&alpha)),
+            format!("mind -C {} share --yes local", typed(&alpha)),
         ]
     );
     assert_eq!(
@@ -138,7 +144,10 @@ fn whether_a_line_says_which_workspace_is_decided_here_not_sent() {
     }
     assert_eq!(
         lines(&workspace, &add(Holder::Project(String::from("../beside")))),
-        [format!("mind -W . -C {beside} add skill deploy 'Ship it'")]
+        [format!(
+            "mind -W . -C {} add skill deploy 'Ship it'",
+            typed(&beside)
+        )]
     );
 }
 
@@ -193,8 +202,8 @@ fn each_project_an_install_names_is_named_by_its_folder() {
         lines(&workspace, &install),
         [format!(
             "mindweaver install -p {} -p {} --from=--yes skill:deploy",
-            text(&workspace.root().join("alpha")),
-            text(&dir.path().join("beside"))
+            typed(&text(&workspace.root().join("alpha"))),
+            typed(&text(&dir.path().join("beside")))
         )]
     );
     let unknown = Task::Adopt {
@@ -213,7 +222,7 @@ fn each_project_an_install_names_is_named_by_its_folder() {
         ),
         [format!(
             "mindweaver migrate -p {} --yes",
-            text(&dir.path().join("beside"))
+            typed(&text(&dir.path().join("beside")))
         )]
     );
     let unknown = Task::Migrate {
@@ -245,7 +254,7 @@ fn an_entry_a_command_takes_goes_to_it_as_the_marker_spells_it() {
                 new: new.clone(),
             }
         ),
-        [format!("mindweaver relink alpha {new}")]
+        [format!("mindweaver relink alpha {}", typed(&new))]
     );
     assert_eq!(
         lines(
@@ -291,8 +300,8 @@ fn a_folder_not_linked_yet_goes_to_the_command_as_given() {
             }
         ),
         [
-            format!("mind -C {fresh} init"),
-            format!("mindweaver link {fresh}")
+            format!("mind -C {} init", typed(&fresh)),
+            format!("mindweaver link {}", typed(&fresh))
         ]
     );
     assert_eq!(
@@ -302,7 +311,7 @@ fn a_folder_not_linked_yet_goes_to_the_command_as_given() {
                 path: fresh.clone()
             }
         ),
-        [format!("mindweaver load {fresh}")]
+        [format!("mindweaver load {}", typed(&fresh))]
     );
 }
 
@@ -386,9 +395,9 @@ fn marks_on_folders_go_to_the_minds_screen_s_lines_as_given() {
             ])
         ),
         [
-            format!("mind -C {fresh} init"),
-            format!("mindweaver link {other} {fresh}"),
-            format!("mindweaver unlink {beside}"),
+            format!("mind -C {} init", typed(&fresh)),
+            format!("mindweaver link {} {}", typed(&other), typed(&fresh)),
+            format!("mindweaver unlink {}", typed(&beside)),
         ]
     );
     let library = text(&dir.path().join("library"));
@@ -414,7 +423,7 @@ fn a_mark_to_unlink_or_unload_names_a_folder_an_entry_points_at() {
     };
     assert_eq!(
         lines(&workspace, &minds),
-        [format!("mindweaver unlink {beside}")]
+        [format!("mindweaver unlink {}", typed(&beside))]
     );
     let wrong = Task::Minds {
         init: Vec::new(),
@@ -429,7 +438,7 @@ fn a_mark_to_unlink_or_unload_names_a_folder_an_entry_points_at() {
                 path: library.clone()
             }
         ),
-        [format!("mind unload {library}")]
+        [format!("mind unload {}", typed(&library))]
     );
     assert_eq!(
         code(admitted(&workspace, &Task::UnloadHere { path: beside })),
@@ -630,7 +639,10 @@ fn an_export_writes_into_a_folder_named_as_a_folder_to_link_is() {
     );
     assert_eq!(
         lines(&workspace, &export(&folder)),
-        [format!("mindweaver export --kind skills {folder}")]
+        [format!(
+            "mindweaver export --kind skills {}",
+            typed(&folder)
+        )]
     );
     let inside = text(&workspace.root().join(".mindweaver").join("library"));
     for (folder, refused) in [
@@ -663,7 +675,8 @@ fn a_backup_s_repository_is_held_as_a_gather_s_source_and_its_token_named_by_its
     assert_eq!(
         lines(&workspace, &backup(&bare, Some("GITHUB_TOKEN"))),
         [format!(
-            "mindweaver backup --branch library --message=--yes --token-env GITHUB_TOKEN {bare}"
+            "mindweaver backup --branch library --message=--yes --token-env GITHUB_TOKEN {}",
+            typed(&bare)
         )]
     );
     let clone = text(&workspace.root().join(".mindweaver").join("cache").join("x"));
@@ -715,7 +728,8 @@ fn a_result_taken_is_held_to_its_repository_as_a_gather_is_to_its_source() {
     assert_eq!(
         lines(&workspace, &take(&folder, Some("skills/commit-style"))),
         [format!(
-            "mindweaver gather git --path skills/commit-style {folder}"
+            "mindweaver gather git --path skills/commit-style {}",
+            typed(&folder)
         )]
     );
     let clone = text(&workspace.root().join(".mindweaver").join("cache").join("x"));
