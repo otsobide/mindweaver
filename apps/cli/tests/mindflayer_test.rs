@@ -400,9 +400,9 @@ fn a_second_migrate_names_says_what_it_leaves_and_moves_it_once_it_is_as_written
     assert_eq!(
         moved.stdout,
         format!(
-            "moved {} to {root}/app/.claude/rules/mindweaver/rust.md\n",
+            "moved {} to {}\n",
             old.display(),
-            root = root.display()
+            at(root, "app/.claude/rules/mindweaver/rust.md")
         )
     );
     assert!(!root
