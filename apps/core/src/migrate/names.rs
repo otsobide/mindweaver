@@ -834,7 +834,7 @@ fn project_names(
             {
                 continue;
             }
-            let from = root.join(&target.path);
+            let from = paths::joined(&root, &target.path);
             let to = root.join(claude_rules::file_under(Names::Mindweaver, &record.name));
             let found = fs::symlink_metadata(&from).ok();
             let held = found
