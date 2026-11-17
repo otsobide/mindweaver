@@ -56,8 +56,8 @@ fn the_panel_runs_what_it_is_sent_and_the_next_snapshot_shows_it() {
     });
     let line = format!(
         "mindweaver -W {} install -p {} skill:commit-style",
-        dir.path().display(),
-        dir.path().join("alpha").display()
+        as_typed(dir.path()),
+        as_typed(dir.path().join("alpha"))
     );
     let (status, preview) = panel.post("/api/v1/tasks/preview", install.clone());
     assert_eq!(status, 200, "{preview}");
@@ -209,7 +209,7 @@ fn the_panel_switches_only_to_a_workspace_this_machine_knows() {
     assert_eq!(status, 200, "{preview}");
     assert_eq!(
         preview["lines"],
-        json!([format!("mindweaver -W {} gather list", team.display())])
+        json!([format!("mindweaver -W {} gather list", as_typed(&team))])
     );
 }
 

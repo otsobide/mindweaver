@@ -248,8 +248,9 @@ fn migrate_names_with_yes_moves_it_all_and_a_second_run_has_nothing_to_move() {
 
     assert!(
         moved.stdout.starts_with(&format!(
-            "moved {0}/.mindflayer to {0}/.mindweaver\n",
-            root.display()
+            "moved {} to {}\n",
+            at(root, ".mindflayer"),
+            at(root, ".mindweaver")
         )),
         "{}",
         moved.stdout
@@ -317,9 +318,9 @@ fn migrate_names_leaves_a_block_git_tracks_in_a_local_project_and_says_so() {
 
     assert!(
         moved.stdout.contains(&format!(
-            "left the markers of the block in {}/app/AGENTS.md as Mindflayer's: git tracks it, \
+            "left the markers of the block in {} as Mindflayer's: git tracks it, \
              and the project is local without edit_tracked\n",
-            root.display()
+            at(root, "app/AGENTS.md")
         )),
         "{}",
         moved.stdout
@@ -335,7 +336,12 @@ fn migrate_names_names_each_tracked_rule_file_it_moves_and_none_it_leaves() {
     let dir = installed_with(&["go", "rust"]);
     let root = dir.path();
     indexed(root);
-    let left = root.join("app/.claude/rules/mindflayer/go.md");
+    let left = root
+        .join("app")
+        .join(".claude")
+        .join("rules")
+        .join("mindflayer")
+        .join("go.md");
     std::fs::write(&left, "Mine now.\n").unwrap();
 
     let planned = weaver(root, &["migrate", "--names"]).unwrap();
@@ -369,7 +375,12 @@ fn migrate_names_names_each_tracked_rule_file_it_moves_and_none_it_leaves() {
 fn a_second_migrate_names_says_what_it_leaves_and_moves_it_once_it_is_as_written() {
     let dir = installed();
     let root = dir.path();
-    let old = root.join("app/.claude/rules/mindflayer/rust.md");
+    let old = root
+        .join("app")
+        .join(".claude")
+        .join("rules")
+        .join("mindflayer")
+        .join("rust.md");
     let written = std::fs::read(&old).unwrap();
     std::fs::write(&old, "Mine now.\n").unwrap();
     weaver(root, &["migrate", "--names", "--yes"]).unwrap();
@@ -394,7 +405,12 @@ fn a_second_migrate_names_says_what_it_leaves_and_moves_it_once_it_is_as_written
             root = root.display()
         )
     );
-    assert!(!root.join("app/.claude/rules/mindflayer").exists());
+    assert!(!root
+        .join("app")
+        .join(".claude")
+        .join("rules")
+        .join("mindflayer")
+        .exists());
 }
 
 #[test]

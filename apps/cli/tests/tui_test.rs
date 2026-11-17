@@ -604,7 +604,7 @@ fn applying_the_minds_screen_given_a_folder_links_by_path_and_looks_there_again(
     assert!(WeaverWorkspace::open(dir.path()).unwrap().is_linked(&delta));
     let transcript = app.transcript();
     assert!(
-        transcript.contains(&format!("$ mindweaver link {spelled}\n")),
+        transcript.contains(&format!("$ mindweaver link {}\n", as_typed(&spelled))),
         "{transcript}"
     );
     // Read again under the same folder: `plain` is still offered, and
@@ -4361,7 +4361,7 @@ fn x_exports_the_library_into_a_folder_as_weaver_export_does() {
         .is_file());
     assert!(app
         .transcript()
-        .contains(&format!("$ mindweaver export {typed}\n")));
+        .contains(&format!("$ mindweaver export {}\n", as_typed(&typed))));
 }
 
 #[test]

@@ -400,9 +400,11 @@ fn forget_removes_every_spelling_of_a_path() {
     let outcome =
         weaver_at_home(&home, &home, &["workspaces", "forget", "weavers/writing"]).unwrap();
 
+    // Each spelling as the marker keeps one, `/` separated.
+    let kept = mindweaver_core::paths::to_config_string(Path::new(&absolute)).unwrap();
     assert_eq!(
         outcome.stdout,
-        format!("forgot weavers/writing\nforgot ./weavers/writing/\nforgot {absolute}\n")
+        format!("forgot weavers/writing\nforgot ./weavers/writing/\nforgot {kept}\n")
     );
     assert_eq!(known_in(&home), [PathBuf::from("../notes")]);
     let listed = weaver_at_home(&home, &home, &["workspaces"]).unwrap();

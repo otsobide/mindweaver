@@ -74,7 +74,9 @@ fn old_folder(root: &Path) -> (PathBuf, crate::lock::WorkspaceLock) {
     (old, lock)
 }
 
-/// Every file under `root`, by its route from it, with what it holds.
+/// Every file under `root`, by its route from it, with what it holds: the
+/// lock's file by its name alone, which Windows lets no other handle read
+/// while it is held.
 fn held(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut found = Vec::new();
     let mut folders = vec![root.to_path_buf()];
@@ -85,7 +87,12 @@ fn held(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
                 folders.push(path);
             } else {
                 let route = path.strip_prefix(root).unwrap().to_path_buf();
-                found.push((route, fs::read(&path).unwrap()));
+                let bytes = if route == Path::new(crate::lock::LOCK_FILE) {
+                    Vec::new()
+                } else {
+                    fs::read(&path).unwrap()
+                };
+                found.push((route, bytes));
             }
         }
     }
