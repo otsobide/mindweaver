@@ -1421,8 +1421,10 @@ These are easy to break from a single file without noticing.
   among them (`install::mcp`), `install::rules::render`, `gather::gather`,
   `gather::scrub`, which `WeaverWorkspace::ledger_to_write` runs, when it has
   clones to rewrite, `migrate::library`, from its plan to its rewrite of
-  the marker, `migrate::names`, from its plan to the rename of the folder
-  the lock is in, whose new place it then follows (`WorkspaceLock::moved`),
+  the marker, `migrate::names`, from its plan to the move of the folder
+  the lock is in, a rename, or on Windows its entries renamed one by one
+  into the new folder (`entry_by_entry`), whose new place it then follows
+  (`WorkspaceLock::moved`),
   `migrate::project`, for a move from a `mind.toml`, from before
   it reads the project again until its ledger is written (a move from a
   `settings.json` moves no copy, and takes none), `reapply::apply`,
